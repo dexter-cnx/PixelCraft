@@ -146,12 +146,10 @@ build-apk: ensure-rust-plugin ## Build Android debug APK
 build-apk-release: ensure-rust-plugin ## Build Android release APK
 	$(FLUTTER) build apk --release
 
-verify-native: build-apk ## Verify the Cargo library declared in rust/Cargo.toml is bundled in the APK
+verify-native: build-apk ## Verify that PixelCraft's Rust library is bundled in the APK
 	@command -v unzip >/dev/null || { echo "ERROR: unzip is required" >&2; exit 1; }
-	@command -v python3 >/dev/null || { echo "ERROR: python3 is required" >&2; exit 1; }
 	@test -f "$(APK)" || { echo "ERROR: APK not found: $(APK)" >&2; exit 1; }
-	@lib_name="$$(python3 -c 'import pathlib,tomllib; p=tomllib.loads(pathlib.Path("$(RUST_CRATE_DIR)/Cargo.toml").read_text()); print(p.get("lib",{}).get("name",p["package"]["name"]).replace("-","_"))')"; \
-	expected="lib$${lib_name}.so"; \
+	@expected="libpixelcraft_engine.so"; \
 	echo "Searching $(APK) for $$expected..."; \
 	matches="$$(unzip -Z1 "$(APK)" | grep -E "^lib/[^/]+/$${expected}$$" || true)"; \
 	if [ -z "$$matches" ]; then \
