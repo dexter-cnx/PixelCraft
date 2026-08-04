@@ -14,120 +14,95 @@ RUST_BUILDER_DIR ?= rust_builder
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
-        setup repair patch-cargokit run run-release clean clean-all analyze test rust-fmt rust-clippy \
-        rust-test check build-apk build-apk-release verify-native adb-abi
+        setup repair patch-cargokit run run-release clean clean-all analyze test test-unit test-widget \
+        golden-test golden-update native-test test-full rust-fmt rust-clippy rust-test check \
+        build-apk build-apk-release verify-native adb-abi
 
-help: ## Show available Make targets
+help:
 	@printf "PixelCraft development commands\n\n"
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf "\nExamples:\n"
-	@printf "  make setup\n"
-	@printf "  make run DEVICE=<device-id>\n"
-	@printf "  make repair\n"
-	@printf "  make verify-native\n"
 
-doctor: ## Check required Flutter, Rust, Java and Android tooling
-	@command -v $(FLUTTER) >/dev/null || { echo "ERROR: Flutter is required" >&2; exit 1; }
-	@command -v $(CARGO) >/dev/null || { echo "ERROR: Rust/Cargo is required" >&2; exit 1; }
-	@echo "== Flutter =="
+doctor: ## Check Flutter, Rust and Android tooling
+	@command -v $(FLUTTER) >/dev/null
+	@command -v $(CARGO) >/dev/null
 	@$(FLUTTER) --version
-	@echo
-	@echo "== Rust =="
 	@$(CARGO) --version
 	@rustc --version
-	@echo
 	@$(FLUTTER) doctor -v
 
-frb-info: ## Show every FRB executable on PATH and the pinned executable version
-	@echo "== FRB executables on PATH =="
+frb-info: ## Show FRB executable and version
 	@type -a flutter_rust_bridge_codegen 2>/dev/null || true
-	@echo
-	@echo "== Pinned executable =="
-	@if [ -x "$(FRB_CODEGEN)" ]; then "$(FRB_CODEGEN)" --version; else echo "Not installed: $(FRB_CODEGEN)"; fi
+	@if [ -x "$(FRB_CODEGEN)" ]; then "$(FRB_CODEGEN)" --version; fi
 
-install-frb: doctor ## Install or replace FRB codegen with the exact project version
-	@current=""; \
-	if [ -x "$(FRB_CODEGEN)" ]; then \
-		current="$$($(FRB_CODEGEN) --version 2>/dev/null || true)"; \
-	fi; \
-	case "$$current" in \
-		*"$(FRB_VERSION)"*) echo "[PixelCraft] Using $$current" ;; \
-		*) \
-			echo "[PixelCraft] Installing exact flutter_rust_bridge_codegen $(FRB_VERSION)..."; \
-			$(CARGO) install flutter_rust_bridge_codegen --version "$(FRB_VERSION)" --locked --force; \
-			;; \
-	esac
+install-frb: doctor ## Install pinned FRB codegen
+	@current=""; if [ -x "$(FRB_CODEGEN)" ]; then current="$$($(FRB_CODEGEN) --version 2>/dev/null || true)"; fi; \
+	case "$$current" in *"$(FRB_VERSION)"*) echo "[PixelCraft] Using $$current" ;; \
+	*) $(CARGO) install flutter_rust_bridge_codegen --version "$(FRB_VERSION)" --locked --force ;; esac
 	@"$(FRB_CODEGEN)" --version
 
-platforms: doctor ## Create missing Android and iOS platform projects
+platforms: doctor ## Create missing Android and iOS projects
 	$(FLUTTER) create --platforms=android,ios --org dev.pixelcraft .
-
-ensure-rust-plugin: ## Verify that Flutter depends on the generated local Rust plugin
-	@test -f "$(RUST_BUILDER_DIR)/pubspec.yaml" || { \
-		echo "ERROR: $(RUST_BUILDER_DIR)/pubspec.yaml is missing. Run: make integrate" >&2; \
-		exit 1; \
-	}
-	@$(FLUTTER) pub deps --style=compact 2>/dev/null | grep -F 'pixelcraft_engine' >/dev/null || { \
-		echo "ERROR: pixelcraft_engine is not registered as a path dependency." >&2; \
-		echo "Check pubspec.yaml contains:" >&2; \
-		echo "  pixelcraft_engine:" >&2; \
-		echo "    path: rust_builder" >&2; \
-		exit 1; \
-	}
 
 pub-get: ## Resolve Flutter dependencies
 	$(FLUTTER) pub get
 
-integrate: install-frb platforms ## Install FRB Cargokit native integration
-	$(FRB_CODEGEN) integrate \
-		--template app \
-		--no-write-lib \
-		--no-integration-test \
-		--rust-crate-name pixelcraft_engine \
-		--rust-crate-dir $(RUST_CRATE_DIR)
-	@test -d $(RUST_BUILDER_DIR)/cargokit || { \
-		echo "ERROR: $(RUST_BUILDER_DIR)/cargokit was not created" >&2; \
-		exit 1; \
-	}
+ensure-rust-plugin: ## Verify local Rust plugin registration
+	@test -f "$(RUST_BUILDER_DIR)/pubspec.yaml"
+	@$(FLUTTER) pub deps --style=compact 2>/dev/null | grep -F 'pixelcraft_engine' >/dev/null
+
+integrate: install-frb platforms ## Install CargoKit integration
+	$(FRB_CODEGEN) integrate --template app --no-write-lib --no-integration-test \
+		--rust-crate-name pixelcraft_engine --rust-crate-dir $(RUST_CRATE_DIR)
+	@test -d $(RUST_BUILDER_DIR)/cargokit
 	@$(MAKE) patch-cargokit
 	@$(MAKE) pub-get
 	@$(MAKE) ensure-rust-plugin
 
-patch-cargokit: ## Patch FRB 2.12 CargoKit for Gradle 9 / AGP 9
-	@command -v python3 >/dev/null || { echo "ERROR: python3 is required" >&2; exit 1; }
+patch-cargokit: ## Patch CargoKit for Gradle 9 and Android SDK 36
 	@python3 tool/patch_cargokit_gradle9.py
 
-codegen: install-frb ## Regenerate Dart/Rust bridge files
+codegen: install-frb ## Regenerate Dart/Rust bridge
 	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml
 
-codegen-watch: install-frb ## Regenerate bridge continuously while Rust API changes
+codegen-watch: install-frb ## Watch and regenerate bridge
 	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml --watch
 
-setup: integrate codegen clean-all pub-get ensure-rust-plugin ## First-time project setup with Cargokit and bridge generation
-	@echo
-	@echo "[PixelCraft] Setup complete. Run: make run"
+setup: integrate codegen clean-all pub-get ensure-rust-plugin ## First-time setup
 
-repair: doctor install-frb platforms integrate codegen clean-all pub-get ensure-rust-plugin ## Repair native integration and APK packaging
-	@echo
-	@echo "[PixelCraft] Native integration repaired. Run: make verify-native"
+repair: doctor install-frb platforms integrate codegen clean-all pub-get ensure-rust-plugin ## Repair integration
 
-run: ensure-rust-plugin ## Run debug app; optionally DEVICE=<device-id>
+run: ensure-rust-plugin ## Run debug app; DEVICE=<id>
 	$(FLUTTER) run $(DEVICE_FLAG)
 
-run-release: ensure-rust-plugin ## Run release app; optionally DEVICE=<device-id>
+run-release: ensure-rust-plugin ## Run release app; DEVICE=<id>
 	$(FLUTTER) run --release $(DEVICE_FLAG)
 
-clean: ## Run flutter clean
+clean: ## Flutter clean
 	$(FLUTTER) clean
 
-clean-all: clean ## Remove stale Flutter, Gradle and Rust build outputs
+clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 	rm -rf build android/.gradle $(RUST_CRATE_DIR)/target
 
-analyze: ## Run Flutter static analysis
+analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
 
-test: ## Run Flutter tests
-	$(FLUTTER) test
+test: test-unit test-widget ## Run Dart unit and widget tests, excluding goldens
+
+test-unit: ## Run controller/state tests
+	$(FLUTTER) test test/state
+
+test-widget: ## Run widget tests
+	$(FLUTTER) test test/ui --exclude-tags=golden
+
+golden-test: ## Compare UI with committed golden PNG files
+	$(FLUTTER) test test/golden
+
+golden-update: ## Create or update golden PNG files
+	$(FLUTTER) test --update-goldens test/golden
+
+native-test: ensure-rust-plugin ## Run real Rust bridge smoke test on DEVICE
+	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
+	$(FLUTTER) test integration_test/native_engine_smoke_test.dart -d $(DEVICE)
 
 rust-fmt: ## Check Rust formatting
 	$(CARGO) fmt --manifest-path $(RUST_CRATE_DIR)/Cargo.toml --all -- --check
@@ -138,30 +113,20 @@ rust-clippy: ## Run strict Rust lints
 rust-test: ## Run Rust unit tests
 	$(CARGO) test --manifest-path $(RUST_CRATE_DIR)/Cargo.toml
 
-check: analyze test rust-fmt rust-clippy rust-test ## Run Flutter and Rust validation
+test-full: analyze rust-fmt rust-clippy rust-test test golden-test ## Run complete host-side suite
 
-build-apk: ensure-rust-plugin ## Build Android debug APK
+check: test-full ## Alias for the complete host-side suite
+
+build-apk: ensure-rust-plugin ## Build debug APK
 	$(FLUTTER) build apk --debug
 
-build-apk-release: ensure-rust-plugin ## Build Android release APK
+build-apk-release: ensure-rust-plugin ## Build release APK
 	$(FLUTTER) build apk --release
 
-verify-native: build-apk ## Verify that PixelCraft's Rust library is bundled in the APK
-	@command -v unzip >/dev/null || { echo "ERROR: unzip is required" >&2; exit 1; }
-	@test -f "$(APK)" || { echo "ERROR: APK not found: $(APK)" >&2; exit 1; }
-	@expected="libpixelcraft_engine.so"; \
-	echo "Searching $(APK) for $$expected..."; \
-	matches="$$(unzip -Z1 "$(APK)" | grep -E "^lib/[^/]+/$${expected}$$" || true)"; \
-	if [ -z "$$matches" ]; then \
-		echo "ERROR: $$expected is missing from the APK" >&2; \
-		echo >&2; \
-		echo "Shared libraries currently bundled:" >&2; \
-		unzip -Z1 "$(APK)" | grep -E '^lib/[^/]+/.*\.so$$' | sort >&2 || true; \
-		exit 1; \
-	fi; \
-	printf '%s\n' "$$matches"; \
-	echo "[PixelCraft] Native Rust library is bundled correctly."
+verify-native: build-apk ## Verify Rust .so files in APK
+	@expected="libpixelcraft_engine.so"; matches="$$(unzip -Z1 "$(APK)" | grep -E "^lib/[^/]+/$${expected}$$" || true)"; \
+	if [ -z "$$matches" ]; then echo "ERROR: $$expected is missing" >&2; exit 1; fi; \
+	printf '%s\n' "$$matches"
 
-adb-abi: ## Show the ABI of the connected Android device
-	@command -v adb >/dev/null || { echo "ERROR: adb is required" >&2; exit 1; }
+adb-abi: ## Show connected Android ABI
 	@adb shell getprop ro.product.cpu.abi
