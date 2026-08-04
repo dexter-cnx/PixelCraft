@@ -3,8 +3,12 @@ import 'dart:typed_data';
 
 import 'package:pixelcraft/core/image_engine.dart';
 
+/// Valid 1x1 PNG used by widget and golden tests.
+///
+/// Keeping the fixture inline avoids file-system and asset-loading variance in
+/// tests while still exercising Flutter's real image decoder.
 final Uint8List testPngBytes = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP8z8AARAwMjDAGAAQYAQHLR3GQAAAAAElFTkSuQmCC',
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
 );
 
 class FakeImageEngine implements ImageEngine {
@@ -59,7 +63,11 @@ class FakeImageEngine implements ImageEngine {
   Uint8List cancelFilter() => output;
 
   @override
-  EngineResult applyFilterTimed(Uint8List bytes, String filter, double value) =>
+  EngineResult applyFilterTimed(
+    Uint8List bytes,
+    String filter,
+    double value,
+  ) =>
       EngineResult(bytes: output, elapsedMicros: BigInt.from(8000));
 
   @override
