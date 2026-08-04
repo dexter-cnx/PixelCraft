@@ -20,7 +20,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(editorProvider.notifier).load(Uint8List.fromList(widget.imageBytes)));
+    Future.microtask(
+      () => ref
+          .read(editorProvider.notifier)
+          .load(Uint8List.fromList(widget.imageBytes)),
+    );
   }
 
   Future<void> _showBenchmark() async {
@@ -36,7 +40,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final dartWatch = Stopwatch()..start();
     var checksum = 0;
     for (var pass = 0; pass < 20; pass++) {
-      for (final byte in input) checksum = (checksum + byte) & 0x7fffffff;
+      for (final byte in input) {
+        checksum = (checksum + byte) & 0x7fffffff;
+      }
     }
     dartWatch.stop();
     if (!mounted) return;
@@ -44,9 +50,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Benchmark'),
-        content: Text('Rust filter: ${(rustResult.elapsedMicros.toDouble() / 1000.0).toStringAsFixed(2)} ms\n'
-            'Dart byte-loop baseline: ${dartWatch.elapsedMicroseconds / 1000} ms\n'
-            'Bridge wall time: ${rustWatch.elapsedMicroseconds / 1000} ms\nChecksum: $checksum'),
+        content: Text(
+          'Rust filter: '
+          '${(rustResult.elapsedMicros.toDouble() / 1000.0).toStringAsFixed(2)} ms\n'
+          'Dart byte-loop baseline: ${dartWatch.elapsedMicroseconds / 1000} ms\n'
+          'Bridge wall time: ${rustWatch.elapsedMicroseconds / 1000} ms\n'
+          'Checksum: $checksum',
+        ),
       ),
     );
   }
@@ -55,18 +65,36 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(editorProvider);
     final controller = ref.read(editorProvider.notifier);
+    final withinBudget = state.processingMs <= 16;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Editor'),
         actions: [
-          IconButton(onPressed: controller.undo, tooltip: 'Undo', icon: const Icon(Icons.undo)),
-          IconButton(onPressed: controller.redo, tooltip: 'Redo', icon: const Icon(Icons.redo)),
-          TextButton.icon(onPressed: _showBenchmark, icon: const Icon(Icons.speed), label: const Text('Benchmark')),
+          IconButton(
+            onPressed: controller.undo,
+            tooltip: 'Undo',
+            icon: const Icon(Icons.undo),
+          ),
+          IconButton(
+            onPressed: controller.redo,
+            tooltip: 'Redo',
+            icon: const Icon(Icons.redo),
+          ),
+          IconButton(
+            onPressed: _showBenchmark,
+            tooltip: 'Benchmark',
+            icon: const Icon(Icons.speed),
+          ),
         ],
       ),
       body: SafeArea(
         child: state.previewBytes == null
-            ? Center(child: state.error == null ? const CircularProgressIndicator() : Text(state.error!))
+            ? Center(
+                child: state.error == null
+                    ? const CircularProgressIndicator()
+                    : Text(state.error!),
+              )
             : Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                 child: Column(
@@ -75,13 +103,31 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     const SizedBox(height: 12),
                     HistogramWidget(bins: state.histogram),
                     const SizedBox(height: 8),
-                    Row(children: [
-                      const Icon(Icons.memory, size: 16),
-                      const SizedBox(width: 6),
-                      Text('Rust ${state.processingMs.toStringAsFixed(2)} ms', style: Theme.of(context).textTheme.labelLarge),
-                      const Spacer(),
-                      Text(state.processingMs <= 16 ? 'Within frame budget' : 'Preview over 16 ms'),
-                    ]),
+                    Row(
+                      children: [
+                        const Icon(Icons.memory, size: 16),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Rust ${state.processingMs.toStringAsFixed(2)} ms',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            withinBudget
+                                ? 'Within frame budget'
+                                : 'Preview over 16 ms',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 44,
