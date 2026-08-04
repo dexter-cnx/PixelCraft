@@ -156,8 +156,13 @@ pub fn resize_image(image_bytes: Vec<u8>, width: u32, height: u32) -> Result<Vec
     let src_width = NonZeroU32::new(source.width()).ok_or("source width is zero")?;
     let src_height = NonZeroU32::new(source.height()).ok_or("source height is zero")?;
 
-    let src = fir::Image::from_vec_u8(src_width, src_height, source.into_raw(), fir::PixelType::U8x4)
-        .map_err(|e| format!("Invalid resize source: {e}"))?;
+    let src = fir::Image::from_vec_u8(
+        src_width,
+        src_height,
+        source.into_raw(),
+        fir::PixelType::U8x4,
+    )
+    .map_err(|e| format!("Invalid resize source: {e}"))?;
     let mut dst = fir::Image::new(width, height, fir::PixelType::U8x4);
     let mut resizer = fir::Resizer::new(fir::ResizeAlg::Convolution(fir::FilterType::Lanczos3));
     resizer
