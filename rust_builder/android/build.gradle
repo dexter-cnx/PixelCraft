@@ -10,7 +10,7 @@ buildscript {
     }
 
     dependencies {
-        // The Android Gradle Plugin knows how to build native code with the NDK.
+        // Kept for compatibility with the CargoKit-generated Android plugin.
         classpath 'com.android.tools.build:gradle:7.3.0'
     }
 }
@@ -29,23 +29,21 @@ android {
         namespace 'com.flutter_rust_bridge.pixelcraft_engine'
     }
 
-    // Bumping the plugin compileSdkVersion requires all clients of this plugin
-    // to bump the version in their app.
-    compileSdkVersion 33
+    // AndroidX dependencies pulled by the Flutter toolchain require API 34+.
+    // Match the app/toolchain level used by Flutter 3.44 and Android SDK 36.
+    compileSdkVersion 36
 
-    // Use the NDK version
-    // declared in /android/app/build.gradle file of the Flutter project.
-    // Replace it with a version number if this plugin requires a specfic NDK version.
-    // (e.g. ndkVersion "23.1.7779620")
+    // Use the NDK version declared by the host Flutter application.
     ndkVersion android.ndkVersion
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     defaultConfig {
-        minSdkVersion 19
+        // Keep Android 5.0 support while compiling against modern APIs.
+        minSdkVersion 21
     }
 }
 
