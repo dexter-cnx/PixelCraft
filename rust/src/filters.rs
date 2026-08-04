@@ -56,7 +56,6 @@ pub fn apply(image: DynamicImage, filter: &str, value: f32) -> Result<DynamicIma
             })
         }
         "gaussian_blur" => {
-            // imageproc internally parallelizes rows where beneficial; sigma 0 means no-op.
             gaussian_blur_f32(&rgba, (value.clamp(0.0, 2.0) * 2.5).max(0.01))
         }
         "sharpen" => {
@@ -71,4 +70,38 @@ pub fn apply(image: DynamicImage, filter: &str, value: f32) -> Result<DynamicIma
         unknown => return Err(format!("Unknown filter: {unknown}")),
     };
     Ok(DynamicImage::ImageRgba8(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{Rgba, RgbaImage};
+
+    fn image_with_pixel(pixel: [u8; 4]) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(2, 2, Rgba(pixel)))
+    }
+
+    #[test]
+    fn neutral_brightness_preserves_pixels() {
+        let input = image_with_pixel([64, 128, 192, 255]);
+        let output = apply(input, "brightness", 1.0).unwrap().to_rgba8();
+        assert_eq!(output.get_pixel(0, 0).0, [64, 128, 192, 255]);
+    }
+
+    #[test]
+    fn zero_saturation_produces_grayscale() {
+        let input = image_with_pixel([200, 20, 80, 255]);
+        let output = apply(input, "saturation", 0.0).unwrap().to_rgba8();
+        let pixel = output.get_pixel(0, 0).0;
+        assert_eq!(pixel[0], pixel[1]);
+        assert_eq!(pixel[1], pixel[2]);
+        assert_eq!(pixel[3], 255);
+    }
+
+    #[test]
+    fn unknown_filter_returns_error() {
+        let error = apply(image_with_pixel([0, 0, 0, 255]), "missing", 1.0)
+            .expect_err("unknown filter must fail");
+        assert!(error.contains("Unknown filter"));
+    }
 }
