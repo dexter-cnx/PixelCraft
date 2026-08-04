@@ -129,7 +129,7 @@ class EditorController extends StateNotifier<EditorState> {
         previewBytes: result.bytes,
         histogram: histogram,
         value: value,
-        processingMs: result.elapsedMicros / 1000,
+        processingMs: result.elapsedMicros.toDouble() / 1000.0,
         error: null,
       );
     } catch (error) {

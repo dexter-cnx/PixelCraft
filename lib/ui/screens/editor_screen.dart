@@ -44,7 +44,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Benchmark'),
-        content: Text('Rust filter: ${(rustResult.elapsedMicros / 1000).toStringAsFixed(2)} ms\n'
+        content: Text('Rust filter: ${(rustResult.elapsedMicros.toDouble() / 1000.0).toStringAsFixed(2)} ms\n'
             'Dart byte-loop baseline: ${dartWatch.elapsedMicroseconds / 1000} ms\n'
             'Bridge wall time: ${rustWatch.elapsedMicroseconds / 1000} ms\nChecksum: $checksum'),
       ),

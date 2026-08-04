@@ -34,7 +34,8 @@ class _HistogramPainter extends CustomPainter {
         final y = size.height - (bins[channel * 256 + i] / maxValue * size.height);
         path.lineTo(x, y);
       }
-      path.lineTo(size.width, size.height)..close();
+      path.lineTo(size.width, size.height);
+      path.close();
       canvas.drawPath(path, Paint()..color = channelColors[channel].withValues(alpha: .26));
     }
   }

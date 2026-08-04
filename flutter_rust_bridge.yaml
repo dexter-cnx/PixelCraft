@@ -1,0 +1,6 @@
+rust_input: crate::api
+dart_output: lib/src/rust
+rust_root: rust
+rust_output: rust/src/frb_generated.rs
+c_output: ios/Runner/frb_generated.h
+dart_entrypoint_class_name: RustLib

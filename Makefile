@@ -1,0 +1,146 @@
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -eu -o pipefail -c
+.DEFAULT_GOAL := help
+
+FLUTTER ?= flutter
+CARGO ?= cargo
+FRB_CODEGEN ?= $(HOME)/.cargo/bin/flutter_rust_bridge_codegen
+FRB_VERSION ?= 2.12.0
+DEVICE ?=
+APK ?= build/app/outputs/flutter-apk/app-debug.apk
+RUST_CRATE_DIR ?= rust
+
+DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
+
+.PHONY: help doctor frb-info install-frb platforms pub-get integrate codegen codegen-watch \
+        setup repair patch-cargokit run run-release clean clean-all analyze test rust-fmt rust-clippy \
+        rust-test check build-apk build-apk-release verify-native adb-abi
+
+help: ## Show available Make targets
+	@printf "PixelCraft development commands\n\n"
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@printf "\nExamples:\n"
+	@printf "  make setup\n"
+	@printf "  make run DEVICE=<device-id>\n"
+	@printf "  make repair\n"
+	@printf "  make verify-native\n"
+
+doctor: ## Check required Flutter, Rust, Java and Android tooling
+	@command -v $(FLUTTER) >/dev/null || { echo "ERROR: Flutter is required" >&2; exit 1; }
+	@command -v $(CARGO) >/dev/null || { echo "ERROR: Rust/Cargo is required" >&2; exit 1; }
+	@echo "== Flutter =="
+	@$(FLUTTER) --version
+	@echo
+	@echo "== Rust =="
+	@$(CARGO) --version
+	@rustc --version
+	@echo
+	@$(FLUTTER) doctor -v
+
+frb-info: ## Show every FRB executable on PATH and the pinned executable version
+	@echo "== FRB executables on PATH =="
+	@type -a flutter_rust_bridge_codegen 2>/dev/null || true
+	@echo
+	@echo "== Pinned executable =="
+	@if [ -x "$(FRB_CODEGEN)" ]; then "$(FRB_CODEGEN)" --version; else echo "Not installed: $(FRB_CODEGEN)"; fi
+
+install-frb: doctor ## Install or replace FRB codegen with the exact project version
+	@current=""; \
+	if [ -x "$(FRB_CODEGEN)" ]; then \
+		current="$$($(FRB_CODEGEN) --version 2>/dev/null || true)"; \
+	fi; \
+	case "$$current" in \
+		*"$(FRB_VERSION)"*) echo "[PixelCraft] Using $$current" ;; \
+		*) \
+			echo "[PixelCraft] Installing exact flutter_rust_bridge_codegen $(FRB_VERSION)..."; \
+			$(CARGO) install flutter_rust_bridge_codegen --version "$(FRB_VERSION)" --locked --force; \
+			;; \
+	esac
+	@"$(FRB_CODEGEN)" --version
+
+platforms: doctor ## Create missing Android and iOS platform projects
+	$(FLUTTER) create --platforms=android,ios --org dev.pixelcraft .
+
+pub-get: ## Resolve Flutter dependencies
+	$(FLUTTER) pub get
+
+integrate: install-frb platforms pub-get ## Install FRB Cargokit native integration
+	$(FRB_CODEGEN) integrate \
+		--template app \
+		--no-write-lib \
+		--no-integration-test \
+		--rust-crate-name pixelcraft_engine \
+		--rust-crate-dir $(RUST_CRATE_DIR)
+	@test -d rust_builder/cargokit || { \
+		echo "ERROR: rust_builder/cargokit was not created" >&2; \
+		exit 1; \
+	}
+	@$(MAKE) patch-cargokit
+
+patch-cargokit: ## Patch FRB 2.12 CargoKit for Gradle 9 / AGP 9
+	@command -v python3 >/dev/null || { echo "ERROR: python3 is required" >&2; exit 1; }
+	@python3 tool/patch_cargokit_gradle9.py
+
+codegen: install-frb ## Regenerate Dart/Rust bridge files
+	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml
+
+codegen-watch: install-frb ## Regenerate bridge continuously while Rust API changes
+	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml --watch
+
+setup: integrate codegen clean-all pub-get ## First-time project setup with Cargokit and bridge generation
+	@echo
+	@echo "[PixelCraft] Setup complete. Run: make run"
+
+repair: doctor install-frb platforms pub-get integrate codegen clean-all pub-get ## Repair missing libpixelcraft_engine.so integration
+	@echo
+	@echo "[PixelCraft] Native integration repaired. Run: make run"
+
+run: ## Run debug app; optionally DEVICE=<device-id>
+	$(FLUTTER) run $(DEVICE_FLAG)
+
+run-release: ## Run release app; optionally DEVICE=<device-id>
+	$(FLUTTER) run --release $(DEVICE_FLAG)
+
+clean: ## Run flutter clean
+	$(FLUTTER) clean
+
+clean-all: clean ## Remove stale Flutter, Gradle and Rust build outputs
+	rm -rf build android/.gradle $(RUST_CRATE_DIR)/target
+
+analyze: ## Run Flutter static analysis
+	$(FLUTTER) analyze
+
+test: ## Run Flutter tests
+	$(FLUTTER) test
+
+rust-fmt: ## Check Rust formatting
+	$(CARGO) fmt --manifest-path $(RUST_CRATE_DIR)/Cargo.toml --all -- --check
+
+rust-clippy: ## Run strict Rust lints
+	$(CARGO) clippy --manifest-path $(RUST_CRATE_DIR)/Cargo.toml --all-targets -- -D warnings
+
+rust-test: ## Run Rust unit tests
+	$(CARGO) test --manifest-path $(RUST_CRATE_DIR)/Cargo.toml
+
+check: analyze test rust-fmt rust-clippy rust-test ## Run Flutter and Rust validation
+
+build-apk: ## Build Android debug APK
+	$(FLUTTER) build apk --debug
+
+build-apk-release: ## Build Android release APK
+	$(FLUTTER) build apk --release
+
+verify-native: build-apk ## Verify that the Rust .so library is bundled in the APK
+	@command -v unzip >/dev/null || { echo "ERROR: unzip is required" >&2; exit 1; }
+	@test -f "$(APK)" || { echo "ERROR: APK not found: $(APK)" >&2; exit 1; }
+	@echo "Searching $(APK) for libpixelcraft_engine.so..."
+	@unzip -l "$(APK)" | grep -E 'lib/[^/]+/libpixelcraft_engine\.so' || { \
+		echo "ERROR: libpixelcraft_engine.so is missing from the APK" >&2; \
+		echo "Run: make repair" >&2; \
+		exit 1; \
+	}
+	@echo "[PixelCraft] Native Rust library is bundled correctly."
+
+adb-abi: ## Show the ABI of the connected Android device
+	@command -v adb >/dev/null || { echo "ERROR: adb is required" >&2; exit 1; }
+	@adb shell getprop ro.product.cpu.abi

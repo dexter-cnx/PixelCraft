@@ -1,0 +1,11 @@
+/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/deps/getrandom-d2025d14ae79e3f8.d: /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util_libc.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/use_file.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/macos.rs
+
+/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/deps/libgetrandom-d2025d14ae79e3f8.rmeta: /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util_libc.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/use_file.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/macos.rs
+
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util_libc.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/use_file.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/macos.rs:

@@ -1,0 +1,14 @@
+/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/deps/serde-9d802d9f5f94d479.d: /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/build/serde-fe1ff9a53514d2c6/out/private.rs
+
+/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/deps/libserde-9d802d9f5f94d479.rlib: /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/build/serde-fe1ff9a53514d2c6/out/private.rs
+
+/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/deps/libserde-9d802d9f5f94d479.rmeta: /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/build/serde-fe1ff9a53514d2c6/out/private.rs
+
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/Users/dxtr_m4/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/build/serde-fe1ff9a53514d2c6/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/dxtr_m4/develop/mobile_projects/PixelCraft/target/debug/build/serde-fe1ff9a53514d2c6/out
