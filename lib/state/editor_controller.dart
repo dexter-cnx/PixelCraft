@@ -1,6 +1,8 @@
 import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../src/rust/api.dart' as rust;
+
+import '../core/image_engine.dart';
 
 const coreFilters = <String>[
   'brightness',
@@ -71,14 +73,16 @@ class EditorState {
 }
 
 class EditorController extends StateNotifier<EditorState> {
-  EditorController() : super(const EditorState());
+  EditorController(this._engine) : super(const EditorState());
+
+  final ImageEngine _engine;
 
   Future<void> load(Uint8List bytes) async {
     state = state.copyWith(isBusy: true, error: null);
     try {
-      rust.loadImage(bytes: bytes);
-      final preview = rust.preparePreview(imageBytes: bytes, maxEdge: 1280);
-      final histogram = rust.getHistogram(imageBytes: preview);
+      _engine.loadImage(bytes);
+      final preview = _engine.preparePreview(bytes, maxEdge: 1280);
+      final histogram = _engine.getHistogram(preview);
       state = state.copyWith(
         originalBytes: bytes,
         previewBytes: preview,
@@ -93,7 +97,7 @@ class EditorController extends StateNotifier<EditorState> {
   void selectFilter(String filter) {
     if (state.isAdjusting) {
       try {
-        rust.cancelFilter();
+        _engine.cancelFilter();
       } catch (_) {
         // Selection should remain responsive even if no transaction exists.
       }
@@ -108,23 +112,21 @@ class EditorController extends StateNotifier<EditorState> {
 
   void beginAdjustment(double _) {
     try {
-      rust.beginFilter(filter: state.selectedFilter);
+      _engine.beginFilter(state.selectedFilter);
       state = state.copyWith(isAdjusting: true, error: null);
     } catch (error) {
       state = state.copyWith(isAdjusting: false, error: '$error');
     }
   }
 
-  /// Renders from the immutable Rust-side transaction base. Intermediate
-  /// values do not create history entries and do not compound on each other.
   void previewValue(double value) {
     if (!state.isAdjusting) return;
     try {
-      final result = rust.updateFilterPreview(
-        filter: state.selectedFilter,
-        value: value,
+      final result = _engine.updateFilterPreview(
+        state.selectedFilter,
+        value,
       );
-      final histogram = rust.getHistogram(imageBytes: result.bytes);
+      final histogram = _engine.getHistogram(result.bytes);
       state = state.copyWith(
         previewBytes: result.bytes,
         histogram: histogram,
@@ -140,7 +142,7 @@ class EditorController extends StateNotifier<EditorState> {
   void commitAdjustment(double value) {
     if (!state.isAdjusting) return;
     try {
-      final bytes = rust.commitFilter();
+      final bytes = _engine.commitFilter();
       state = state.copyWith(
         previewBytes: bytes,
         value: value,
@@ -152,25 +154,24 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  /// Stateless call used only by the benchmark dialog.
-  rust.ProcessedImage benchmarkCurrentFilter() {
+  EngineResult benchmarkCurrentFilter() {
     final input = state.previewBytes;
     if (input == null) {
       throw StateError('No preview loaded');
     }
-    return rust.applyFilterTimed(
-      imageBytes: input,
-      filter: state.selectedFilter,
-      value: state.value,
+    return _engine.applyFilterTimed(
+      input,
+      state.selectedFilter,
+      state.value,
     );
   }
 
   void undo() {
     try {
-      final bytes = rust.undo();
+      final bytes = _engine.undo();
       state = state.copyWith(
         previewBytes: bytes,
-        histogram: rust.getHistogram(imageBytes: bytes),
+        histogram: _engine.getHistogram(bytes),
         isAdjusting: false,
         error: null,
       );
@@ -181,10 +182,10 @@ class EditorController extends StateNotifier<EditorState> {
 
   void redo() {
     try {
-      final bytes = rust.redo();
+      final bytes = _engine.redo();
       state = state.copyWith(
         previewBytes: bytes,
-        histogram: rust.getHistogram(imageBytes: bytes),
+        histogram: _engine.getHistogram(bytes),
         isAdjusting: false,
         error: null,
       );
@@ -194,6 +195,10 @@ class EditorController extends StateNotifier<EditorState> {
   }
 }
 
+final imageEngineProvider = Provider<ImageEngine>(
+  (ref) => const RustImageEngine(),
+);
+
 final editorProvider = StateNotifierProvider<EditorController, EditorState>(
-  (ref) => EditorController(),
+  (ref) => EditorController(ref.watch(imageEngineProvider)),
 );
