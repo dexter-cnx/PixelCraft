@@ -1,8 +1,8 @@
-use crate::engine::{decode, encode_png, ENGINE};
+use crate::engine::{decode, encode, encode_png, SessionSnapshot, ENGINE};
 use crate::{filters, photon_filters};
 use fast_image_resize as fir;
 use flutter_rust_bridge::frb;
-use image::{DynamicImage, GenericImageView, RgbaImage};
+use image::{DynamicImage, GenericImageView, ImageOutputFormat, RgbaImage};
 use rayon::prelude::*;
 use std::num::NonZeroU32;
 use std::time::Instant;
@@ -13,7 +13,27 @@ pub struct ProcessedImage {
     pub elapsed_micros: u64,
 }
 
-/// Decodes an image, initializes the Rust-owned history stack, and returns dimensions.
+#[derive(Debug, Clone)]
+pub struct EditSessionInfo {
+    pub version: u32,
+    pub operation_count: u32,
+    pub cursor: u32,
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+
+impl From<SessionSnapshot> for EditSessionInfo {
+    fn from(value: SessionSnapshot) -> Self {
+        Self {
+            version: value.version,
+            operation_count: value.operation_count,
+            cursor: value.cursor,
+            can_undo: value.can_undo,
+            can_redo: value.can_redo,
+        }
+    }
+}
+
 #[frb(sync)]
 pub fn load_image(bytes: Vec<u8>) -> Result<(u32, u32), String> {
     let image = decode(&bytes)?;
@@ -25,25 +45,15 @@ pub fn load_image(bytes: Vec<u8>) -> Result<(u32, u32), String> {
     Ok(dimensions)
 }
 
-/// Returns a memory-safe preview generated in Rust. The original remains in ENGINE.
 #[frb(sync)]
-pub fn prepare_preview(image_bytes: Vec<u8>, max_edge: u32) -> Result<Vec<u8>, String> {
-    let image = decode(&image_bytes)?;
-    let (width, height) = image.dimensions();
-    let scale = (max_edge as f64 / width.max(height) as f64).min(1.0);
-    let preview = resize_image(
-        image_bytes,
-        ((width as f64 * scale).round() as u32).max(1),
-        ((height as f64 * scale).round() as u32).max(1),
-    )?;
-    ENGINE
+pub fn prepare_preview(_image_bytes: Vec<u8>, max_edge: u32) -> Result<Vec<u8>, String> {
+    let mut engine = ENGINE
         .lock()
-        .map_err(|_| "Engine lock poisoned".to_string())?
-        .reset_history(preview.clone());
-    Ok(preview)
+        .map_err(|_| "Engine lock poisoned".to_string())?;
+    engine.set_preview_max_edge(max_edge);
+    engine.render_preview()
 }
 
-/// Legacy stateless API retained for integrations and benchmarks.
 #[frb(sync)]
 pub fn apply_filter(image_bytes: Vec<u8>, filter: String, value: f32) -> Result<Vec<u8>, String> {
     Ok(apply_filter_timed(image_bytes, filter, value)?.bytes)
@@ -65,7 +75,6 @@ pub fn apply_filter_timed(
     })
 }
 
-/// Captures the current committed preview as the immutable base for a slider gesture.
 #[frb(sync)]
 pub fn begin_filter(filter: String) -> Result<(), String> {
     ENGINE
@@ -74,30 +83,19 @@ pub fn begin_filter(filter: String) -> Result<(), String> {
         .begin_filter(filter)
 }
 
-/// Re-renders from the same decoded base for every slider tick. This prevents
-/// cumulative adjustment and avoids decoding the PNG again until commit.
 #[frb(sync)]
 pub fn update_filter_preview(filter: String, value: f32) -> Result<ProcessedImage, String> {
     let started = Instant::now();
-    let base = {
-        ENGINE
-            .lock()
-            .map_err(|_| "Engine lock poisoned".to_string())?
-            .preview_base(&filter)?
-    };
-    let filtered = filters::apply(base, &filter, value)?;
-    let bytes = encode_png(&filtered)?;
-    ENGINE
+    let bytes = ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
-        .set_pending(bytes.clone());
+        .update_filter_preview(&filter, value)?;
     Ok(ProcessedImage {
         bytes,
         elapsed_micros: started.elapsed().as_micros() as u64,
     })
 }
 
-/// Adds exactly one history entry when the user releases the slider.
 #[frb(sync)]
 pub fn commit_filter() -> Result<Vec<u8>, String> {
     ENGINE
@@ -115,6 +113,56 @@ pub fn cancel_filter() -> Result<Vec<u8>, String> {
 }
 
 #[frb(sync)]
+pub fn session_info() -> Result<EditSessionInfo, String> {
+    Ok(ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .snapshot()
+        .into())
+}
+
+/// Replays active operations against the original image and encodes the result.
+/// Supported formats: png, jpeg/jpg, webp. Quality is used for JPEG.
+#[frb(sync)]
+pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
+    let image = ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .render_full_resolution()?;
+    let output_format = match format.to_ascii_lowercase().as_str() {
+        "png" => ImageOutputFormat::Png,
+        "jpeg" | "jpg" => ImageOutputFormat::Jpeg(quality.clamp(1, 100)),
+        "webp" => ImageOutputFormat::WebP,
+        other => return Err(format!("Unsupported export format: {other}")),
+    };
+    encode(&image, output_format)
+}
+
+#[frb(sync)]
+pub fn original_preview() -> Result<Vec<u8>, String> {
+    let engine = ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?;
+    let original = engine
+        .original
+        .as_ref()
+        .ok_or_else(|| "No image loaded".to_string())?;
+    let image = decode(original)?;
+    let (width, height) = image.dimensions();
+    let max_edge = width.max(height);
+    if max_edge <= engine.preview_max_edge {
+        return encode_png(&image);
+    }
+    let scale = engine.preview_max_edge as f64 / max_edge as f64;
+    let resized = image.resize_exact(
+        ((width as f64 * scale).round() as u32).max(1),
+        ((height as f64 * scale).round() as u32).max(1),
+        image::imageops::FilterType::Lanczos3,
+    );
+    encode_png(&resized)
+}
+
+#[frb(sync)]
 pub fn photon_filter_names() -> Vec<String> {
     photon_filters::PHOTON_FILTERS
         .iter()
@@ -122,7 +170,6 @@ pub fn photon_filter_names() -> Vec<String> {
         .collect()
 }
 
-/// Returns 768 bins: R[0..256], G[256..512], B[512..768].
 #[frb(sync)]
 pub fn get_histogram(image_bytes: Vec<u8>) -> Result<Vec<u32>, String> {
     let rgba = decode(&image_bytes)?.to_rgba8();
@@ -180,7 +227,6 @@ pub fn undo() -> Result<Vec<u8>, String> {
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
         .undo()
-        .ok_or_else(|| "No image loaded".to_string())
 }
 
 #[frb(sync)]
@@ -189,7 +235,6 @@ pub fn redo() -> Result<Vec<u8>, String> {
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
         .redo()
-        .ok_or_else(|| "No image loaded".to_string())
 }
 
 #[frb(sync)]
@@ -197,6 +242,5 @@ pub fn current_image() -> Result<Vec<u8>, String> {
     ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
-        .current()
-        .ok_or_else(|| "No image loaded".to_string())
+        .render_preview()
 }
