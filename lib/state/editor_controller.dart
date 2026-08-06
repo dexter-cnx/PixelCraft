@@ -28,6 +28,7 @@ bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 class EditorState {
   const EditorState({
     this.originalBytes,
+    this.originalPreviewBytes,
     this.previewBytes,
     this.histogram = const [],
     this.selectedFilter = 'brightness',
@@ -35,10 +36,17 @@ class EditorState {
     this.processingMs = 0,
     this.isBusy = false,
     this.isAdjusting = false,
+    this.showOriginal = false,
+    this.isExporting = false,
+    this.operationCount = 0,
+    this.cursor = 0,
+    this.canUndo = false,
+    this.canRedo = false,
     this.error,
   });
 
   final Uint8List? originalBytes;
+  final Uint8List? originalPreviewBytes;
   final Uint8List? previewBytes;
   final List<int> histogram;
   final String selectedFilter;
@@ -46,10 +54,20 @@ class EditorState {
   final double processingMs;
   final bool isBusy;
   final bool isAdjusting;
+  final bool showOriginal;
+  final bool isExporting;
+  final int operationCount;
+  final int cursor;
+  final bool canUndo;
+  final bool canRedo;
   final String? error;
+
+  Uint8List? get visiblePreview =>
+      showOriginal ? originalPreviewBytes ?? previewBytes : previewBytes;
 
   EditorState copyWith({
     Uint8List? originalBytes,
+    Uint8List? originalPreviewBytes,
     Uint8List? previewBytes,
     List<int>? histogram,
     String? selectedFilter,
@@ -57,10 +75,17 @@ class EditorState {
     double? processingMs,
     bool? isBusy,
     bool? isAdjusting,
+    bool? showOriginal,
+    bool? isExporting,
+    int? operationCount,
+    int? cursor,
+    bool? canUndo,
+    bool? canRedo,
     String? error,
   }) =>
       EditorState(
         originalBytes: originalBytes ?? this.originalBytes,
+        originalPreviewBytes: originalPreviewBytes ?? this.originalPreviewBytes,
         previewBytes: previewBytes ?? this.previewBytes,
         histogram: histogram ?? this.histogram,
         selectedFilter: selectedFilter ?? this.selectedFilter,
@@ -68,6 +93,12 @@ class EditorState {
         processingMs: processingMs ?? this.processingMs,
         isBusy: isBusy ?? this.isBusy,
         isAdjusting: isAdjusting ?? this.isAdjusting,
+        showOriginal: showOriginal ?? this.showOriginal,
+        isExporting: isExporting ?? this.isExporting,
+        operationCount: operationCount ?? this.operationCount,
+        cursor: cursor ?? this.cursor,
+        canUndo: canUndo ?? this.canUndo,
+        canRedo: canRedo ?? this.canRedo,
         error: error,
       );
 }
@@ -82,12 +113,19 @@ class EditorController extends StateNotifier<EditorState> {
     try {
       _engine.loadImage(bytes);
       final preview = _engine.preparePreview(bytes, maxEdge: 1280);
+      final originalPreview = _engine.originalPreview();
       final histogram = _engine.getHistogram(preview);
+      final session = _engine.sessionInfo();
       state = state.copyWith(
         originalBytes: bytes,
+        originalPreviewBytes: originalPreview,
         previewBytes: preview,
         histogram: histogram,
         isBusy: false,
+        operationCount: session.operationCount,
+        cursor: session.cursor,
+        canUndo: session.canUndo,
+        canRedo: session.canRedo,
       );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
@@ -99,7 +137,7 @@ class EditorController extends StateNotifier<EditorState> {
       try {
         _engine.cancelFilter();
       } catch (_) {
-        // Selection should remain responsive even if no transaction exists.
+        // Selection remains responsive even if no transaction exists.
       }
     }
     state = state.copyWith(
@@ -122,14 +160,10 @@ class EditorController extends StateNotifier<EditorState> {
   void previewValue(double value) {
     if (!state.isAdjusting) return;
     try {
-      final result = _engine.updateFilterPreview(
-        state.selectedFilter,
-        value,
-      );
-      final histogram = _engine.getHistogram(result.bytes);
+      final result = _engine.updateFilterPreview(state.selectedFilter, value);
       state = state.copyWith(
         previewBytes: result.bytes,
-        histogram: histogram,
+        histogram: _engine.getHistogram(result.bytes),
         value: value,
         processingMs: result.elapsedMicros.toDouble() / 1000.0,
         error: null,
@@ -143,55 +177,65 @@ class EditorController extends StateNotifier<EditorState> {
     if (!state.isAdjusting) return;
     try {
       final bytes = _engine.commitFilter();
-      state = state.copyWith(
-        previewBytes: bytes,
-        value: value,
-        isAdjusting: false,
-        error: null,
-      );
+      _applyCommittedPreview(bytes, value: value);
     } catch (error) {
       state = state.copyWith(isAdjusting: false, error: '$error');
     }
   }
 
+  void setShowOriginal(bool value) {
+    state = state.copyWith(showOriginal: value);
+  }
+
+  Uint8List exportImage({required String format, required int quality}) {
+    state = state.copyWith(isExporting: true, error: null);
+    try {
+      return _engine.exportImage(format: format, quality: quality);
+    } catch (error) {
+      state = state.copyWith(error: '$error');
+      rethrow;
+    } finally {
+      state = state.copyWith(isExporting: false);
+    }
+  }
+
   EngineResult benchmarkCurrentFilter() {
     final input = state.previewBytes;
-    if (input == null) {
-      throw StateError('No preview loaded');
-    }
-    return _engine.applyFilterTimed(
-      input,
-      state.selectedFilter,
-      state.value,
-    );
+    if (input == null) throw StateError('No preview loaded');
+    return _engine.applyFilterTimed(input, state.selectedFilter, state.value);
   }
 
   void undo() {
+    if (!state.canUndo) return;
     try {
-      final bytes = _engine.undo();
-      state = state.copyWith(
-        previewBytes: bytes,
-        histogram: _engine.getHistogram(bytes),
-        isAdjusting: false,
-        error: null,
-      );
+      _applyCommittedPreview(_engine.undo());
     } catch (error) {
       state = state.copyWith(error: '$error');
     }
   }
 
   void redo() {
+    if (!state.canRedo) return;
     try {
-      final bytes = _engine.redo();
-      state = state.copyWith(
-        previewBytes: bytes,
-        histogram: _engine.getHistogram(bytes),
-        isAdjusting: false,
-        error: null,
-      );
+      _applyCommittedPreview(_engine.redo());
     } catch (error) {
       state = state.copyWith(error: '$error');
     }
+  }
+
+  void _applyCommittedPreview(Uint8List bytes, {double? value}) {
+    final session = _engine.sessionInfo();
+    state = state.copyWith(
+      previewBytes: bytes,
+      histogram: _engine.getHistogram(bytes),
+      value: value,
+      isAdjusting: false,
+      operationCount: session.operationCount,
+      cursor: session.cursor,
+      canUndo: session.canUndo,
+      canRedo: session.canRedo,
+      error: null,
+    );
   }
 }
 
