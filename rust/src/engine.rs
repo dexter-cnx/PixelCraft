@@ -228,14 +228,17 @@ fn crop_normalized(
         return Err("Crop width and height must be greater than zero".to_string());
     }
     let (source_width, source_height) = image.dimensions();
-    let left = (x.clamp(0.0, 1.0) * source_width as f32).floor() as u32;
-    let top = (y.clamp(0.0, 1.0) * source_height as f32).floor() as u32;
+    if source_width == 0 || source_height == 0 {
+        return Err("Cannot crop an empty image".to_string());
+    }
+    let left = ((x.clamp(0.0, 1.0) * source_width as f32).floor() as u32)
+        .min(source_width - 1);
+    let top = ((y.clamp(0.0, 1.0) * source_height as f32).floor() as u32)
+        .min(source_height - 1);
     let crop_width = (width.clamp(0.0, 1.0) * source_width as f32).round() as u32;
     let crop_height = (height.clamp(0.0, 1.0) * source_height as f32).round() as u32;
-    let crop_width = crop_width.max(1).min(source_width.saturating_sub(left).max(1));
-    let crop_height = crop_height
-        .max(1)
-        .min(source_height.saturating_sub(top).max(1));
+    let crop_width = crop_width.max(1).min(source_width - left);
+    let crop_height = crop_height.max(1).min(source_height - top);
     Ok(image.crop_imm(left, top, crop_width, crop_height))
 }
 
