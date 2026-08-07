@@ -18,6 +18,7 @@ class FakeImageEngine implements ImageEngine {
   int commitCalls = 0;
   int replaceFilterCalls = 0;
   int applyEditsCalls = 0;
+  int discardEditsCalls = 0;
   int filterPreviewGenerationCalls = 0;
   int undoCalls = 0;
   int redoCalls = 0;
@@ -118,6 +119,16 @@ class FakeImageEngine implements ImageEngine {
   @override
   Future<EngineCommitResult> applyEditsInBackground() async {
     applyEditsCalls++;
+    cursor = 0;
+    operationCount = 0;
+    activeFilter = null;
+    lastValue = null;
+    return _result();
+  }
+
+  @override
+  Future<EngineCommitResult> discardEditsInBackground() async {
+    discardEditsCalls++;
     cursor = 0;
     operationCount = 0;
     activeFilter = null;
