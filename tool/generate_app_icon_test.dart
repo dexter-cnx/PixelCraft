@@ -14,15 +14,15 @@ void main() {
     final bounds = const ui.Rect.fromLTWH(0, 0, size, size);
 
     final background = ui.Paint()
-      ..shader = const ui.LinearGradient(
-        begin: ui.Alignment.topLeft,
-        end: ui.Alignment.bottomRight,
-        colors: [
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(40, 40),
+        const ui.Offset(980, 980),
+        const [
           ui.Color(0xFF020817),
           ui.Color(0xFF0A1030),
           ui.Color(0xFF19082F),
         ],
-      ).createShader(bounds);
+      );
     canvas.drawRRect(
       ui.RRect.fromRectAndRadius(bounds.deflate(20), const ui.Radius.circular(190)),
       background,
@@ -31,36 +31,40 @@ void main() {
     final border = ui.Paint()
       ..style = ui.PaintingStyle.stroke
       ..strokeWidth = 22
-      ..shader = const ui.LinearGradient(
-        colors: [
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(60, 60),
+        const ui.Offset(960, 960),
+        const [
           ui.Color(0xFF1DEBFF),
           ui.Color(0xFF2567FF),
           ui.Color(0xFF9B35FF),
           ui.Color(0xFFFF2ABF),
         ],
-      ).createShader(bounds);
+      );
     canvas.drawRRect(
       ui.RRect.fromRectAndRadius(bounds.deflate(34), const ui.Radius.circular(172)),
       border,
     );
 
-    final pixelGradient = const ui.LinearGradient(
-      begin: ui.Alignment.topLeft,
-      end: ui.Alignment.bottomRight,
-      colors: [
-        ui.Color(0xFF20F5F1),
-        ui.Color(0xFF1976FF),
-        ui.Color(0xFF7437F4),
-        ui.Color(0xFFFF1AC7),
-      ],
-    );
-    final pixelPaint = ui.Paint()..shader = pixelGradient.createShader(const ui.Rect.fromLTWH(150, 210, 330, 390));
+    final pixelPaint = ui.Paint()
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(150, 210),
+        const ui.Offset(480, 600),
+        const [
+          ui.Color(0xFF20F5F1),
+          ui.Color(0xFF1976FF),
+          ui.Color(0xFF7437F4),
+          ui.Color(0xFFFF1AC7),
+        ],
+      );
 
     const cell = 44.0;
     const gap = 8.0;
     for (var row = 0; row < 6; row++) {
       for (var col = 0; col < 5; col++) {
-        final keep = !(row == 0 && col > 2) && !(row == 1 && col == 4) && !(row == 5 && col == 4);
+        final keep = !(row == 0 && col > 2) &&
+            !(row == 1 && col == 4) &&
+            !(row == 5 && col == 4);
         if (!keep) continue;
         final x = 160 + col * (cell + gap);
         final y = 250 + row * (cell + gap);
@@ -98,16 +102,16 @@ void main() {
       ..cubicTo(490, 846, 310, 824, 180, 790)
       ..close();
     final strokePaint = ui.Paint()
-      ..shader = const ui.LinearGradient(
-        begin: ui.Alignment.centerLeft,
-        end: ui.Alignment.centerRight,
-        colors: [
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(160, 760),
+        const ui.Offset(930, 650),
+        const [
           ui.Color(0xFF14DFFF),
           ui.Color(0xFF1675FF),
           ui.Color(0xFF7B39FF),
           ui.Color(0xFFFF22C6),
         ],
-      ).createShader(const ui.Rect.fromLTWH(160, 590, 780, 330));
+      );
     canvas.drawPath(strokePath, strokePaint);
 
     final brushPath = ui.Path()
@@ -118,28 +122,28 @@ void main() {
       ..cubicTo(506, 752, 430, 782, 350, 760)
       ..close();
     final brushPaint = ui.Paint()
-      ..shader = const ui.LinearGradient(
-        begin: ui.Alignment.topLeft,
-        end: ui.Alignment.bottomRight,
-        colors: [
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(350, 590),
+        const ui.Offset(560, 760),
+        const [
           ui.Color(0xFF23EBFF),
           ui.Color(0xFF2975FF),
           ui.Color(0xFF8F32FF),
           ui.Color(0xFFFF26BD),
         ],
-      ).createShader(const ui.Rect.fromLTWH(330, 560, 270, 230));
+      );
     canvas.drawPath(brushPath, brushPaint);
 
     final handlePaint = ui.Paint()
-      ..shader = const ui.LinearGradient(
-        begin: ui.Alignment.bottomLeft,
-        end: ui.Alignment.topRight,
-        colors: [
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(500, 620),
+        const ui.Offset(790, 220),
+        const [
           ui.Color(0xFF1A1D39),
           ui.Color(0xFF303760),
           ui.Color(0xFF111327),
         ],
-      ).createShader(const ui.Rect.fromLTWH(500, 220, 290, 430));
+      );
     canvas.save();
     canvas.translate(540, 600);
     canvas.rotate(-math.pi / 4.2);
@@ -151,9 +155,15 @@ void main() {
       handlePaint,
     );
     final ferrulePaint = ui.Paint()
-      ..shader = const ui.LinearGradient(
-        colors: [ui.Color(0xFFE7E9F5), ui.Color(0xFF8D91A8), ui.Color(0xFFF6F6FF)],
-      ).createShader(const ui.Rect.fromLTWH(-36, -4, 72, 70));
+      ..shader = ui.Gradient.linear(
+        const ui.Offset(-36, 0),
+        const ui.Offset(36, 70),
+        const [
+          ui.Color(0xFFE7E9F5),
+          ui.Color(0xFF8D91A8),
+          ui.Color(0xFFF6F6FF),
+        ],
+      );
     canvas.drawRRect(
       ui.RRect.fromRectAndRadius(
         const ui.Rect.fromLTWH(-38, -24, 76, 70),
