@@ -24,7 +24,6 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 PROFILE_IDS = (
     "provia_inspired",
@@ -39,6 +38,7 @@ TILES_PER_ROW = 6
 ATLAS_SIZE = LUT_SIZE * TILES_PER_ROW
 PARITY_SAMPLE_COUNT = 1024
 PARITY_TOLERANCE = 2.0 / 255.0
+DEFAULT_PARITY_FIXTURES = Path("tool/gpu_lut_parity_fixtures.json")
 
 
 @dataclass(frozen=True)
@@ -99,6 +99,23 @@ def parse_cube(path: Path) -> Cube:
     if len(samples) != expected:
         raise ValueError(f"{path}: expected {expected} samples, got {len(samples)}")
     return Cube(size=LUT_SIZE, data=tuple(samples))
+
+
+def load_parity_fixtures(path: Path) -> list[tuple[float, float, float]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("version") != 1:
+        raise ValueError(f"{path}: unsupported fixture version")
+    points = []
+    for index, raw_point in enumerate(payload.get("rgb", [])):
+        if not isinstance(raw_point, list) or len(raw_point) != 3:
+            raise ValueError(f"{path}: rgb fixture {index} must contain 3 values")
+        point = tuple(float(value) for value in raw_point)
+        if any(value < 0.0 or value > 1.0 for value in point):
+            raise ValueError(f"{path}: rgb fixture {index} is outside [0, 1]")
+        points.append(point)
+    if not points:
+        raise ValueError(f"{path}: no RGB parity fixtures found")
+    return points  # type: ignore[return-value]
 
 
 def build_rgba8_atlas(cube: Cube) -> bytes:
@@ -184,16 +201,14 @@ def _atlas_texel(
     )
 
 
-def verify_parity(profile_id: str, cube: Cube, atlas: bytes) -> float:
+def verify_parity(
+    profile_id: str,
+    cube: Cube,
+    atlas: bytes,
+    fixture_points: list[tuple[float, float, float]],
+) -> float:
     random_source = random.Random(f"pixelcraft:{profile_id}:g0")
-    points: list[tuple[float, float, float]] = [
-        (0.0, 0.0, 0.0),
-        (1.0, 1.0, 1.0),
-        (1.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
-        (0.0, 0.0, 1.0),
-        (0.5, 0.5, 0.5),
-    ]
+    points = list(fixture_points)
     points.extend(
         (random_source.random(), random_source.random(), random_source.random())
         for _ in range(PARITY_SAMPLE_COUNT)
@@ -230,9 +245,11 @@ def write_profile(output_root: Path, profile_id: str, atlas: bytes) -> dict[str,
 def process_profiles(
     film_root: Path,
     output_root: Path,
+    fixture_path: Path,
     *,
     write: bool,
 ) -> list[dict[str, object]]:
+    fixture_points = load_parity_fixtures(fixture_path)
     manifest_profiles: list[dict[str, object]] = []
     for profile_id in PROFILE_IDS:
         cube_path = film_root / profile_id / "lut.cube"
@@ -242,7 +259,7 @@ def process_profiles(
             )
         cube = parse_cube(cube_path)
         atlas = build_rgba8_atlas(cube)
-        max_error = verify_parity(profile_id, cube, atlas)
+        max_error = verify_parity(profile_id, cube, atlas, fixture_points)
         print(f"[Pixel Craft] {profile_id}: atlas parity max error {max_error:.6f}")
         if write:
             manifest_profiles.append(write_profile(output_root, profile_id, atlas))
@@ -257,6 +274,7 @@ def process_profiles(
             "atlasHeight": ATLAS_SIZE,
             "sliceCount": LUT_SIZE,
             "interpolation": "bilinear-rg-linear-b",
+            "parityFixtureVersion": 1,
             "profiles": manifest_profiles,
         }
         (output_root / "manifest.json").write_text(
@@ -289,6 +307,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory for .rgba8 atlases and manifest.json.",
     )
     parser.add_argument(
+        "--fixtures",
+        type=Path,
+        default=DEFAULT_PARITY_FIXTURES,
+        help="Shared RGB parity fixture file for future Android/iOS tests.",
+    )
+    parser.add_argument(
         "--verify-only",
         action="store_true",
         help="Run deterministic cube-vs-atlas parity checks without writing files.",
@@ -301,6 +325,7 @@ def main() -> None:
     process_profiles(
         args.film_root,
         args.output,
+        args.fixtures,
         write=not args.verify_only,
     )
     if args.verify_only:
