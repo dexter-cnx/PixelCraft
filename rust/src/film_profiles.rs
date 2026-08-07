@@ -1,5 +1,5 @@
 use image::{DynamicImage, RgbaImage};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use rayon::prelude::*;
 use serde::Deserialize;
 
@@ -23,7 +23,8 @@ pub struct FilmProfileSpec {
     pub id: String,
     pub name: String,
     pub description: String,
-    lut: CubeLut,
+    lut_source: &'static str,
+    lut: OnceCell<CubeLut>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +85,10 @@ const PROFILE_SOURCES: &[EmbeddedProfileSource] = &[
     },
 ];
 
+/// Profile metadata is intentionally cheap to initialize. The 6 x 33^3 text
+/// LUTs are parsed only when a profile is actually rendered, so opening an
+/// image does not block on parsing ~215k floating-point rows just to populate
+/// the Film tool labels.
 pub static PROFILES: Lazy<Vec<FilmProfileSpec>> = Lazy::new(|| {
     PROFILE_SOURCES
         .iter()
@@ -104,6 +109,7 @@ pub fn apply(image: DynamicImage, id: &str, strength: f32) -> Result<DynamicImag
     if strength <= f32::EPSILON {
         return Ok(image);
     }
+    let lut = profile.lut()?;
 
     let source = image.to_rgba8();
     let width = source.width();
@@ -116,7 +122,7 @@ pub fn apply(image: DynamicImage, id: &str, strength: f32) -> Result<DynamicImag
             pixel[1] as f32 / 255.0,
             pixel[2] as f32 / 255.0,
         ];
-        let transformed = profile.lut.sample(original);
+        let transformed = lut.sample(original);
 
         pixel[0] = mix_channel(original[0], transformed[0], strength);
         pixel[1] = mix_channel(original[1], transformed[1], strength);
@@ -126,6 +132,21 @@ pub fn apply(image: DynamicImage, id: &str, strength: f32) -> Result<DynamicImag
     let output = RgbaImage::from_raw(width, height, raw)
         .ok_or_else(|| "Unable to rebuild film-profile pixel buffer".to_string())?;
     Ok(DynamicImage::ImageRgba8(output))
+}
+
+impl FilmProfileSpec {
+    fn lut(&self) -> Result<&CubeLut, String> {
+        self.lut.get_or_try_init(|| {
+            let lut = CubeLut::parse(self.lut_source)?;
+            if lut.size != FILM_LUT_SIZE {
+                return Err(format!(
+                    "Profile {} expected {}^3 LUT but loaded {}^3",
+                    self.id, FILM_LUT_SIZE, lut.size
+                ));
+            }
+            Ok(lut)
+        })
+    }
 }
 
 fn mix_channel(source: f32, target: f32, strength: f32) -> u8 {
@@ -163,19 +184,12 @@ fn parse_profile(source: &EmbeddedProfileSource) -> Result<FilmProfileSpec, Stri
         ));
     }
 
-    let lut = CubeLut::parse(source.lut)?;
-    if lut.size != manifest.lut_size {
-        return Err(format!(
-            "Profile {} manifest declares {}^3 but LUT contains {}^3",
-            manifest.id, manifest.lut_size, lut.size
-        ));
-    }
-
     Ok(FilmProfileSpec {
         id: manifest.id,
         name: manifest.name,
         description: manifest.description,
-        lut,
+        lut_source: source.lut,
+        lut: OnceCell::new(),
     })
 }
 
@@ -321,12 +335,10 @@ mod tests {
         assert_eq!(PROFILES.len(), 6);
         assert_eq!(ids.len(), PROFILES.len());
         assert!(PROFILES.iter().all(|profile| !profile.name.is_empty()));
-        assert!(PROFILES
-            .iter()
-            .all(|profile| profile.lut.size == FILM_LUT_SIZE));
-        assert!(PROFILES
-            .iter()
-            .all(|profile| profile.lut.data.len() == 35_937));
+        assert!(PROFILES.iter().all(|profile| {
+            let lut = profile.lut().unwrap();
+            lut.size == FILM_LUT_SIZE && lut.data.len() == 35_937
+        }));
         assert!(get("provia_inspired").is_some());
         assert!(get("velvia_inspired").is_some());
         assert!(get("astia_inspired").is_some());

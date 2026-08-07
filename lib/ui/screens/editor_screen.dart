@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,14 +9,25 @@ import '../../state/editor_controller.dart';
 import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
 
+typedef ImageFileLoader = Future<Uint8List> Function(String path);
+
+final imageFileLoaderProvider = Provider<ImageFileLoader>(
+  (ref) => (path) => File(path).readAsBytes(),
+);
+
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({
     super.key,
-    required this.imageBytes,
+    this.imageBytes,
+    this.imagePath,
     this.recoveryRecipe,
-  });
+  }) : assert(
+          (imageBytes == null) != (imagePath == null),
+          'Provide exactly one of imageBytes or imagePath.',
+        );
 
-  final List<int> imageBytes;
+  final List<int>? imageBytes;
+  final String? imagePath;
   final String? recoveryRecipe;
 
   @override
@@ -25,19 +37,46 @@ class EditorScreen extends ConsumerStatefulWidget {
 class _EditorScreenState extends ConsumerState<EditorScreen> {
   static const _fileService = ExportFileService();
   bool _isSavingExport = false;
+  bool _isPreparingSource = true;
+  String? _sourceError;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      final bytes = Uint8List.fromList(widget.imageBytes);
+    Future.microtask(_initializeEditor);
+  }
+
+  Future<void> _initializeEditor() async {
+    try {
+      final Uint8List bytes;
+      final path = widget.imagePath;
+      if (path != null) {
+        bytes = await ref.read(imageFileLoaderProvider)(path);
+      } else {
+        final source = widget.imageBytes!;
+        // Camera/gallery reads already produce Uint8List. Reuse that buffer
+        // instead of copying a potentially multi-megabyte full-resolution
+        // image before handing it to the background engine.
+        bytes = source is Uint8List ? source : Uint8List.fromList(source);
+      }
+
       final controller = ref.read(editorProvider.notifier);
       final recipe = widget.recoveryRecipe;
       if (recipe != null) {
-        return controller.restore(bytes, recipe);
+        await controller.restore(bytes, recipe);
+      } else {
+        await controller.load(bytes);
       }
-      return controller.load(bytes);
-    });
+
+      if (!mounted) return;
+      setState(() => _isPreparingSource = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isPreparingSource = false;
+        _sourceError = '$error';
+      });
+    }
   }
 
   Future<void> _showExportDialog() async {
@@ -193,83 +232,208 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ],
       ),
       body: SafeArea(
-        child: state.previewBytes == null
-            ? Center(
-                child: state.error == null
-                    ? const CircularProgressIndicator()
-                    : Text(state.error!),
+        child: _isPreparingSource
+            ? _PreparingPhotoView(
+                imagePath: widget.imagePath,
+                imageBytes: widget.imageBytes,
               )
-            : LayoutBuilder(
-                builder: (context, constraints) {
-                  final canvas = _EditorCanvas(state: state, controller: controller);
-                  final tools = EditorToolPanel(state: state, controller: controller);
-                  final content = constraints.maxWidth >= 900
-                      ? Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              Expanded(flex: 3, child: canvas),
-                              const SizedBox(width: 20),
-                              SizedBox(
-                                width: 360,
-                                child: SingleChildScrollView(child: tools),
-                              ),
-                            ],
-                          ),
-                        )
-                      : Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                          child: Column(
-                            children: [
-                              Expanded(child: canvas),
-                              const SizedBox(height: 12),
-                              SingleChildScrollView(child: tools),
-                            ],
-                          ),
-                        );
+            : _sourceError != null
+                ? Center(child: Text(_sourceError!))
+                : state.previewBytes == null
+                    ? Center(
+                        child: state.error == null
+                            ? const CircularProgressIndicator()
+                            : Text(state.error!),
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          final canvas = _EditorCanvas(state: state, controller: controller);
+                          final tools = EditorToolPanel(state: state, controller: controller);
+                          final content = constraints.maxWidth >= 900
+                              ? Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      Expanded(flex: 3, child: canvas),
+                                      const SizedBox(width: 20),
+                                      SizedBox(
+                                        width: 360,
+                                        child: SingleChildScrollView(child: tools),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Padding(
+                                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                  child: Column(
+                                    children: [
+                                      Expanded(child: canvas),
+                                      const SizedBox(height: 12),
+                                      SingleChildScrollView(child: tools),
+                                    ],
+                                  ),
+                                );
 
-                  return Stack(
-                    children: [
-                      content,
-                      if (isProcessing)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: ColoredBox(
-                              color: const Color(0x22000000),
-                              child: Center(
-                                child: Card(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 14,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const SizedBox.square(
-                                          dimension: 20,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                          return Stack(
+                            children: [
+                              content,
+                              if (isProcessing)
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: ColoredBox(
+                                      color: const Color(0x22000000),
+                                      child: Center(
+                                        child: Card(
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 14,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const SizedBox.square(
+                                                  dimension: 20,
+                                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Text(
+                                                  _isSavingExport
+                                                      ? 'Saving to Gallery…'
+                                                      : 'Processing image…',
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         ),
-                                        const SizedBox(width: 12),
-                                        Text(
-                                          _isSavingExport
-                                              ? 'Saving to Gallery…'
-                                              : 'Processing image…',
-                                        ),
-                                      ],
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
+                            ],
+                          );
+                        },
+                      ),
       ),
     );
+  }
+}
+
+class _PreparingPhotoView extends StatelessWidget {
+  const _PreparingPhotoView({
+    required this.imagePath,
+    required this.imageBytes,
+  });
+
+  final String? imagePath;
+  final List<int>? imageBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _sourceImage(context);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          child: image,
+        ),
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x00000000),
+                  Color(0x00000000),
+                  Color(0x66000000),
+                ],
+                stops: [0, 0.55, 1],
+              ),
+            ),
+          ),
+        ),
+        const Positioned(
+          left: 16,
+          right: 16,
+          bottom: 20,
+          child: SafeArea(
+            top: false,
+            child: Card(
+              color: Color(0xE61E1E1E),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Preparing photo…',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Your photo is ready. Setting up editing tools.',
+                            style: TextStyle(color: Color(0xCCFFFFFF)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sourceImage(BuildContext context) {
+    final path = imagePath;
+    if (path != null) {
+      final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+      final logicalWidth = MediaQuery.sizeOf(context).width;
+      final cacheWidth = (logicalWidth * devicePixelRatio).round().clamp(720, 1440);
+      return Image.file(
+        File(path),
+        fit: BoxFit.contain,
+        cacheWidth: cacheWidth,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => const SizedBox.expand(),
+      );
+    }
+
+    final source = imageBytes;
+    if (source != null) {
+      final bytes = source is Uint8List ? source : Uint8List.fromList(source);
+      return Image.memory(
+        bytes,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => const SizedBox.expand(),
+      );
+    }
+
+    return const SizedBox.expand();
   }
 }
 

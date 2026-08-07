@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -7,29 +5,94 @@ import '../../core/editor_session_store.dart';
 import 'editor_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.recoverLostPickerData = true,
+  });
+
+  /// Android can recreate the app while the external camera is open. Keep
+  /// this enabled in production so accepted captures are recovered through
+  /// image_picker. Tests that are not exercising that platform handoff can
+  /// disable it to stay deterministic and avoid a real platform-channel call.
+  final bool recoverLostPickerData;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const double _cameraMaxDimension = 2560;
+
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
-  bool _isImporting = false;
   bool _isRecovering = false;
+  bool _isRecoveringLostPickerData = false;
+  bool _lostPickerRecoveryStarted = false;
   StoredEditorSession? _recoverableSession;
 
   @override
   void initState() {
     super.initState();
     _refreshRecovery();
+
+    if (widget.recoverLostPickerData) {
+      _isRecoveringLostPickerData = true;
+      // Android may destroy the Flutter activity/process while the external
+      // camera app is open. Keep Home hidden until image_picker has had a
+      // chance to restore that accepted capture, so the user sees a short
+      // handoff screen instead of Home flashing before Editor opens.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _recoverLostPickerData();
+      });
+    }
   }
 
   Future<void> _refreshRecovery() async {
     final session = await _sessionStore.load();
     if (!mounted) return;
     setState(() => _recoverableSession = session);
+  }
+
+  Future<void> _recoverLostPickerData() async {
+    if (_lostPickerRecoveryStarted) return;
+    _lostPickerRecoveryStarted = true;
+
+    try {
+      final response = await _picker.retrieveLostData();
+      if (!mounted) return;
+
+      final files = response.files;
+      if (files != null && files.isNotEmpty) {
+        await _openPickedFile(files.first);
+        return;
+      }
+
+      final exception = response.exception;
+      if (exception != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera recovery failed: $exception')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Camera recovery failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRecoveringLostPickerData = false);
+      }
+    }
+  }
+
+  Future<void> _openPickedFile(XFile picked) async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditorScreen(imagePath: picked.path),
+      ),
+    );
+    await _refreshRecovery();
   }
 
   Future<void> _openBytes(Future<List<int>> bytesFuture) async {
@@ -72,42 +135,93 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _recoverableSession = null);
   }
 
-  Future<void> _importFromGallery() async {
-    if (_isImporting || _isRecovering) return;
+  Future<void> _pickImage(ImageSource source) async {
+    if (_isRecovering) return;
 
+    final isCamera = source == ImageSource.camera;
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery);
+      final picked = await _picker.pickImage(
+        source: source,
+        preferredCameraDevice: CameraDevice.rear,
+        maxWidth: isCamera ? _cameraMaxDimension : null,
+        maxHeight: isCamera ? _cameraMaxDimension : null,
+        imageQuality: isCamera ? 90 : null,
+        requestFullMetadata: false,
+      );
       if (picked == null || !mounted) return;
 
-      setState(() => _isImporting = true);
-      final bytes = await picked.readAsBytes();
-      if (!mounted) return;
-
-      setState(() => _isImporting = false);
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => EditorScreen(imageBytes: Uint8List.fromList(bytes)),
-        ),
-      );
-      await _refreshRecovery();
+      await _openPickedFile(picked);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _isImporting = false);
+      final action = isCamera ? 'Camera capture' : 'Import';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $error')),
+        SnackBar(content: Text('$action failed: $error')),
       );
+    }
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    if (_isRecovering) return;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              subtitle: const Text('Fast capture, optimized for editing'),
+              onTap: () => Navigator.of(context).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              subtitle: const Text('Open an existing image on this device'),
+              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (source != null && mounted) {
+      await _pickImage(source);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isRecoveringLostPickerData) {
+      return const Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox.square(
+                  dimension: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                SizedBox(height: 16),
+                Text('Opening captured photo…'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     const samples = [
       'sample_1.png',
       'sample_2.png',
       'sample_3.png',
       'sample_4.png',
     ];
-    final blocked = _isImporting || _isRecovering;
+    final blocked = _isRecovering;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pixel Craft')),
@@ -125,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Flutter interface, Rust processing engine, zero uploads.',
+                      'Capture or import a photo, then edit it locally with Rust-powered processing.',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     if (_recoverableSession != null) ...[
@@ -203,22 +317,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           if (blocked)
-            Positioned.fill(
+            const Positioned.fill(
               child: ColoredBox(
-                color: const Color(0x33000000),
+                color: Color(0x33000000),
                 child: Center(
                   child: Card(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                      padding: EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const SizedBox.square(
+                          SizedBox.square(
                             dimension: 22,
                             child: CircularProgressIndicator(strokeWidth: 2.5),
                           ),
-                          const SizedBox(width: 12),
-                          Text(_isRecovering ? 'Recovering session…' : 'Importing image…'),
+                          SizedBox(width: 12),
+                          Text('Recovering session…'),
                         ],
                       ),
                     ),
@@ -229,14 +343,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        icon: blocked
-            ? const SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.add_photo_alternate_outlined),
-        label: Text(_isImporting ? 'Importing…' : 'Import from Gallery'),
-        onPressed: blocked ? null : _importFromGallery,
+        icon: const Icon(Icons.add_a_photo_outlined),
+        label: const Text('Add Photo'),
+        onPressed: blocked ? null : _showImageSourceSheet,
       ),
     );
   }

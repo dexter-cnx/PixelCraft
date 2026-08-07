@@ -1,4 +1,6 @@
-use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat, Rgba};
+use exif::{In, Reader as ExifReader, Tag};
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::{imageops, DynamicImage, GenericImageView, ImageEncoder, ImageOutputFormat, Rgba};
 use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -465,11 +467,52 @@ fn crop_normalized(
 pub static ENGINE: Lazy<Mutex<EngineState>> = Lazy::new(|| Mutex::new(EngineState::default()));
 
 pub fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
-    image::load_from_memory(bytes).map_err(|e| format!("Unable to decode image: {e}"))
+    let image =
+        image::load_from_memory(bytes).map_err(|e| format!("Unable to decode image: {e}"))?;
+    Ok(apply_exif_orientation(image, read_exif_orientation(bytes)))
+}
+
+fn read_exif_orientation(bytes: &[u8]) -> u32 {
+    let mut cursor = Cursor::new(bytes);
+    ExifReader::new()
+        .read_from_container(&mut cursor)
+        .ok()
+        .and_then(|exif| {
+            exif.get_field(Tag::Orientation, In::PRIMARY)
+                .and_then(|field| field.value.get_uint(0))
+        })
+        .unwrap_or(1)
+}
+
+fn apply_exif_orientation(image: DynamicImage, orientation: u32) -> DynamicImage {
+    match orientation {
+        2 => image.fliph(),
+        3 => image.rotate180(),
+        4 => image.flipv(),
+        5 => image.fliph().rotate270(),
+        6 => image.rotate90(),
+        7 => image.fliph().rotate90(),
+        8 => image.rotate270(),
+        _ => image,
+    }
 }
 
 pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
-    encode(image, ImageOutputFormat::Png)
+    // Editor previews are transient working buffers. Use the PNG encoder's
+    // fastest compression mode instead of DynamicImage::write_to defaults;
+    // this keeps previews lossless (including alpha) while avoiding seconds
+    // of CPU time on camera photos.
+    let rgba = image.to_rgba8();
+    let mut output = Vec::new();
+    PngEncoder::new_with_quality(&mut output, CompressionType::Fast, FilterType::NoFilter)
+        .write_image(
+            rgba.as_raw(),
+            rgba.width(),
+            rgba.height(),
+            image::ColorType::Rgba8,
+        )
+        .map_err(|error| format!("Unable to encode PNG: {error}"))?;
+    Ok(output)
 }
 
 pub fn encode(image: &DynamicImage, format: ImageOutputFormat) -> Result<Vec<u8>, String> {
