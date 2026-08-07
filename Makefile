@@ -15,7 +15,7 @@ DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
         setup repair patch-cargokit app-icon run run-release clean clean-all analyze test test-unit test-widget \
-        golden-test golden-update native-test test-full rust-fmt rust-clippy rust-test check \
+        golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check \
         build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
@@ -107,6 +107,10 @@ golden-update: ## Create or update golden PNG files
 native-test: ensure-rust-plugin ## Run real Rust bridge smoke test on DEVICE
 	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
 	$(FLUTTER) test integration_test/native_engine_smoke_test.dart -d $(DEVICE)
+
+profile-native: ensure-rust-plugin ## Print device timing and RSS metrics; DEVICE=<id>
+	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
+	$(FLUTTER) test integration_test/performance_profile_test.dart -d $(DEVICE)
 
 rust-fmt: ## Check Rust formatting
 	$(CARGO) fmt --manifest-path $(RUST_CRATE_DIR)/Cargo.toml --all -- --check
