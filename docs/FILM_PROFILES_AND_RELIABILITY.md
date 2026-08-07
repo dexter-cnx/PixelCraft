@@ -57,31 +57,40 @@ EditOperation::FilmProfile {
 }
 ```
 
-The color science is no longer hardcoded in Rust. Each bundled profile is sourced from files:
+### Film Profile Pack v2
+
+Pack v2 upgrades the initial bootstrap LUTs to real `33 x 33 x 33` 3D LUTs. Each LUT contains `35,937` RGB samples and is evaluated at runtime with trilinear interpolation.
+
+Each bundled profile has small authoring files:
 
 ```text
 rust/film_profiles/<profile-id>/
   profile.json
-  lut.cube
+  look.json
+  lut.cube   # generated/materialized 33^3 table
 ```
 
-`profile.json` owns metadata such as id, display name, description and default strength. `lut.cube` owns the actual 3D color transform. Rust embeds the bundled files with `include_str!`, parses them once through a lazy cache, validates the LUT shape/domain, and applies it with trilinear interpolation.
+`profile.json` owns the product-facing contract: id, display name, description, LUT size, pack version and default strength. `look.json` is the reviewable authoring recipe used by the build-time LUT compiler. It describes global tone, matrix/gamma color response, shadow/highlight tint and hue-selective adjustments.
 
-The initial profile registry contains:
+`rust/build.rs` samples the complete RGB lattice and deterministically generates the actual 33^3 `.cube` tables into Cargo `OUT_DIR`. `film_profiles.rs` embeds those generated files, parses them once through a lazy cache and validates that each profile really contains 33^3 samples. The authoring recipe is therefore not evaluated per image pixel.
+
+The Pack v2 registry contains:
 
 - Provia Inspired
+- Velvia Inspired
+- Astia Inspired
 - E100 Inspired
 - Ektar Inspired
 - Chrome 64 Inspired
 
-These are Pixel Craft interpretations intended to capture broad rendering characteristics. They are not vendor color-science replicas and do not contain proprietary Kodak/Fujifilm formulas.
+The looks are Pixel Craft interpretations guided by broad published characteristics such as neutral/versatile PROVIA, vivid/high-contrast Velvia, softer portrait-oriented ASTIA, neutral moderately saturated E100, and ultra-vivid Ektar. They are not manufacturer LUTs, vendor color-science replicas, or proprietary formulas.
 
-### File-based processing model
-
-The runtime path is:
+### Runtime LUT path
 
 ```text
-profile.json + lut.cube
+profile.json + look.json
+        ↓ build time
+33^3 lut.cube
         ↓
 parse + validate once
         ↓
@@ -94,11 +103,17 @@ RGB pixel
 strength blend with source RGB
 ```
 
-Supported `.cube` directives are `TITLE`, `LUT_3D_SIZE`, `DOMAIN_MIN`, and `DOMAIN_MAX`. 1D LUTs are rejected. The parser verifies that the LUT contains exactly `size^3` RGB samples.
+Supported `.cube` directives are `TITLE`, `LUT_3D_SIZE`, `DOMAIN_MIN`, and `DOMAIN_MAX`. 1D LUTs are rejected. The parser verifies that the file contains exactly `size^3` RGB samples and Pack v2 additionally requires `size == 33`.
 
-The RGBA pixel transform remains parallelized with Rayon. Film thumbnail variants are generated in parallel from one reduced source preview. The same LUT-backed `FilmProfile { id, strength }` operation is replayed during full-resolution export, so preview and export use the same profile source.
+The RGBA pixel transform remains parallelized with Rayon. Film thumbnail variants are generated in parallel from one reduced source preview. The same LUT-backed `FilmProfile { id, strength }` operation is replayed during full-resolution export, so preview and export use identical LUT data.
 
-Adding or tuning a bundled profile no longer requires changing the Rust processing algorithm: update `profile.json` / `lut.cube`, register the embedded source, rebuild, and rerun validation. The parser is deliberately separated from the operation model so a later user-imported `.cube` feature can reuse the same validation/interpolation code.
+To materialize the generated tables into the source profile folders for inspection or versioning:
+
+```bash
+make film-luts
+```
+
+The target verifies six profiles, `LUT_3D_SIZE 33`, and exactly `35,937` RGB rows in every file.
 
 ## Preview vs full resolution
 
@@ -221,6 +236,7 @@ Before merging this branch:
 ```bash
 flutter pub get
 make codegen
+make film-luts
 cargo fmt --manifest-path rust/Cargo.toml --all
 cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path rust/Cargo.toml
@@ -234,4 +250,4 @@ make native-test DEVICE=RF8Y909V0LV
 make profile-native DEVICE=RF8Y909V0LV
 ```
 
-Commit generated FRB sources, `Cargo.lock` if Cargo updates it, and reviewed golden PNG baselines before marking the PR ready for review.
+Commit generated FRB sources, `Cargo.lock` if Cargo updates it, reviewed golden PNG baselines, and optionally the materialized 33^3 `.cube` tables before marking the PR ready for review.
