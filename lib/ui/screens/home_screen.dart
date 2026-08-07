@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -16,9 +14,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
-  bool _isImporting = false;
   bool _isRecovering = false;
-  String _importLabel = 'Importing image…';
   StoredEditorSession? _recoverableSession;
 
   @override
@@ -74,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    if (_isImporting || _isRecovering) return;
+    if (_isRecovering) return;
 
     final isCamera = source == ImageSource.camera;
     try {
@@ -86,10 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (picked == null || !mounted) return;
 
-      // Do not read a potentially multi-megabyte camera file on Home before
-      // navigating. Enter the editor immediately and let it read + prepare the
-      // source while showing its own loading state. This preserves full
-      // resolution while removing a noticeable pre-editor wait.
+      // Enter the editor before reading a potentially multi-megabyte file.
+      // The editor reads and prepares it while already visible, preserving the
+      // original full-resolution capture without a long Home-screen spinner.
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => EditorScreen(imagePath: picked.path),
@@ -98,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
       await _refreshRecovery();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _isImporting = false);
       final action = isCamera ? 'Camera capture' : 'Import';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$action failed: $error')),
@@ -107,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showImageSourceSheet() async {
-    if (_isImporting || _isRecovering) return;
+    if (_isRecovering) return;
 
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -147,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'sample_3.png',
       'sample_4.png',
     ];
-    final blocked = _isImporting || _isRecovering;
+    final blocked = _isRecovering;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pixel Craft')),
@@ -243,22 +237,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           if (blocked)
-            Positioned.fill(
+            const Positioned.fill(
               child: ColoredBox(
-                color: const Color(0x33000000),
+                color: Color(0x33000000),
                 child: Center(
                   child: Card(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                      padding: EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const SizedBox.square(
+                          SizedBox.square(
                             dimension: 22,
                             child: CircularProgressIndicator(strokeWidth: 2.5),
                           ),
-                          const SizedBox(width: 12),
-                          Text(_isRecovering ? 'Recovering session…' : _importLabel),
+                          SizedBox(width: 12),
+                          Text('Recovering session…'),
                         ],
                       ),
                     ),
@@ -269,13 +263,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        icon: blocked
-            ? const SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.add_a_photo_outlined),
-        label: Text(_isImporting ? 'Preparing…' : 'Add Photo'),
+        icon: const Icon(Icons.add_a_photo_outlined),
+        label: const Text('Add Photo'),
         onPressed: blocked ? null : _showImageSourceSheet,
       ),
     );
