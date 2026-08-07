@@ -35,7 +35,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(_disposeController());
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      unawaited(controller.dispose());
+    }
     super.dispose();
   }
 
@@ -46,7 +50,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      unawaited(_disposeController());
+      unawaited(_detachAndDisposeController(showLoading: true));
     } else if (state == AppLifecycleState.resumed && _controller == null) {
       unawaited(_initializeCamera(camera));
     }
@@ -83,16 +87,23 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   Future<void> _initializeCamera(CameraDescription camera) async {
     if (!mounted) return;
+
+    final previous = _controller;
     setState(() {
+      _controller = null;
       _isInitializing = true;
       _error = null;
     });
 
-    final previous = _controller;
-    _controller = null;
     if (previous != null) {
+      // CameraPreview listens directly to CameraController. Give Flutter one
+      // frame to remove the old preview before disposing its native texture;
+      // otherwise buildPreview() can race with CameraController.dispose().
+      await WidgetsBinding.instance.endOfFrame;
       await previous.dispose();
     }
+
+    if (!mounted) return;
 
     final controller = CameraController(
       camera,
@@ -119,12 +130,25 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
   }
 
-  Future<void> _disposeController() async {
+  /// Removes CameraPreview from the Flutter tree before releasing the native
+  /// camera texture. This ordering matters on Android/Impeller: disposing the
+  /// controller while CameraPreview can still rebuild causes
+  /// `Disposed CameraController, buildPreview() was called...`.
+  Future<void> _detachAndDisposeController({required bool showLoading}) async {
     final controller = _controller;
-    _controller = null;
-    if (controller != null) {
-      await controller.dispose();
+    if (controller == null) return;
+
+    if (mounted) {
+      setState(() {
+        _controller = null;
+        if (showLoading) _isInitializing = true;
+      });
+      await WidgetsBinding.instance.endOfFrame;
+    } else {
+      _controller = null;
     }
+
+    await controller.dispose();
   }
 
   void _showCameraError(CameraException error) {
@@ -168,7 +192,12 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
       final profileId = _preset.id;
       final strength = _strength;
-      await _disposeController();
+      final camera = _activeCamera;
+
+      // Do not dispose a controller while CameraPreview is still mounted.
+      // Detach it first, render the replacement frame, then release camera
+      // resources before entering the editor.
+      await _detachAndDisposeController(showLoading: true);
       if (!mounted) return;
 
       await Navigator.of(context).push(
@@ -182,7 +211,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       );
 
       if (!mounted) return;
-      final camera = _activeCamera;
       if (camera != null) {
         await _initializeCamera(camera);
       }
@@ -242,8 +270,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.no_photography_outlined,
-                  color: Colors.white70, size: 48),
+              const Icon(
+                Icons.no_photography_outlined,
+                color: Colors.white70,
+                size: 48,
+              ),
               const SizedBox(height: 16),
               Text(
                 _error!,
@@ -261,7 +292,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       );
     }
 
-    if (_isInitializing || controller == null || !controller.value.isInitialized) {
+    if (_isInitializing ||
+        controller == null ||
+        !controller.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -401,7 +434,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     return ChoiceChip(
                       selected: selected,
                       label: Text(preset.name.replaceAll(' Inspired', '')),
-                      onSelected: _isCapturing ? null : (_) => _selectPreset(preset),
+                      onSelected:
+                          _isCapturing ? null : (_) => _selectPreset(preset),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
@@ -409,7 +443,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                       ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
                       ),
                       showCheckmark: false,
                     );
