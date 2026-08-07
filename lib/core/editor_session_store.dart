@@ -64,6 +64,9 @@ class EditorSessionStore {
     }
   }
 
+  /// Saves the full-resolution source only once for a session. Subsequent edit
+  /// updates rewrite only the tiny JSON recipe and metadata, avoiding repeated
+  /// multi-megabyte writes while sliders and transforms are used.
   Future<void> save({
     required Uint8List originalBytes,
     required String recipeJson,
@@ -75,21 +78,22 @@ class EditorSessionStore {
       final recipe = File('${directory.path}/recipe.json');
       final metadata = File('${directory.path}/metadata.json');
 
-      final sourceTemp = File('${source.path}.tmp');
+      if (!await source.exists()) {
+        final sourceTemp = File('${source.path}.tmp');
+        await sourceTemp.writeAsBytes(originalBytes, flush: true);
+        await sourceTemp.rename(source.path);
+      }
+
       final recipeTemp = File('${recipe.path}.tmp');
       final metadataTemp = File('${metadata.path}.tmp');
-
-      await sourceTemp.writeAsBytes(originalBytes, flush: true);
       await recipeTemp.writeAsString(recipeJson, flush: true);
       await metadataTemp.writeAsString(
         jsonEncode({'savedAt': DateTime.now().toUtc().toIso8601String()}),
         flush: true,
       );
 
-      if (await source.exists()) await source.delete();
       if (await recipe.exists()) await recipe.delete();
       if (await metadata.exists()) await metadata.delete();
-      await sourceTemp.rename(source.path);
       await recipeTemp.rename(recipe.path);
       await metadataTemp.rename(metadata.path);
     });
