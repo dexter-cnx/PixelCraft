@@ -39,6 +39,7 @@ class EditorState {
     this.selectedCreativeFilter = '',
     this.selectedTool = EditorTool.adjust,
     this.value = 1,
+    this.creativeFilterValue = 1,
     this.straightenDegrees = 0,
     this.processingMs = 0,
     this.isBusy = false,
@@ -62,6 +63,7 @@ class EditorState {
   final String selectedCreativeFilter;
   final EditorTool selectedTool;
   final double value;
+  final double creativeFilterValue;
   final double straightenDegrees;
   final double processingMs;
   final bool isBusy;
@@ -88,6 +90,7 @@ class EditorState {
     String? selectedCreativeFilter,
     EditorTool? selectedTool,
     double? value,
+    double? creativeFilterValue,
     double? straightenDegrees,
     double? processingMs,
     bool? isBusy,
@@ -112,6 +115,7 @@ class EditorState {
             selectedCreativeFilter ?? this.selectedCreativeFilter,
         selectedTool: selectedTool ?? this.selectedTool,
         value: value ?? this.value,
+        creativeFilterValue: creativeFilterValue ?? this.creativeFilterValue,
         straightenDegrees: straightenDegrees ?? this.straightenDegrees,
         processingMs: processingMs ?? this.processingMs,
         isBusy: isBusy ?? this.isBusy,
@@ -135,6 +139,7 @@ class EditorController extends StateNotifier<EditorState> {
   int _filterPreviewGeneration = 0;
 
   Future<void> load(Uint8List bytes) async {
+    final generation = ++_filterPreviewGeneration;
     state = state.copyWith(isBusy: true, error: null);
     try {
       _engine.loadImage(bytes);
@@ -148,11 +153,17 @@ class EditorController extends StateNotifier<EditorState> {
         histogram: _engine.getHistogram(preview),
         filterPreviews: const {},
         selectedCreativeFilter: '',
+        creativeFilterValue: 1,
         isBusy: false,
+        isGeneratingFilterPreviews: false,
         operationCount: session.operationCount,
         cursor: session.cursor,
         canUndo: session.canUndo,
         canRedo: session.canRedo,
+      );
+
+      unawaited(
+        _generateFilterPreviews(originalPreview, generation: generation),
       );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
@@ -162,7 +173,9 @@ class EditorController extends StateNotifier<EditorState> {
   Future<void> selectTool(EditorTool tool) async {
     if (state.isBusy) return;
     state = state.copyWith(selectedTool: tool, error: null);
-    if (tool == EditorTool.filters) {
+    if (tool == EditorTool.filters &&
+        state.filterPreviews.isEmpty &&
+        !state.isGeneratingFilterPreviews) {
       await refreshFilterPreviews();
     }
   }
@@ -178,15 +191,28 @@ class EditorController extends StateNotifier<EditorState> {
   }
 
   Future<void> refreshFilterPreviews() async {
-    final source = state.previewBytes;
-    if (source == null || state.isBusy) return;
+    if (state.filterPreviews.isNotEmpty || state.isGeneratingFilterPreviews) {
+      return;
+    }
+    final source = state.originalPreviewBytes;
+    if (source == null) return;
+    await _generateFilterPreviews(
+      source,
+      generation: _filterPreviewGeneration,
+    );
+  }
 
-    final generation = ++_filterPreviewGeneration;
+  Future<void> _generateFilterPreviews(
+    Uint8List source, {
+    required int generation,
+  }) async {
+    if (generation != _filterPreviewGeneration) return;
     state = state.copyWith(isGeneratingFilterPreviews: true, error: null);
     try {
       final previews = await _engine.generateFilterPreviews(
         source,
         creativeFilters,
+        maxEdge: 180,
       );
       if (generation != _filterPreviewGeneration) return;
       state = state.copyWith(
@@ -202,34 +228,59 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  /// Creative filters have no default selection. Tapping a preview commits that
-  /// filter immediately at full strength, with no additional slider gesture.
   Future<void> applyCreativeFilter(String filter) async {
     if (state.isBusy || state.isGeneratingFilterPreviews) return;
+    final replacing = state.selectedCreativeFilter.isNotEmpty;
     state = state.copyWith(
       selectedCreativeFilter: filter,
+      creativeFilterValue: 1,
       isBusy: true,
       error: null,
     );
     try {
-      final result = await _engine.commitFilterValue(filter, 1);
-      _applyBackgroundResult(result);
-      if (state.selectedTool == EditorTool.filters) {
-        unawaited(refreshFilterPreviews());
-      }
+      final result = replacing
+          ? await _engine.replaceFilterValue(filter, 1)
+          : await _engine.commitFilterValue(filter, 1);
+      _applyBackgroundResult(result, clearCreativeSelection: false);
+      state = state.copyWith(
+        selectedCreativeFilter: filter,
+        creativeFilterValue: 1,
+      );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
-  /// Commits exactly one adjust-filter operation after the user releases the slider.
-  /// No Rust processing occurs while the thumb is moving.
+  Future<void> updateCreativeFilterValue(double value) async {
+    final filter = state.selectedCreativeFilter;
+    if (filter.isEmpty || state.isBusy) return;
+    state = state.copyWith(
+      creativeFilterValue: value,
+      isBusy: true,
+      error: null,
+    );
+    try {
+      final result = await _engine.replaceFilterValue(filter, value);
+      _applyBackgroundResult(result, clearCreativeSelection: false);
+      state = state.copyWith(
+        selectedCreativeFilter: filter,
+        creativeFilterValue: value,
+      );
+    } catch (error) {
+      state = state.copyWith(isBusy: false, error: '$error');
+    }
+  }
+
   Future<void> commitFilterValue(double value) async {
     if (state.isBusy || state.previewBytes == null) return;
     state = state.copyWith(isBusy: true, isAdjusting: false, error: null);
     try {
       final result = await _engine.commitFilterValue(state.selectedFilter, value);
-      _applyBackgroundResult(result, value: value);
+      _applyBackgroundResult(
+        result,
+        value: value,
+        clearCreativeSelection: true,
+      );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
@@ -327,22 +378,27 @@ class EditorController extends StateNotifier<EditorState> {
     state = state.copyWith(isBusy: true, error: null);
     try {
       final result = await action();
-      _applyBackgroundResult(result);
+      _applyBackgroundResult(result, clearCreativeSelection: true);
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
-  void _applyBackgroundResult(EngineCommitResult result, {double? value}) {
-    _filterPreviewGeneration++;
+  void _applyBackgroundResult(
+    EngineCommitResult result, {
+    double? value,
+    required bool clearCreativeSelection,
+  }) {
     state = state.copyWith(
       previewBytes: result.bytes,
       histogram: result.histogram,
-      filterPreviews: const {},
       value: value,
+      selectedCreativeFilter:
+          clearCreativeSelection ? '' : state.selectedCreativeFilter,
+      creativeFilterValue:
+          clearCreativeSelection ? 1 : state.creativeFilterValue,
       processingMs: result.elapsedMicros.toDouble() / 1000.0,
       isBusy: false,
-      isGeneratingFilterPreviews: false,
       isAdjusting: false,
       operationCount: result.session.operationCount,
       cursor: result.session.cursor,
