@@ -27,6 +27,18 @@ class EngineSessionInfo {
   final bool canRedo;
 }
 
+class EngineFilmProfile {
+  const EngineFilmProfile({
+    required this.id,
+    required this.name,
+    required this.description,
+  });
+
+  final String id;
+  final String name;
+  final String description;
+}
+
 class EngineLoadResult {
   const EngineLoadResult({
     required this.previewBytes,
@@ -69,11 +81,24 @@ abstract interface class ImageEngine {
     Uint8List bytes, {
     required int maxEdge,
   });
+  Future<EngineLoadResult> restoreSessionInBackground(
+    Uint8List bytes,
+    String recipeJson,
+  );
+  Future<String> exportSessionRecipeInBackground();
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
     List<String> filters, {
     int maxEdge = 180,
   });
+  Future<List<EngineFilmProfile>> filmProfilesInBackground();
+  Future<Map<String, Uint8List>> generateFilmProfilePreviews(
+    Uint8List bytes,
+    List<String> profileIds, {
+    int maxEdge = 180,
+  });
+  Future<EngineCommitResult> applyFilmProfile(String id, double strength);
+  Future<EngineCommitResult> replaceFilmProfile(String id, double strength);
   Future<EngineCommitResult> commitFilterValue(String filter, double value);
   Future<EngineCommitResult> replaceFilterValue(String filter, double value);
   Future<EngineCommitResult> applyEditsInBackground();
@@ -186,6 +211,30 @@ class RustImageEngine implements ImageEngine {
       });
 
   @override
+  Future<EngineLoadResult> restoreSessionInBackground(
+    Uint8List bytes,
+    String recipeJson,
+  ) =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        final preview = rust.restoreSession(bytes: bytes, recipeJson: recipeJson);
+        final originalPreview = rust.originalPreview();
+        final histogram = rust.getHistogram(imageBytes: preview);
+        return EngineLoadResult(
+          previewBytes: preview,
+          originalPreviewBytes: originalPreview,
+          histogram: histogram,
+          session: _sessionInfo(),
+        );
+      });
+
+  @override
+  Future<String> exportSessionRecipeInBackground() => Isolate.run(() async {
+        await initializeRustBridge();
+        return rust.exportSessionRecipe();
+      });
+
+  @override
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
     List<String> filters, {
@@ -201,6 +250,64 @@ class RustImageEngine implements ImageEngine {
         return <String, Uint8List>{
           for (final preview in generated) preview.name: preview.bytes,
         };
+      });
+
+  @override
+  Future<List<EngineFilmProfile>> filmProfilesInBackground() =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        return rust
+            .filmProfiles()
+            .map(
+              (profile) => EngineFilmProfile(
+                id: profile.id,
+                name: profile.name,
+                description: profile.description,
+              ),
+            )
+            .toList(growable: false);
+      });
+
+  @override
+  Future<Map<String, Uint8List>> generateFilmProfilePreviews(
+    Uint8List bytes,
+    List<String> profileIds, {
+    int maxEdge = 180,
+  }) =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        final generated = rust.generateFilmProfilePreviews(
+          imageBytes: bytes,
+          profileIds: profileIds,
+          maxEdge: maxEdge,
+        );
+        return <String, Uint8List>{
+          for (final preview in generated) preview.id: preview.bytes,
+        };
+      });
+
+  @override
+  Future<EngineCommitResult> applyFilmProfile(String id, double strength) =>
+      _runCommittedRustTask(() {
+        final watch = Stopwatch()..start();
+        final bytes = rust.applyFilmProfile(id: id, strength: strength);
+        watch.stop();
+        return (
+          bytes: bytes,
+          elapsedMicros: BigInt.from(watch.elapsedMicroseconds),
+        );
+      });
+
+  @override
+  Future<EngineCommitResult> replaceFilmProfile(String id, double strength) =>
+      _runCommittedRustTask(() {
+        final watch = Stopwatch()..start();
+        final bytes = rust.replaceFilmProfile(id: id, strength: strength);
+        watch.stop();
+        return (
+          bytes: bytes,
+          elapsedMicros: BigInt.from(watch.elapsedMicroseconds),
+        );
       });
 
   @override
