@@ -3,6 +3,9 @@ use once_cell::sync::Lazy;
 use rayon::prelude::*;
 use serde::Deserialize;
 
+const FILM_PROFILE_PACK_VERSION: u32 = 2;
+const FILM_LUT_SIZE: usize = 33;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FilmProfileManifest {
@@ -10,6 +13,8 @@ struct FilmProfileManifest {
     name: String,
     description: String,
     lut: String,
+    lut_size: usize,
+    pack_version: u32,
     default_strength: f32,
 }
 
@@ -37,19 +42,45 @@ struct EmbeddedProfileSource {
 const PROFILE_SOURCES: &[EmbeddedProfileSource] = &[
     EmbeddedProfileSource {
         manifest: include_str!("../film_profiles/provia_inspired/profile.json"),
-        lut: include_str!("../film_profiles/provia_inspired/lut.cube"),
+        lut: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/film_profiles/provia_inspired/lut.cube"
+        )),
+    },
+    EmbeddedProfileSource {
+        manifest: include_str!("../film_profiles/velvia_inspired/profile.json"),
+        lut: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/film_profiles/velvia_inspired/lut.cube"
+        )),
+    },
+    EmbeddedProfileSource {
+        manifest: include_str!("../film_profiles/astia_inspired/profile.json"),
+        lut: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/film_profiles/astia_inspired/lut.cube"
+        )),
     },
     EmbeddedProfileSource {
         manifest: include_str!("../film_profiles/e100_inspired/profile.json"),
-        lut: include_str!("../film_profiles/e100_inspired/lut.cube"),
+        lut: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/film_profiles/e100_inspired/lut.cube"
+        )),
     },
     EmbeddedProfileSource {
         manifest: include_str!("../film_profiles/ektar_inspired/profile.json"),
-        lut: include_str!("../film_profiles/ektar_inspired/lut.cube"),
+        lut: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/film_profiles/ektar_inspired/lut.cube"
+        )),
     },
     EmbeddedProfileSource {
         manifest: include_str!("../film_profiles/chrome64_inspired/profile.json"),
-        lut: include_str!("../film_profiles/chrome64_inspired/lut.cube"),
+        lut: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/film_profiles/chrome64_inspired/lut.cube"
+        )),
     },
 ];
 
@@ -113,6 +144,18 @@ fn parse_profile(source: &EmbeddedProfileSource) -> Result<FilmProfileSpec, Stri
             manifest.id, manifest.lut
         ));
     }
+    if manifest.pack_version != FILM_PROFILE_PACK_VERSION {
+        return Err(format!(
+            "Profile {} uses packVersion {}, expected {}",
+            manifest.id, manifest.pack_version, FILM_PROFILE_PACK_VERSION
+        ));
+    }
+    if manifest.lut_size != FILM_LUT_SIZE {
+        return Err(format!(
+            "Profile {} declares LUT size {}, expected {}",
+            manifest.id, manifest.lut_size, FILM_LUT_SIZE
+        ));
+    }
     if !(0.0..=1.0).contains(&manifest.default_strength) {
         return Err(format!(
             "Profile {} defaultStrength must be between 0 and 1",
@@ -120,11 +163,19 @@ fn parse_profile(source: &EmbeddedProfileSource) -> Result<FilmProfileSpec, Stri
         ));
     }
 
+    let lut = CubeLut::parse(source.lut)?;
+    if lut.size != manifest.lut_size {
+        return Err(format!(
+            "Profile {} manifest declares {}^3 but LUT contains {}^3",
+            manifest.id, manifest.lut_size, lut.size
+        ));
+    }
+
     Ok(FilmProfileSpec {
         id: manifest.id,
         name: manifest.name,
         description: manifest.description,
-        lut: CubeLut::parse(source.lut)?,
+        lut,
     })
 }
 
@@ -176,9 +227,7 @@ impl CubeLut {
         if data.len() != expected {
             return Err(format!(
                 "LUT contains {} samples but {} were expected for size {}",
-                data.len(),
-                expected,
-                size
+                data.len(), expected, size
             ));
         }
         for channel in 0..3 {
@@ -259,15 +308,25 @@ mod tests {
     use image::{Rgba, RgbaImage};
 
     #[test]
-    fn profiles_have_unique_ids_and_valid_file_metadata() {
+    fn pack_v2_has_six_unique_33_cube_profiles() {
         let mut ids = PROFILES
             .iter()
             .map(|profile| profile.id.as_str())
             .collect::<Vec<_>>();
         ids.sort_unstable();
         ids.dedup();
+
+        assert_eq!(PROFILES.len(), 6);
         assert_eq!(ids.len(), PROFILES.len());
         assert!(PROFILES.iter().all(|profile| !profile.name.is_empty()));
+        assert!(PROFILES.iter().all(|profile| profile.lut.size == FILM_LUT_SIZE));
+        assert!(PROFILES.iter().all(|profile| profile.lut.data.len() == 35_937));
+        assert!(get("provia_inspired").is_some());
+        assert!(get("velvia_inspired").is_some());
+        assert!(get("astia_inspired").is_some());
+        assert!(get("e100_inspired").is_some());
+        assert!(get("ektar_inspired").is_some());
+        assert!(get("chrome64_inspired").is_some());
     }
 
     #[test]
