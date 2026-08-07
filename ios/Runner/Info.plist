@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Pixel Craft uses the camera so you can capture a photo and edit it locally on your device.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Pixel Craft saves your exported images to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
