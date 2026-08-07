@@ -1,0 +1,7 @@
+{
+  "id": "ektar_inspired",
+  "name": "Ektar Inspired",
+  "description": "Vivid color-negative look with stronger reds, contrast and landscape saturation.",
+  "lut": "lut.cube",
+  "defaultStrength": 1.0
+}
