@@ -53,6 +53,8 @@ void main() {
     expect(engine.previewCalls, 1);
     expect(engine.commitCalls, 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.byKey(const ValueKey('apply_edits_button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cancel_edits_button')), findsOneWidget);
 
     await tester.tap(find.text('Details'));
     await tester.pumpAndSettle();
@@ -111,6 +113,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(engine.replaceFilterCalls, replaceCallsBeforeDrag + 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+  });
+
+  testWidgets('Apply promotes current draft and resets creative filter selection', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('vintage'));
+    await tester.pumpAndSettle();
+
+    final applyButton = find.byKey(const ValueKey('apply_edits_button'));
+    expect(tester.widget<FilledButton>(applyButton).onPressed, isNotNull);
+
+    await tester.tap(applyButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.applyEditsCalls, 1);
+    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(find.text('vintage intensity'), findsNothing);
+  });
+
+  testWidgets('Cancel discards current draft and returns to checkpoint', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+    await commitContrastAdjustment(tester, engine);
+
+    final cancelButton = find.byKey(const ValueKey('cancel_edits_button'));
+    expect(tester.widget<OutlinedButton>(cancelButton).onPressed, isNotNull);
+
+    await tester.tap(cancelButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.discardEditsCalls, 1);
+    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(tester.widget<OutlinedButton>(cancelButton).onPressed, isNull);
   });
 
   testWidgets('undo and redo buttons call background engine history', (tester) async {
