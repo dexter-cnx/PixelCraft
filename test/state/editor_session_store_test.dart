@@ -47,6 +47,51 @@ void main() {
       expect(restored.recipeJson, contains('"cursor":2'));
     });
 
+    test('ignores payloads that were never published by a generation manifest', () async {
+      await store.save(
+        originalBytes: Uint8List.fromList([1, 2]),
+        recipeJson: '{"version":1,"cursor":1}',
+      );
+
+      final directory = Directory('${root.path}/pixelcraft-session');
+      await File('${directory.path}/source.orphan.bin').writeAsBytes([9, 9, 9]);
+      await File('${directory.path}/recipe.orphan.json')
+          .writeAsString('{"version":1,"cursor":99}');
+
+      final restored = await store.load();
+      expect(restored, isNotNull);
+      expect(restored!.originalBytes, [1, 2]);
+      expect(restored.recipeJson, contains('"cursor":1'));
+    });
+
+    test('falls back to the previous coherent generation if latest payload is missing', () async {
+      await store.save(
+        originalBytes: Uint8List.fromList([1]),
+        recipeJson: '{"version":1,"cursor":1}',
+      );
+      await store.save(
+        originalBytes: Uint8List.fromList([2]),
+        recipeJson: '{"version":1,"cursor":2}',
+      );
+
+      final directory = Directory('${root.path}/pixelcraft-session');
+      final manifests = directory
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.uri.pathSegments.last.startsWith('generation.'))
+          .toList()
+        ..sort((left, right) => right.path.compareTo(left.path));
+      final latestManifest = await manifests.first.readAsString();
+      final recipeMatch = RegExp(r'"recipeFile":"([^"]+)"').firstMatch(latestManifest);
+      expect(recipeMatch, isNotNull);
+      await File('${directory.path}/${recipeMatch!.group(1)}').delete();
+
+      final restored = await store.load();
+      expect(restored, isNotNull);
+      expect(restored!.originalBytes, [1]);
+      expect(restored.recipeJson, contains('"cursor":1'));
+    });
+
     test('clear removes the recovery payload', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1]),
