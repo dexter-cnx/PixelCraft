@@ -100,8 +100,25 @@ void main() {
       expect(controller.state.operationCount, 1);
       expect(controller.state.cursor, 1);
       expect(controller.state.isPreviewProcessing, isFalse);
-      // The middle request is coalesced while the first one is in flight.
       expect(engine.commitCalls + engine.replaceFilterCalls, lessThanOrEqualTo(3));
+    });
+
+    test('transform does not cancel an in-flight preview result', () async {
+      final engine = FakeImageEngine()
+        ..previewDelay = const Duration(milliseconds: 20);
+      final controller = controllerFor(engine);
+      await controller.load(Uint8List.fromList([1]));
+
+      controller.commitFilterValue(1.2);
+      expect(controller.state.isPreviewProcessing, isTrue);
+
+      await controller.rotateRight();
+      await settlePreview(controller);
+
+      expect(engine.cursor, 1);
+      expect(controller.state.cursor, 1);
+      expect(controller.state.operationCount, 1);
+      expect(controller.state.isPreviewProcessing, isFalse);
     });
 
     test('opening filters reuses thumbnails prewarmed at image load', () async {
@@ -255,14 +272,36 @@ void main() {
       controller.commitFilterValue(1.3);
       await settlePreview(controller);
       for (var attempt = 0; attempt < 50; attempt++) {
-        if (await sessionStore.exists()) break;
+        final stored = await sessionStore.load();
+        if (stored?.recipeJson.contains('"cursor":1') ?? false) break;
         await Future<void>.delayed(const Duration(milliseconds: 2));
       }
 
       final stored = await sessionStore.load();
       expect(stored, isNotNull);
       expect(stored!.originalBytes, [1, 2, 3]);
-      expect(stored.recipeJson, contains('version'));
+      expect(stored.recipeJson, contains('"cursor":1'));
+    });
+
+    test('serializes recipe capture so an older save cannot win', () async {
+      final engine = _OutOfOrderRecipeEngine();
+      final controller = controllerFor(engine);
+      await controller.load(Uint8List.fromList([4, 5, 6]));
+
+      controller.commitFilterValue(1.2);
+      await settlePreview(controller);
+
+      for (var attempt = 0; attempt < 100; attempt++) {
+        final stored = await sessionStore.load();
+        if (stored?.recipeJson.contains('"cursor":1') ?? false) break;
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+
+      final stored = await sessionStore.load();
+      expect(stored, isNotNull);
+      expect(stored!.originalBytes, [4, 5, 6]);
+      expect(stored.recipeJson, contains('"cursor":1'));
+      expect(engine.exportSessionRecipeCalls, greaterThanOrEqualTo(2));
     });
 
     test('undo and redo move the operation cursor', () async {
@@ -294,4 +333,19 @@ void main() {
       expect(controller.state.isExporting, isFalse);
     });
   });
+}
+
+class _OutOfOrderRecipeEngine extends FakeImageEngine {
+  int _recipeCall = 0;
+
+  @override
+  Future<String> exportSessionRecipeInBackground() async {
+    exportSessionRecipeCalls++;
+    final capturedCursor = cursor;
+    final call = _recipeCall++;
+    if (call == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    return '{"version":1,"cursor":$capturedCursor}';
+  }
 }
