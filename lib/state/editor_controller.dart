@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,12 +34,15 @@ class EditorState {
     this.originalPreviewBytes,
     this.previewBytes,
     this.histogram = const [],
+    this.filterPreviews = const {},
     this.selectedFilter = 'brightness',
+    this.selectedCreativeFilter = '',
     this.selectedTool = EditorTool.adjust,
     this.value = 1,
     this.straightenDegrees = 0,
     this.processingMs = 0,
     this.isBusy = false,
+    this.isGeneratingFilterPreviews = false,
     this.isAdjusting = false,
     this.showOriginal = false,
     this.isExporting = false,
@@ -53,12 +57,15 @@ class EditorState {
   final Uint8List? originalPreviewBytes;
   final Uint8List? previewBytes;
   final List<int> histogram;
+  final Map<String, Uint8List> filterPreviews;
   final String selectedFilter;
+  final String selectedCreativeFilter;
   final EditorTool selectedTool;
   final double value;
   final double straightenDegrees;
   final double processingMs;
   final bool isBusy;
+  final bool isGeneratingFilterPreviews;
   final bool isAdjusting;
   final bool showOriginal;
   final bool isExporting;
@@ -76,12 +83,15 @@ class EditorState {
     Uint8List? originalPreviewBytes,
     Uint8List? previewBytes,
     List<int>? histogram,
+    Map<String, Uint8List>? filterPreviews,
     String? selectedFilter,
+    String? selectedCreativeFilter,
     EditorTool? selectedTool,
     double? value,
     double? straightenDegrees,
     double? processingMs,
     bool? isBusy,
+    bool? isGeneratingFilterPreviews,
     bool? isAdjusting,
     bool? showOriginal,
     bool? isExporting,
@@ -96,12 +106,17 @@ class EditorState {
         originalPreviewBytes: originalPreviewBytes ?? this.originalPreviewBytes,
         previewBytes: previewBytes ?? this.previewBytes,
         histogram: histogram ?? this.histogram,
+        filterPreviews: filterPreviews ?? this.filterPreviews,
         selectedFilter: selectedFilter ?? this.selectedFilter,
+        selectedCreativeFilter:
+            selectedCreativeFilter ?? this.selectedCreativeFilter,
         selectedTool: selectedTool ?? this.selectedTool,
         value: value ?? this.value,
         straightenDegrees: straightenDegrees ?? this.straightenDegrees,
         processingMs: processingMs ?? this.processingMs,
         isBusy: isBusy ?? this.isBusy,
+        isGeneratingFilterPreviews:
+            isGeneratingFilterPreviews ?? this.isGeneratingFilterPreviews,
         isAdjusting: isAdjusting ?? this.isAdjusting,
         showOriginal: showOriginal ?? this.showOriginal,
         isExporting: isExporting ?? this.isExporting,
@@ -117,6 +132,7 @@ class EditorController extends StateNotifier<EditorState> {
   EditorController(this._engine) : super(const EditorState());
 
   final ImageEngine _engine;
+  int _filterPreviewGeneration = 0;
 
   Future<void> load(Uint8List bytes) async {
     state = state.copyWith(isBusy: true, error: null);
@@ -130,6 +146,8 @@ class EditorController extends StateNotifier<EditorState> {
         originalPreviewBytes: originalPreview,
         previewBytes: preview,
         histogram: _engine.getHistogram(preview),
+        filterPreviews: const {},
+        selectedCreativeFilter: '',
         isBusy: false,
         operationCount: session.operationCount,
         cursor: session.cursor,
@@ -141,9 +159,12 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  void selectTool(EditorTool tool) {
+  Future<void> selectTool(EditorTool tool) async {
     if (state.isBusy) return;
     state = state.copyWith(selectedTool: tool, error: null);
+    if (tool == EditorTool.filters) {
+      await refreshFilterPreviews();
+    }
   }
 
   void selectFilter(String filter) {
@@ -156,7 +177,54 @@ class EditorController extends StateNotifier<EditorState> {
     );
   }
 
-  /// Commits exactly one filter operation after the user releases the slider.
+  Future<void> refreshFilterPreviews() async {
+    final source = state.previewBytes;
+    if (source == null || state.isBusy) return;
+
+    final generation = ++_filterPreviewGeneration;
+    state = state.copyWith(isGeneratingFilterPreviews: true, error: null);
+    try {
+      final previews = await _engine.generateFilterPreviews(
+        source,
+        creativeFilters,
+      );
+      if (generation != _filterPreviewGeneration) return;
+      state = state.copyWith(
+        filterPreviews: previews,
+        isGeneratingFilterPreviews: false,
+      );
+    } catch (error) {
+      if (generation != _filterPreviewGeneration) return;
+      state = state.copyWith(
+        isGeneratingFilterPreviews: false,
+        error: '$error',
+      );
+    }
+  }
+
+  /// Creative filters have no default selection. Tapping a preview commits that
+  /// filter immediately at full strength, with no additional slider gesture.
+  Future<void> applyCreativeFilter(String filter) async {
+    if (state.isBusy || state.isGeneratingFilterPreviews) return;
+    state = state.copyWith(
+      selectedCreativeFilter: filter,
+      selectedFilter: filter,
+      value: 1,
+      isBusy: true,
+      error: null,
+    );
+    try {
+      final result = await _engine.commitFilterValue(filter, 1);
+      _applyBackgroundResult(result, value: 1);
+      if (state.selectedTool == EditorTool.filters) {
+        unawaited(refreshFilterPreviews());
+      }
+    } catch (error) {
+      state = state.copyWith(isBusy: false, error: '$error');
+    }
+  }
+
+  /// Commits exactly one adjust-filter operation after the user releases the slider.
   /// No Rust processing occurs while the thumb is moving.
   Future<void> commitFilterValue(double value) async {
     if (state.isBusy || state.previewBytes == null) return;
@@ -268,12 +336,15 @@ class EditorController extends StateNotifier<EditorState> {
   }
 
   void _applyBackgroundResult(EngineCommitResult result, {double? value}) {
+    _filterPreviewGeneration++;
     state = state.copyWith(
       previewBytes: result.bytes,
       histogram: result.histogram,
+      filterPreviews: const {},
       value: value,
       processingMs: result.elapsedMicros.toDouble() / 1000.0,
       isBusy: false,
+      isGeneratingFilterPreviews: false,
       isAdjusting: false,
       operationCount: result.session.operationCount,
       cursor: result.session.cursor,
