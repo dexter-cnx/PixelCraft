@@ -467,7 +467,8 @@ fn crop_normalized(
 pub static ENGINE: Lazy<Mutex<EngineState>> = Lazy::new(|| Mutex::new(EngineState::default()));
 
 pub fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
-    let image = image::load_from_memory(bytes).map_err(|e| format!("Unable to decode image: {e}"))?;
+    let image =
+        image::load_from_memory(bytes).map_err(|e| format!("Unable to decode image: {e}"))?;
     Ok(apply_exif_orientation(image, read_exif_orientation(bytes)))
 }
 
@@ -503,18 +504,14 @@ pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
     // of CPU time on camera photos.
     let rgba = image.to_rgba8();
     let mut output = Vec::new();
-    PngEncoder::new_with_quality(
-        &mut output,
-        CompressionType::Fast,
-        FilterType::NoFilter,
-    )
-    .write_image(
-        rgba.as_raw(),
-        rgba.width(),
-        rgba.height(),
-        image::ColorType::Rgba8,
-    )
-    .map_err(|error| format!("Unable to encode PNG: {error}"))?;
+    PngEncoder::new_with_quality(&mut output, CompressionType::Fast, FilterType::NoFilter)
+        .write_image(
+            rgba.as_raw(),
+            rgba.width(),
+            rgba.height(),
+            image::ColorType::Rgba8,
+        )
+        .map_err(|error| format!("Unable to encode PNG: {error}"))?;
     Ok(output)
 }
 
