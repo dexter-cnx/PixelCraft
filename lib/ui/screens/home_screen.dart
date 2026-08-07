@@ -60,7 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('PixelCraft')),
+      appBar: AppBar(title: const Text('Pixel Craft')),
       body: Stack(
         children: [
           CustomScrollView(
