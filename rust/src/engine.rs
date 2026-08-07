@@ -1,4 +1,5 @@
-use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat};
+use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat, Rgba};
+use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
 use once_cell::sync::Lazy;
 use std::io::Cursor;
 use std::sync::Mutex;
@@ -17,6 +18,7 @@ pub enum EditOperation {
         height: f32,
     },
     Rotate90 { turns: u8 },
+    RotateDegrees { degrees: f32 },
     FlipHorizontal,
     FlipVertical,
     Resize { width: u32, height: u32 },
@@ -110,12 +112,15 @@ impl EngineState {
             .pending_preview
             .take()
             .ok_or_else(|| "No filter preview to commit".to_string())?;
-
-        self.operations.truncate(self.cursor);
-        self.operations.push(operation);
-        self.cursor = self.operations.len();
+        self.push_operation(operation);
         self.clear_transaction();
         Ok(bytes)
+    }
+
+    pub fn apply_operation(&mut self, operation: EditOperation) -> Result<Vec<u8>, String> {
+        self.clear_transaction();
+        self.push_operation(operation);
+        self.render_preview()
     }
 
     pub fn cancel_filter(&mut self) -> Result<Vec<u8>, String> {
@@ -158,6 +163,12 @@ impl EngineState {
             can_undo: self.cursor > 0,
             can_redo: self.cursor < self.operations.len(),
         }
+    }
+
+    fn push_operation(&mut self, operation: EditOperation) {
+        self.operations.truncate(self.cursor);
+        self.operations.push(operation);
+        self.cursor = self.operations.len();
     }
 
     fn render_preview_image(&self) -> Result<DynamicImage, String> {
@@ -204,6 +215,7 @@ pub fn replay_operations(
                 2 => image.rotate180(),
                 _ => image.rotate270(),
             },
+            EditOperation::RotateDegrees { degrees } => rotate_degrees(image, *degrees),
             EditOperation::FlipHorizontal => image.fliph(),
             EditOperation::FlipVertical => image.flipv(),
             EditOperation::Resize { width, height } => {
@@ -215,6 +227,20 @@ pub fn replay_operations(
         };
     }
     Ok(image)
+}
+
+fn rotate_degrees(image: DynamicImage, degrees: f32) -> DynamicImage {
+    if degrees.abs() < f32::EPSILON {
+        return image;
+    }
+    let rgba = image.to_rgba8();
+    let rotated = rotate_about_center(
+        &rgba,
+        degrees.to_radians(),
+        Interpolation::Bilinear,
+        Rgba([0, 0, 0, 0]),
+    );
+    DynamicImage::ImageRgba8(rotated)
 }
 
 fn crop_normalized(
@@ -295,19 +321,30 @@ mod tests {
     }
 
     #[test]
-    fn undo_and_redo_move_the_operation_cursor() {
+    fn transform_operations_are_replayable_and_undoable() {
         let mut engine = EngineState::default();
         engine.reset(source_png());
-        for value in [1.1, 1.2] {
-            engine.begin_filter("brightness".to_string()).unwrap();
-            engine.update_filter_preview("brightness", value).unwrap();
-            engine.commit_filter().unwrap();
-        }
+        engine
+            .apply_operation(EditOperation::Rotate90 { turns: 1 })
+            .unwrap();
+        engine
+            .apply_operation(EditOperation::FlipHorizontal)
+            .unwrap();
+        engine
+            .apply_operation(EditOperation::Crop {
+                x: 0.0,
+                y: 0.0,
+                width: 0.5,
+                height: 1.0,
+            })
+            .unwrap();
 
+        assert_eq!(engine.operations.len(), 3);
+        assert_eq!(engine.cursor, 3);
         engine.undo().unwrap();
-        assert_eq!(engine.cursor, 1);
-        engine.redo().unwrap();
         assert_eq!(engine.cursor, 2);
+        engine.redo().unwrap();
+        assert_eq!(engine.cursor, 3);
     }
 
     #[test]
