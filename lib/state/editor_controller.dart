@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/editor_session_store.dart';
 import '../core/image_engine.dart';
 
 const coreFilters = <String>[
@@ -28,7 +29,16 @@ const editorPreviewMaxEdge = 1024;
 
 bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 
-enum EditorTool { adjust, filters, crop, rotate, details }
+enum EditorTool { adjust, filters, film, crop, rotate, details }
+
+enum _PreviewKind { adjust, creative, film }
+
+typedef _PendingPreview = ({
+  int requestId,
+  _PreviewKind kind,
+  String key,
+  double value,
+});
 
 class EditorState {
   const EditorState({
@@ -37,15 +47,21 @@ class EditorState {
     this.previewBytes,
     this.histogram = const [],
     this.filterPreviews = const {},
+    this.filmProfiles = const [],
+    this.filmProfilePreviews = const {},
     this.selectedFilter = 'brightness',
     this.selectedCreativeFilter = '',
+    this.selectedFilmProfile = '',
     this.selectedTool = EditorTool.adjust,
     this.value = 1,
     this.creativeFilterValue = 1,
+    this.filmProfileStrength = 1,
     this.straightenDegrees = 0,
     this.processingMs = 0,
     this.isBusy = false,
+    this.isPreviewProcessing = false,
     this.isGeneratingFilterPreviews = false,
+    this.isGeneratingFilmPreviews = false,
     this.isAdjusting = false,
     this.showOriginal = false,
     this.isExporting = false,
@@ -61,15 +77,21 @@ class EditorState {
   final Uint8List? previewBytes;
   final List<int> histogram;
   final Map<String, Uint8List> filterPreviews;
+  final List<EngineFilmProfile> filmProfiles;
+  final Map<String, Uint8List> filmProfilePreviews;
   final String selectedFilter;
   final String selectedCreativeFilter;
+  final String selectedFilmProfile;
   final EditorTool selectedTool;
   final double value;
   final double creativeFilterValue;
+  final double filmProfileStrength;
   final double straightenDegrees;
   final double processingMs;
   final bool isBusy;
+  final bool isPreviewProcessing;
   final bool isGeneratingFilterPreviews;
+  final bool isGeneratingFilmPreviews;
   final bool isAdjusting;
   final bool showOriginal;
   final bool isExporting;
@@ -79,7 +101,6 @@ class EditorState {
   final bool canRedo;
   final String? error;
 
-  /// Operations after the last Apply checkpoint are drafts until promoted.
   bool get hasUnappliedEdits => cursor > 0;
 
   Uint8List? get visiblePreview =>
@@ -91,15 +112,21 @@ class EditorState {
     Uint8List? previewBytes,
     List<int>? histogram,
     Map<String, Uint8List>? filterPreviews,
+    List<EngineFilmProfile>? filmProfiles,
+    Map<String, Uint8List>? filmProfilePreviews,
     String? selectedFilter,
     String? selectedCreativeFilter,
+    String? selectedFilmProfile,
     EditorTool? selectedTool,
     double? value,
     double? creativeFilterValue,
+    double? filmProfileStrength,
     double? straightenDegrees,
     double? processingMs,
     bool? isBusy,
+    bool? isPreviewProcessing,
     bool? isGeneratingFilterPreviews,
+    bool? isGeneratingFilmPreviews,
     bool? isAdjusting,
     bool? showOriginal,
     bool? isExporting,
@@ -115,17 +142,24 @@ class EditorState {
         previewBytes: previewBytes ?? this.previewBytes,
         histogram: histogram ?? this.histogram,
         filterPreviews: filterPreviews ?? this.filterPreviews,
+        filmProfiles: filmProfiles ?? this.filmProfiles,
+        filmProfilePreviews: filmProfilePreviews ?? this.filmProfilePreviews,
         selectedFilter: selectedFilter ?? this.selectedFilter,
         selectedCreativeFilter:
             selectedCreativeFilter ?? this.selectedCreativeFilter,
+        selectedFilmProfile: selectedFilmProfile ?? this.selectedFilmProfile,
         selectedTool: selectedTool ?? this.selectedTool,
         value: value ?? this.value,
         creativeFilterValue: creativeFilterValue ?? this.creativeFilterValue,
+        filmProfileStrength: filmProfileStrength ?? this.filmProfileStrength,
         straightenDegrees: straightenDegrees ?? this.straightenDegrees,
         processingMs: processingMs ?? this.processingMs,
         isBusy: isBusy ?? this.isBusy,
+        isPreviewProcessing: isPreviewProcessing ?? this.isPreviewProcessing,
         isGeneratingFilterPreviews:
             isGeneratingFilterPreviews ?? this.isGeneratingFilterPreviews,
+        isGeneratingFilmPreviews:
+            isGeneratingFilmPreviews ?? this.isGeneratingFilmPreviews,
         isAdjusting: isAdjusting ?? this.isAdjusting,
         showOriginal: showOriginal ?? this.showOriginal,
         isExporting: isExporting ?? this.isExporting,
@@ -138,59 +172,89 @@ class EditorState {
 }
 
 class EditorController extends StateNotifier<EditorState> {
-  EditorController(this._engine) : super(const EditorState());
+  EditorController(this._engine, this._sessionStore) : super(const EditorState());
 
   final ImageEngine _engine;
-  int _filterPreviewGeneration = 0;
+  final EditorSessionStore _sessionStore;
+  int _thumbnailGeneration = 0;
   bool _hasPendingFilterOperation = false;
+  bool _hasPendingFilmOperation = false;
+  int _latestPreviewRequestId = 0;
+  _PendingPreview? _pendingPreview;
+  bool _previewWorkerRunning = false;
 
   Future<void> load(Uint8List bytes) async {
-    final generation = ++_filterPreviewGeneration;
-    _hasPendingFilterOperation = false;
+    final generation = ++_thumbnailGeneration;
+    _resetPendingKinds();
     state = state.copyWith(isBusy: true, error: null);
     try {
       final loaded = await _engine.loadImageInBackground(
         bytes,
         maxEdge: editorPreviewMaxEdge,
       );
-      state = state.copyWith(
-        originalBytes: bytes,
-        originalPreviewBytes: loaded.originalPreviewBytes,
-        previewBytes: loaded.previewBytes,
-        histogram: loaded.histogram,
-        filterPreviews: const {},
-        selectedFilter: 'brightness',
-        selectedCreativeFilter: '',
-        value: 1,
-        creativeFilterValue: 1,
-        straightenDegrees: 0,
-        isBusy: false,
-        isGeneratingFilterPreviews: false,
-        operationCount: loaded.session.operationCount,
-        cursor: loaded.session.cursor,
-        canUndo: loaded.session.canUndo,
-        canRedo: loaded.session.canRedo,
-      );
-
-      // Prewarm tiny creative-filter thumbnails from the reduced checkpoint.
-      unawaited(
-        _generateFilterPreviews(
-          loaded.originalPreviewBytes,
-          generation: generation,
-        ),
-      );
+      final profiles = await _engine.filmProfilesInBackground();
+      _applyLoadedState(bytes, loaded, profiles);
+      unawaited(_prewarmThumbnails(loaded.originalPreviewBytes, generation));
+      unawaited(_persistSession());
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
+  Future<void> restore(Uint8List bytes, String recipeJson) async {
+    final generation = ++_thumbnailGeneration;
+    _resetPendingKinds();
+    state = state.copyWith(isBusy: true, error: null);
+    try {
+      final loaded = await _engine.restoreSessionInBackground(bytes, recipeJson);
+      final profiles = await _engine.filmProfilesInBackground();
+      _applyLoadedState(bytes, loaded, profiles);
+      unawaited(_prewarmThumbnails(loaded.originalPreviewBytes, generation));
+    } catch (error) {
+      state = state.copyWith(isBusy: false, error: '$error');
+    }
+  }
+
+  void _applyLoadedState(
+    Uint8List bytes,
+    EngineLoadResult loaded,
+    List<EngineFilmProfile> profiles,
+  ) {
+    state = state.copyWith(
+      originalBytes: bytes,
+      originalPreviewBytes: loaded.originalPreviewBytes,
+      previewBytes: loaded.previewBytes,
+      histogram: loaded.histogram,
+      filterPreviews: const {},
+      filmProfiles: profiles,
+      filmProfilePreviews: const {},
+      selectedFilter: 'brightness',
+      selectedCreativeFilter: '',
+      selectedFilmProfile: '',
+      value: 1,
+      creativeFilterValue: 1,
+      filmProfileStrength: 1,
+      straightenDegrees: 0,
+      isBusy: false,
+      isPreviewProcessing: false,
+      isGeneratingFilterPreviews: false,
+      isGeneratingFilmPreviews: false,
+      operationCount: loaded.session.operationCount,
+      cursor: loaded.session.cursor,
+      canUndo: loaded.session.canUndo,
+      canRedo: loaded.session.canRedo,
+      error: null,
+    );
+  }
+
   Future<void> selectTool(EditorTool tool) async {
     if (state.isBusy) return;
     state = state.copyWith(selectedTool: tool, error: null);
-    if (tool == EditorTool.filters &&
-        state.filterPreviews.isEmpty &&
-        !state.isGeneratingFilterPreviews) {
+    if (tool == EditorTool.filters && state.filterPreviews.isEmpty) {
       await refreshFilterPreviews();
+    }
+    if (tool == EditorTool.film && state.filmProfilePreviews.isEmpty) {
+      await refreshFilmProfilePreviews();
     }
   }
 
@@ -199,142 +263,214 @@ class EditorController extends StateNotifier<EditorState> {
     state = state.copyWith(
       selectedFilter: filter,
       selectedCreativeFilter: '',
+      selectedFilmProfile: '',
       value: filter == 'gaussian_blur' ? 0 : 1,
       creativeFilterValue: 1,
+      filmProfileStrength: 1,
       isAdjusting: false,
       error: null,
     );
   }
 
+  Future<void> _prewarmThumbnails(Uint8List source, int generation) async {
+    await Future.wait([
+      _generateFilterPreviews(source, generation: generation),
+      _generateFilmPreviews(source, generation: generation),
+    ]);
+  }
+
   Future<void> refreshFilterPreviews() async {
-    if (state.filterPreviews.isNotEmpty || state.isGeneratingFilterPreviews) {
-      return;
-    }
+    if (state.filterPreviews.isNotEmpty || state.isGeneratingFilterPreviews) return;
     final source = state.originalPreviewBytes;
     if (source == null) return;
-    await _generateFilterPreviews(
-      source,
-      generation: _filterPreviewGeneration,
-    );
+    await _generateFilterPreviews(source, generation: _thumbnailGeneration);
+  }
+
+  Future<void> refreshFilmProfilePreviews() async {
+    if (state.filmProfilePreviews.isNotEmpty || state.isGeneratingFilmPreviews) return;
+    final source = state.originalPreviewBytes;
+    if (source == null || state.filmProfiles.isEmpty) return;
+    await _generateFilmPreviews(source, generation: _thumbnailGeneration);
   }
 
   Future<void> _generateFilterPreviews(
     Uint8List source, {
     required int generation,
   }) async {
-    if (generation != _filterPreviewGeneration) return;
+    if (generation != _thumbnailGeneration) return;
     state = state.copyWith(isGeneratingFilterPreviews: true, error: null);
     try {
       final previews = await _engine.generateFilterPreviews(
         source,
         creativeFilters,
-        maxEdge: 180,
+        maxEdge: 160,
       );
-      if (generation != _filterPreviewGeneration) return;
+      if (generation != _thumbnailGeneration) return;
       state = state.copyWith(
         filterPreviews: previews,
         isGeneratingFilterPreviews: false,
       );
     } catch (error) {
-      if (generation != _filterPreviewGeneration) return;
-      state = state.copyWith(
-        isGeneratingFilterPreviews: false,
-        error: '$error',
-      );
+      if (generation != _thumbnailGeneration) return;
+      state = state.copyWith(isGeneratingFilterPreviews: false, error: '$error');
     }
   }
 
-  /// Selects a creative filter as a draft. Choosing another filter or changing
-  /// intensity replaces the same pending filter operation instead of stacking.
+  Future<void> _generateFilmPreviews(
+    Uint8List source, {
+    required int generation,
+  }) async {
+    if (generation != _thumbnailGeneration || state.filmProfiles.isEmpty) return;
+    state = state.copyWith(isGeneratingFilmPreviews: true, error: null);
+    try {
+      final previews = await _engine.generateFilmProfilePreviews(
+        source,
+        state.filmProfiles.map((profile) => profile.id).toList(growable: false),
+        maxEdge: 160,
+      );
+      if (generation != _thumbnailGeneration) return;
+      state = state.copyWith(
+        filmProfilePreviews: previews,
+        isGeneratingFilmPreviews: false,
+      );
+    } catch (error) {
+      if (generation != _thumbnailGeneration) return;
+      state = state.copyWith(isGeneratingFilmPreviews: false, error: '$error');
+    }
+  }
+
   Future<void> applyCreativeFilter(String filter) async {
     if (state.isBusy || state.isGeneratingFilterPreviews) return;
     state = state.copyWith(
       selectedCreativeFilter: filter,
+      selectedFilmProfile: '',
       creativeFilterValue: 1,
-      isBusy: true,
       error: null,
     );
-    try {
-      final result = _hasPendingFilterOperation
-          ? await _engine.replaceFilterValue(filter, 1)
-          : await _engine.commitFilterValue(filter, 1);
-      _hasPendingFilterOperation = true;
-      _applyBackgroundResult(result, clearCreativeSelection: false);
-      state = state.copyWith(
-        selectedCreativeFilter: filter,
-        creativeFilterValue: 1,
-      );
-    } catch (error) {
-      state = state.copyWith(isBusy: false, error: '$error');
-    }
+    _queuePreview(_PreviewKind.creative, filter, 1);
   }
 
   Future<void> updateCreativeFilterValue(double value) async {
     final filter = state.selectedCreativeFilter;
     if (filter.isEmpty || state.isBusy) return;
-    state = state.copyWith(
-      creativeFilterValue: value,
-      isBusy: true,
-      error: null,
-    );
-    try {
-      final result = _hasPendingFilterOperation
-          ? await _engine.replaceFilterValue(filter, value)
-          : await _engine.commitFilterValue(filter, value);
-      _hasPendingFilterOperation = true;
-      _applyBackgroundResult(result, clearCreativeSelection: false);
-      state = state.copyWith(
-        selectedCreativeFilter: filter,
-        creativeFilterValue: value,
-      );
-    } catch (error) {
-      state = state.copyWith(isBusy: false, error: '$error');
-    }
+    state = state.copyWith(creativeFilterValue: value, error: null);
+    _queuePreview(_PreviewKind.creative, filter, value);
   }
 
-  /// Adjust sliders create a draft operation. Releasing the slider again
-  /// replaces that operation until Apply is pressed.
   Future<void> commitFilterValue(double value) async {
     if (state.isBusy || state.previewBytes == null) return;
-    state = state.copyWith(isBusy: true, isAdjusting: false, error: null);
-    try {
-      final result = _hasPendingFilterOperation
-          ? await _engine.replaceFilterValue(state.selectedFilter, value)
-          : await _engine.commitFilterValue(state.selectedFilter, value);
-      _hasPendingFilterOperation = true;
-      _applyBackgroundResult(
-        result,
-        value: value,
-        clearCreativeSelection: true,
-      );
-    } catch (error) {
-      state = state.copyWith(isBusy: false, error: '$error');
+    state = state.copyWith(value: value, isAdjusting: false, error: null);
+    _queuePreview(_PreviewKind.adjust, state.selectedFilter, value);
+  }
+
+  Future<void> selectFilmProfile(String id) async {
+    if (state.isBusy || state.isGeneratingFilmPreviews) return;
+    state = state.copyWith(
+      selectedFilmProfile: id,
+      selectedCreativeFilter: '',
+      filmProfileStrength: 1,
+      error: null,
+    );
+    _queuePreview(_PreviewKind.film, id, 1);
+  }
+
+  Future<void> updateFilmProfileStrength(double value) async {
+    final profile = state.selectedFilmProfile;
+    if (profile.isEmpty || state.isBusy) return;
+    state = state.copyWith(filmProfileStrength: value, error: null);
+    _queuePreview(_PreviewKind.film, profile, value);
+  }
+
+  void _queuePreview(_PreviewKind kind, String key, double value) {
+    final requestId = ++_latestPreviewRequestId;
+    _pendingPreview = (
+      requestId: requestId,
+      kind: kind,
+      key: key,
+      value: value,
+    );
+    state = state.copyWith(isPreviewProcessing: true, error: null);
+    if (!_previewWorkerRunning) {
+      unawaited(_drainPreviewQueue());
     }
   }
 
-  /// Apply only promotes the reduced working preview to a checkpoint. Rust
-  /// retains the complete operation recipe; full-resolution replay is deferred
-  /// until Export, so Apply stays fast even for large source images.
+  Future<void> _drainPreviewQueue() async {
+    if (_previewWorkerRunning) return;
+    _previewWorkerRunning = true;
+    try {
+      while (_pendingPreview != null) {
+        final request = _pendingPreview!;
+        _pendingPreview = null;
+        try {
+          final result = switch (request.kind) {
+            _PreviewKind.adjust || _PreviewKind.creative =>
+              _hasPendingFilterOperation
+                  ? await _engine.replaceFilterValue(request.key, request.value)
+                  : await _engine.commitFilterValue(request.key, request.value),
+            _PreviewKind.film => _hasPendingFilmOperation
+                ? await _engine.replaceFilmProfile(request.key, request.value)
+                : await _engine.applyFilmProfile(request.key, request.value),
+          };
+
+          if (request.kind == _PreviewKind.film) {
+            _hasPendingFilmOperation = true;
+          } else {
+            _hasPendingFilterOperation = true;
+          }
+
+          // Results can complete after the user has already requested another
+          // value. Rust must finish serially, but only the latest result is
+          // projected to Flutter: classic latest-request-wins semantics.
+          if (request.requestId == _latestPreviewRequestId) {
+            _applyBackgroundResult(
+              result,
+              value: request.kind == _PreviewKind.adjust ? request.value : null,
+              clearCreativeSelection: request.kind != _PreviewKind.creative,
+              clearFilmSelection: request.kind != _PreviewKind.film,
+            );
+            state = state.copyWith(isPreviewProcessing: _pendingPreview != null);
+            unawaited(_persistSession());
+          }
+        } catch (error) {
+          if (request.requestId == _latestPreviewRequestId) {
+            state = state.copyWith(
+              isPreviewProcessing: false,
+              error: '$error',
+            );
+          }
+        }
+      }
+    } finally {
+      _previewWorkerRunning = false;
+      state = state.copyWith(isPreviewProcessing: false);
+    }
+  }
+
   Future<void> applyEdits() async {
-    if (state.isBusy || !state.hasUnappliedEdits) return;
-    final generation = ++_filterPreviewGeneration;
+    if (state.isBusy || state.isPreviewProcessing || !state.hasUnappliedEdits) return;
+    final generation = ++_thumbnailGeneration;
     state = state.copyWith(isBusy: true, error: null);
     try {
       final result = await _engine.applyEditsInBackground();
-      _hasPendingFilterOperation = false;
+      _resetPendingKinds();
       state = state.copyWith(
         originalPreviewBytes: result.bytes,
         previewBytes: result.bytes,
         histogram: result.histogram,
         filterPreviews: const {},
+        filmProfilePreviews: const {},
         selectedFilter: 'brightness',
         selectedCreativeFilter: '',
+        selectedFilmProfile: '',
         value: 1,
         creativeFilterValue: 1,
+        filmProfileStrength: 1,
         straightenDegrees: 0,
         processingMs: result.elapsedMicros.toDouble() / 1000.0,
         isBusy: false,
         isGeneratingFilterPreviews: false,
+        isGeneratingFilmPreviews: false,
         isAdjusting: false,
         operationCount: result.session.operationCount,
         cursor: result.session.cursor,
@@ -342,27 +478,28 @@ class EditorController extends StateNotifier<EditorState> {
         canRedo: result.session.canRedo,
         error: null,
       );
-      unawaited(
-        _generateFilterPreviews(result.bytes, generation: generation),
-      );
+      unawaited(_prewarmThumbnails(result.bytes, generation));
+      unawaited(_persistSession());
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
   Future<void> cancelEdits() async {
-    if (state.isBusy || !state.hasUnappliedEdits) return;
+    if (state.isBusy || state.isPreviewProcessing || !state.hasUnappliedEdits) return;
     state = state.copyWith(isBusy: true, error: null);
     try {
       final result = await _engine.discardEditsInBackground();
-      _hasPendingFilterOperation = false;
+      _resetPendingKinds();
       state = state.copyWith(
         previewBytes: result.bytes,
         histogram: result.histogram,
         selectedFilter: 'brightness',
         selectedCreativeFilter: '',
+        selectedFilmProfile: '',
         value: 1,
         creativeFilterValue: 1,
+        filmProfileStrength: 1,
         straightenDegrees: 0,
         processingMs: result.elapsedMicros.toDouble() / 1000.0,
         isBusy: false,
@@ -373,13 +510,14 @@ class EditorController extends StateNotifier<EditorState> {
         canRedo: result.session.canRedo,
         error: null,
       );
+      unawaited(_persistSession());
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
   Future<void> applyCenteredCrop(double aspectRatio) async {
-    if (state.isBusy) return;
+    if (state.isBusy || state.isPreviewProcessing) return;
     double width = 1;
     double height = 1;
     if (aspectRatio >= 1) {
@@ -387,7 +525,7 @@ class EditorController extends StateNotifier<EditorState> {
     } else {
       width = aspectRatio;
     }
-    _hasPendingFilterOperation = false;
+    _resetPendingKinds();
     await _applyBackgroundTransform(
       () => _engine.applyCropInBackground(
         x: (1 - width) / 2,
@@ -399,32 +537,32 @@ class EditorController extends StateNotifier<EditorState> {
   }
 
   Future<void> rotateLeft() {
-    _hasPendingFilterOperation = false;
+    _resetPendingKinds();
     return _applyBackgroundTransform(
       () => _engine.rotateQuarterTurnsInBackground(3),
     );
   }
 
   Future<void> rotateRight() {
-    _hasPendingFilterOperation = false;
+    _resetPendingKinds();
     return _applyBackgroundTransform(
       () => _engine.rotateQuarterTurnsInBackground(1),
     );
   }
 
   Future<void> flipHorizontal() {
-    _hasPendingFilterOperation = false;
+    _resetPendingKinds();
     return _applyBackgroundTransform(_engine.flipHorizontalInBackground);
   }
 
   Future<void> flipVertical() {
-    _hasPendingFilterOperation = false;
+    _resetPendingKinds();
     return _applyBackgroundTransform(_engine.flipVerticalInBackground);
   }
 
   Future<void> commitStraighten(double degrees) async {
-    if (degrees.abs() < 0.01 || state.isBusy) return;
-    _hasPendingFilterOperation = false;
+    if (degrees.abs() < 0.01 || state.isBusy || state.isPreviewProcessing) return;
+    _resetPendingKinds();
     await _applyBackgroundTransform(
       () => _engine.straightenInBackground(degrees),
     );
@@ -444,7 +582,7 @@ class EditorController extends StateNotifier<EditorState> {
     required String format,
     required int quality,
   }) async {
-    if (state.isBusy || state.isExporting) {
+    if (state.isBusy || state.isExporting || state.isPreviewProcessing) {
       throw StateError('Image processing is already in progress');
     }
     state = state.copyWith(isExporting: true, error: null);
@@ -468,25 +606,30 @@ class EditorController extends StateNotifier<EditorState> {
   }
 
   Future<void> undo() async {
-    if (!state.canUndo || state.isBusy) return;
-    _hasPendingFilterOperation = false;
+    if (!state.canUndo || state.isBusy || state.isPreviewProcessing) return;
+    _resetPendingKinds();
     await _applyBackgroundTransform(_engine.undoInBackground);
   }
 
   Future<void> redo() async {
-    if (!state.canRedo || state.isBusy) return;
-    _hasPendingFilterOperation = false;
+    if (!state.canRedo || state.isBusy || state.isPreviewProcessing) return;
+    _resetPendingKinds();
     await _applyBackgroundTransform(_engine.redoInBackground);
   }
 
   Future<void> _applyBackgroundTransform(
     Future<EngineCommitResult> Function() action,
   ) async {
-    if (state.isBusy) return;
+    if (state.isBusy || state.isPreviewProcessing) return;
     state = state.copyWith(isBusy: true, error: null);
     try {
       final result = await action();
-      _applyBackgroundResult(result, clearCreativeSelection: true);
+      _applyBackgroundResult(
+        result,
+        clearCreativeSelection: true,
+        clearFilmSelection: true,
+      );
+      unawaited(_persistSession());
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
     }
@@ -496,6 +639,7 @@ class EditorController extends StateNotifier<EditorState> {
     EngineCommitResult result, {
     double? value,
     required bool clearCreativeSelection,
+    required bool clearFilmSelection,
   }) {
     state = state.copyWith(
       previewBytes: result.bytes,
@@ -505,6 +649,9 @@ class EditorController extends StateNotifier<EditorState> {
           clearCreativeSelection ? '' : state.selectedCreativeFilter,
       creativeFilterValue:
           clearCreativeSelection ? 1 : state.creativeFilterValue,
+      selectedFilmProfile: clearFilmSelection ? '' : state.selectedFilmProfile,
+      filmProfileStrength:
+          clearFilmSelection ? 1 : state.filmProfileStrength,
       processingMs: result.elapsedMicros.toDouble() / 1000.0,
       isBusy: false,
       isAdjusting: false,
@@ -515,12 +662,37 @@ class EditorController extends StateNotifier<EditorState> {
       error: null,
     );
   }
+
+  void _resetPendingKinds() {
+    _hasPendingFilterOperation = false;
+    _hasPendingFilmOperation = false;
+    _pendingPreview = null;
+    _latestPreviewRequestId++;
+  }
+
+  Future<void> _persistSession() async {
+    final original = state.originalBytes;
+    if (original == null) return;
+    try {
+      final recipe = await _engine.exportSessionRecipeInBackground();
+      await _sessionStore.save(originalBytes: original, recipeJson: recipe);
+    } catch (_) {
+      // Session recovery is best-effort and must never interrupt editing.
+    }
+  }
 }
 
 final imageEngineProvider = Provider<ImageEngine>(
   (ref) => const RustImageEngine(),
 );
 
+final editorSessionStoreProvider = Provider<EditorSessionStore>(
+  (ref) => EditorSessionStore(),
+);
+
 final editorProvider = StateNotifierProvider<EditorController, EditorState>(
-  (ref) => EditorController(ref.watch(imageEngineProvider)),
+  (ref) => EditorController(
+    ref.watch(imageEngineProvider),
+    ref.watch(editorSessionStoreProvider),
+  ),
 );
