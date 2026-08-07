@@ -52,19 +52,24 @@ void main() {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
 
-    // Undo is intentionally disabled until there is a committed operation.
-    expect(tester.widget<IconButton>(find.byTooltip('Undo')).onPressed, isNull);
-    expect(tester.widget<IconButton>(find.byTooltip('Redo')).onPressed, isNull);
+    final undoButton = find.widgetWithIcon(IconButton, Icons.undo);
+    final redoButton = find.widgetWithIcon(IconButton, Icons.redo);
+
+    // Undo and redo are intentionally disabled until an operation is committed.
+    expect(tester.widget<IconButton>(undoButton).onPressed, isNull);
+    expect(tester.widget<IconButton>(redoButton).onPressed, isNull);
 
     await commitContrastAdjustment(tester);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(tester.widget<IconButton>(undoButton).onPressed, isNotNull);
 
-    await tester.tap(find.byTooltip('Undo'));
+    await tester.tap(undoButton);
     await tester.pump();
     expect(engine.undoCalls, 1);
     expect(find.textContaining('Editor · 0/1 edits'), findsOneWidget);
+    expect(tester.widget<IconButton>(redoButton).onPressed, isNotNull);
 
-    await tester.tap(find.byTooltip('Redo'));
+    await tester.tap(redoButton);
     await tester.pump();
     expect(engine.redoCalls, 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
