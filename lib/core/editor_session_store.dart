@@ -64,9 +64,8 @@ class EditorSessionStore {
     }
   }
 
-  /// Saves the full-resolution source only once for a session. Subsequent edit
-  /// updates rewrite only the tiny JSON recipe and metadata, avoiding repeated
-  /// multi-megabyte writes while sliders and transforms are used.
+  /// The source image is only rewritten when a different image becomes the
+  /// active session. Ordinary edits update only recipe.json + metadata.json.
   Future<void> save({
     required Uint8List originalBytes,
     required String recipeJson,
@@ -75,13 +74,22 @@ class EditorSessionStore {
       final directory = await _directory();
       await directory.create(recursive: true);
       final source = File('${directory.path}/source.bin');
+      final sourceId = File('${directory.path}/source.id');
       final recipe = File('${directory.path}/recipe.json');
       final metadata = File('${directory.path}/metadata.json');
+      final fingerprint = _fingerprint(originalBytes);
 
-      if (!await source.exists()) {
+      final currentFingerprint =
+          await sourceId.exists() ? await sourceId.readAsString() : null;
+      if (!await source.exists() || currentFingerprint != fingerprint) {
         final sourceTemp = File('${source.path}.tmp');
+        final sourceIdTemp = File('${sourceId.path}.tmp');
         await sourceTemp.writeAsBytes(originalBytes, flush: true);
+        await sourceIdTemp.writeAsString(fingerprint, flush: true);
+        if (await source.exists()) await source.delete();
+        if (await sourceId.exists()) await sourceId.delete();
         await sourceTemp.rename(source.path);
+        await sourceIdTemp.rename(sourceId.path);
       }
 
       final recipeTemp = File('${recipe.path}.tmp');
@@ -110,5 +118,14 @@ class EditorSessionStore {
     });
     _writeTail = completer.catchError((_) {});
     return completer;
+  }
+
+  String _fingerprint(Uint8List bytes) {
+    const sampleSize = 16;
+    final prefix = bytes.take(sampleSize);
+    final suffix = bytes.skip(bytes.length > sampleSize ? bytes.length - sampleSize : 0);
+    String hex(Iterable<int> values) =>
+        values.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+    return '${bytes.length}:${hex(prefix)}:${hex(suffix)}';
   }
 }
