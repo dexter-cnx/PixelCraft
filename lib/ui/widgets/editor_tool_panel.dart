@@ -19,17 +19,20 @@ class EditorToolPanel extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SegmentedButton<EditorTool>(
-          showSelectedIcon: false,
-          segments: const [
-            ButtonSegment(value: EditorTool.adjust, icon: Icon(Icons.tune), label: Text('Adjust')),
-            ButtonSegment(value: EditorTool.filters, icon: Icon(Icons.auto_awesome), label: Text('Filters')),
-            ButtonSegment(value: EditorTool.crop, icon: Icon(Icons.crop), label: Text('Crop')),
-            ButtonSegment(value: EditorTool.rotate, icon: Icon(Icons.rotate_90_degrees_ccw), label: Text('Rotate')),
-            ButtonSegment(value: EditorTool.details, icon: Icon(Icons.analytics_outlined), label: Text('Details')),
-          ],
-          selected: {state.selectedTool},
-          onSelectionChanged: (selection) => controller.selectTool(selection.first),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SegmentedButton<EditorTool>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: EditorTool.adjust, icon: Icon(Icons.tune), label: Text('Adjust')),
+              ButtonSegment(value: EditorTool.filters, icon: Icon(Icons.auto_awesome), label: Text('Filters')),
+              ButtonSegment(value: EditorTool.crop, icon: Icon(Icons.crop), label: Text('Crop')),
+              ButtonSegment(value: EditorTool.rotate, icon: Icon(Icons.rotate_90_degrees_ccw), label: Text('Rotate')),
+              ButtonSegment(value: EditorTool.details, icon: Icon(Icons.analytics_outlined), label: Text('Details')),
+            ],
+            selected: {state.selectedTool},
+            onSelectionChanged: (selection) => controller.selectTool(selection.first),
+          ),
         ),
         const SizedBox(height: 12),
         AnimatedSwitcher(
@@ -105,7 +108,7 @@ class _FilterPanel extends StatelessWidget {
           ),
         ),
         FilterSlider(
-          value: state.value.clamp(0, 1),
+          value: state.value.clamp(0, 1).toDouble(),
           min: 0,
           max: 1,
           onChangeStart: controller.beginAdjustment,
