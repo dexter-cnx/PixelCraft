@@ -34,6 +34,17 @@ abstract interface class ImageEngine {
   Uint8List commitFilter();
   Uint8List cancelFilter();
   EngineResult applyFilterTimed(Uint8List bytes, String filter, double value);
+  Uint8List applyCrop({
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  });
+  Uint8List rotateQuarterTurns(int turns);
+  Uint8List straighten(double degrees);
+  Uint8List flipHorizontal();
+  Uint8List flipVertical();
+  Uint8List resizeCommitted({required int width, required int height});
   Uint8List undo();
   Uint8List redo();
   EngineSessionInfo sessionInfo();
@@ -89,6 +100,32 @@ class RustImageEngine implements ImageEngine {
       elapsedMicros: result.elapsedMicros,
     );
   }
+
+  @override
+  Uint8List applyCrop({
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  }) =>
+      rust.applyCrop(x: x, y: y, width: width, height: height);
+
+  @override
+  Uint8List rotateQuarterTurns(int turns) =>
+      rust.rotateQuarterTurns(turns: turns);
+
+  @override
+  Uint8List straighten(double degrees) => rust.straighten(degrees: degrees);
+
+  @override
+  Uint8List flipHorizontal() => rust.flipHorizontal();
+
+  @override
+  Uint8List flipVertical() => rust.flipVertical();
+
+  @override
+  Uint8List resizeCommitted({required int width, required int height}) =>
+      rust.resizeCommitted(width: width, height: height);
 
   @override
   Uint8List undo() => rust.undo();
