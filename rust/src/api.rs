@@ -1,4 +1,4 @@
-use crate::engine::{decode, encode, encode_png, SessionSnapshot, ENGINE};
+use crate::engine::{decode, encode, encode_png, EditOperation, SessionSnapshot, ENGINE};
 use crate::{filters, photon_filters};
 use fast_image_resize as fir;
 use flutter_rust_bridge::frb;
@@ -113,6 +113,62 @@ pub fn cancel_filter() -> Result<Vec<u8>, String> {
 }
 
 #[frb(sync)]
+pub fn apply_crop(x: f32, y: f32, width: f32, height: f32) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::Crop {
+            x,
+            y,
+            width,
+            height,
+        })
+}
+
+#[frb(sync)]
+pub fn rotate_quarter_turns(turns: u8) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::Rotate90 { turns: turns % 4 })
+}
+
+#[frb(sync)]
+pub fn straighten(degrees: f32) -> Result<Vec<u8>, String> {
+    if !(-15.0..=15.0).contains(&degrees) {
+        return Err("Straighten angle must be between -15 and 15 degrees".to_string());
+    }
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::RotateDegrees { degrees })
+}
+
+#[frb(sync)]
+pub fn flip_horizontal() -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::FlipHorizontal)
+}
+
+#[frb(sync)]
+pub fn flip_vertical() -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::FlipVertical)
+}
+
+#[frb(sync)]
+pub fn resize_committed(width: u32, height: u32) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::Resize { width, height })
+}
+
+#[frb(sync)]
 pub fn session_info() -> Result<EditSessionInfo, String> {
     Ok(ENGINE
         .lock()
@@ -121,8 +177,6 @@ pub fn session_info() -> Result<EditSessionInfo, String> {
         .into())
 }
 
-/// Replays active operations against the original image and encodes the result.
-/// Supported formats: png, jpeg/jpg, webp. Quality is used for JPEG.
 #[frb(sync)]
 pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
     let image = ENGINE
