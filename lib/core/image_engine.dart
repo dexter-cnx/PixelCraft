@@ -51,6 +51,10 @@ abstract interface class ImageEngine {
   Uint8List cancelFilter();
   EngineResult applyFilterTimed(Uint8List bytes, String filter, double value);
 
+  Future<Map<String, Uint8List>> generateFilterPreviews(
+    Uint8List bytes,
+    List<String> filters,
+  );
   Future<EngineCommitResult> commitFilterValue(String filter, double value);
   Future<EngineCommitResult> applyCropInBackground({
     required double x,
@@ -139,6 +143,24 @@ class RustImageEngine implements ImageEngine {
       elapsedMicros: result.elapsedMicros,
     );
   }
+
+  @override
+  Future<Map<String, Uint8List>> generateFilterPreviews(
+    Uint8List bytes,
+    List<String> filters,
+  ) =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        final previews = <String, Uint8List>{};
+        for (final filter in filters) {
+          previews[filter] = rust.applyFilterTimed(
+            imageBytes: bytes,
+            filter: filter,
+            value: 1,
+          ).bytes;
+        }
+        return previews;
+      });
 
   @override
   Future<EngineCommitResult> commitFilterValue(
