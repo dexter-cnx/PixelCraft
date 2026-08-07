@@ -157,7 +157,12 @@ pub fn apply_crop(x: f32, y: f32, width: f32, height: f32) -> Result<Vec<u8>, St
     ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
-        .apply_operation(EditOperation::Crop { x, y, width, height })
+        .apply_operation(EditOperation::Crop {
+            x,
+            y,
+            width,
+            height,
+        })
 }
 
 #[frb(sync)]

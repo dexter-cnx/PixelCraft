@@ -10,18 +10,28 @@ const DEFAULT_PREVIEW_MAX_EDGE: u32 = 1280;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditOperation {
-    Filter { name: String, value: f32 },
+    Filter {
+        name: String,
+        value: f32,
+    },
     Crop {
         x: f32,
         y: f32,
         width: f32,
         height: f32,
     },
-    Rotate90 { turns: u8 },
-    RotateDegrees { degrees: f32 },
+    Rotate90 {
+        turns: u8,
+    },
+    RotateDegrees {
+        degrees: f32,
+    },
     FlipHorizontal,
     FlipVertical,
-    Resize { width: u32, height: u32 },
+    Resize {
+        width: u32,
+        height: u32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -309,11 +319,7 @@ fn apply_operation_to_image(
             }
             if let Some(max_edge) = preview_max_edge {
                 let (target_width, target_height) = fit_dimensions(*width, *height, max_edge);
-                image.resize_exact(
-                    target_width,
-                    target_height,
-                    imageops::FilterType::Triangle,
-                )
+                image.resize_exact(target_width, target_height, imageops::FilterType::Triangle)
             } else {
                 image.resize_exact(*width, *height, imageops::FilterType::Lanczos3)
             }
@@ -327,11 +333,7 @@ fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
         return image;
     }
     let (target_width, target_height) = fit_dimensions(width, height, max_edge);
-    image.resize_exact(
-        target_width,
-        target_height,
-        imageops::FilterType::Triangle,
-    )
+    image.resize_exact(target_width, target_height, imageops::FilterType::Triangle)
 }
 
 fn fit_dimensions(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
@@ -456,7 +458,10 @@ mod tests {
         assert_eq!(snapshot.operation_count, 0);
         assert_eq!(snapshot.cursor, 0);
         assert!(!snapshot.can_undo);
-        assert_eq!(engine.render_full_resolution().unwrap().dimensions(), (40, 30));
+        assert_eq!(
+            engine.render_full_resolution().unwrap().dimensions(),
+            (40, 30)
+        );
     }
 
     #[test]
