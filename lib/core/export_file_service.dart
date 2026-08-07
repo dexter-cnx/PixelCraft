@@ -42,7 +42,7 @@ class ExportFileService {
       try {
         final result = await SaverGallery.saveImage(
           bytes,
-          quality: normalized == 'jpeg' ? 100 : null,
+          quality: 100,
           fileName: fileName,
           androidRelativePath: 'Pictures/PixelCraft',
           skipIfExists: false,
