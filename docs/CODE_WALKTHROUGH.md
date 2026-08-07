@@ -1,49 +1,56 @@
 # PixelCraft Code Walkthrough
 
-เอกสารนี้อธิบายโครงสร้างและลำดับการทำงานของ PixelCraft เวอร์ชันปัจจุบัน ตั้งแต่เปิดแอป เลือกรูป สร้าง preview ปรับ filter จัดการ crop/rotate/flip/straighten ทำ undo/redo เปรียบเทียบก่อน–หลัง และ export ภาพเต็มความละเอียด
+เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft ตั้งแต่เปิดแอป เลือกรูป ส่งงานผ่าน `flutter_rust_bridge` ไปยัง Rust, operation history, full-resolution export, transform tools, responsive editor และ workflow ของ Adjust/Creative Filters
 
-แนวคิดหลักของระบบคือ:
-
-- Flutter รับผิดชอบ UI, interaction และ state projection
-- Rust เป็น source of truth สำหรับ original image, operation history, preview rendering และ full-resolution export
-- ทุกการแก้ไขถูกเก็บเป็น operation ที่ replay ได้ แทนการเก็บสำเนา PNG ทุกขั้น
-- Preview ถูกจำกัดขนาดเพื่อความลื่นไหล แต่ export จะ replay operation กับ original image
+> หลักการสำคัญคือ Flutter รับผิดชอบ UI และ state projection ส่วนงาน decode, filter, histogram, transform, operation replay และ export อยู่ใน Rust โดยงานหนักที่เรียกผ่าน synchronous FRB API ถูก dispatch ผ่าน background Dart isolate เพื่อลดการ block UI isolate
 
 ---
 
-## 1. ภาพรวมสถาปัตยกรรม
+## 1. ภาพรวม data flow
 
-```text
-Flutter UI
-   ↓
-EditorController / Riverpod
-   ↓
-ImageEngine abstraction
-   ↓
-flutter_rust_bridge generated bindings
-   ↓
-rust/src/api.rs
-   ↓
-EngineState + EditOperation
-   ↓
-filters / image transforms / encoder
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Flutter UI
+    participant Controller as EditorController
+    participant Isolate as Background Isolate
+    participant FRB as flutter_rust_bridge
+    participant Rust as Rust API
+    participant Engine as EngineState
+
+    User->>UI: เลือกรูป
+    UI->>Controller: load(bytes)
+    Controller->>Rust: load_image(bytes)
+    Rust->>Engine: reset(original bytes + empty operations)
+    Controller->>Rust: prepare_preview(maxEdge=1280)
+    Rust->>Engine: replay active operations from original
+    Controller->>Rust: original_preview()
+    Controller->>Rust: get_histogram(preview)
+    Controller-->>UI: preview + histogram
+
+    Controller->>Isolate: prewarm creative filter thumbnails
+    Isolate->>Rust: generate_filter_previews(originalPreview, filters, 180)
+    Rust-->>Isolate: thumbnail PNGs
+    Isolate-->>Controller: filter preview map
+
+    User->>UI: ลาก Adjust slider
+    UI-->>UI: update thumb only
+    User->>UI: ปล่อย slider
+    UI->>Controller: commitFilterValue(value)
+    Controller->>Isolate: committed filter task
+    Isolate->>Rust: begin_filter / update_filter_preview / commit_filter
+    Rust->>Engine: append one Filter operation
+    Isolate-->>Controller: preview + histogram + session
+
+    User->>UI: เลือก creative filter
+    UI->>Controller: applyCreativeFilter(name)
+    Controller->>Isolate: commit or replace filter operation
+    Isolate->>Rust: commit filter or undo+replace
+    Rust->>Engine: keep one active creative-filter operation
+    Isolate-->>Controller: updated preview
 ```
 
-ไฟล์หลัก:
-
-| Layer | File | หน้าที่ |
-|---|---|---|
-| App startup | `lib/main.dart` | initialize Flutter และ Rust bridge |
-| Home | `lib/ui/screens/home_screen.dart` | เลือกรูปจาก assets หรือ gallery |
-| Editor UI | `lib/ui/screens/editor_screen.dart` | canvas, app bar, export, responsive layout |
-| Tool controls | `lib/ui/widgets/editor_tool_panel.dart` | Adjust, Filters, Crop, Rotate, Details |
-| State | `lib/state/editor_controller.dart` | editor commands และ state projection |
-| Dart engine boundary | `lib/core/image_engine.dart` | abstraction ระหว่าง Flutter กับ FRB |
-| Export file I/O | `lib/core/export_file_service.dart` | save และ share exported file |
-| Rust API | `rust/src/api.rs` | function ที่ expose ผ่าน FRB |
-| Rust session engine | `rust/src/engine.rs` | original bytes, operations, cursor และ replay |
-| Filters | `rust/src/filters.rs` | core filters |
-| Creative filters | `rust/src/photon_filters.rs` | creative presets |
+Operation history เป็น source of truth ของ state การแก้ไขทั้งหมด ภาพ preview และ full-resolution export จึงเกิดจากการ replay operation list เดียวกัน ไม่ใช่การสะสม PNG snapshots ทีละขั้น
 
 ---
 
@@ -51,301 +58,252 @@ filters / image transforms / encoder
 
 ### `lib/main.dart`
 
-จุดเริ่มต้นเรียก `WidgetsFlutterBinding.ensureInitialized()` และสร้าง `ProviderScope` เพื่อให้ Riverpod providers ใช้งานได้ทั่วแอป
+`main()` เรียก `WidgetsFlutterBinding.ensureInitialized()` และสร้าง `ProviderScope` ให้ Riverpod
 
-แอปไม่ควร block เฟรมแรกด้วย native initialization โดยไม่มี fallback จึงมี bootstrap screen ที่:
-
-1. เรียก `initializeRustBridge()`
-2. แสดง loading state
-3. เปิด `HomeScreen` เมื่อสำเร็จ
-4. แสดง error และ Retry เมื่อ native library โหลดไม่สำเร็จหรือ timeout
+แอปไม่ block เฟรมแรกเพื่อรอ native library แต่ใช้ bootstrap screen เพื่อ initialize Rust bridge พร้อม error/retry state
 
 ### `lib/core/bridge.dart`
 
-`initializeRustBridge()` ครอบ `RustLib.init()` ซึ่งมาจาก FRB-generated bindings
+`initializeRustBridge()` ทำหน้าที่ initialize `RustLib` เพียงครั้งเดียว โดยแชร์ in-flight Future และ reset state หาก initialization ล้มเหลว เพื่อให้ Retry ทำงานจริง
 
-กลไกสำคัญ:
-
-- ป้องกัน initialization ซ้ำ
-- แชร์ Future เดียวกันเมื่อมีหลาย caller
-- reset Future เมื่อ initialization ล้มเหลว เพื่อให้ Retry ทำงานจริง
-
-เมื่อ Rust API เปลี่ยน ต้องรัน:
-
-```bash
-make codegen
-```
-
-ไฟล์ generated ใน `lib/src/rust/` และ Rust bridge code ต้องถูก commit หลังตรวจสอบแล้ว
+Background isolate ที่ต้องเรียก FRB จะเรียก `initializeRustBridge()` ภายใน isolate นั้นก่อนใช้งาน native API
 
 ---
 
-## 3. การเลือกรูปจาก Home
+## 3. Home และการนำเข้ารูป
 
 ### `lib/ui/screens/home_screen.dart`
 
-ผู้ใช้เลือกรูปได้จาก:
+ผู้ใช้เปิดรูปจาก sample asset หรือ Gallery แล้วส่ง compressed bytes ไป `EditorScreen`
 
-- sample assets
-- device gallery ผ่าน `image_picker`
-
-Home อ่าน compressed image bytes แต่ไม่ decode ใน Dart จากนั้นส่ง bytes เข้า `EditorScreen`:
-
-```dart
-EditorScreen(imageBytes: bytes)
-```
-
-การไม่ decode รูปใน Dart ช่วยให้ ownership ของ image-processing pipeline อยู่ใน Rust อย่างชัดเจน
+Dart ไม่ decode image ที่หน้า Home งาน decode อยู่ใน Rust
 
 ---
 
-## 4. การโหลด image session
+## 4. Operation-based image engine
 
-### `EditorScreen.initState()`
+### `rust/src/engine.rs`
 
-เมื่อเปิดหน้า Editor จะเรียก:
+`EngineState` เก็บข้อมูลหลัก:
 
-```dart
-Future.microtask(
-  () => ref.read(editorProvider.notifier).load(bytes),
-);
-```
+- `original` — compressed source image เดิม
+- `operations` — รายการ `EditOperation`
+- `cursor` — จำนวน operation ที่ active
+- `preview_max_edge` — ขนาดสูงสุดของ editor preview
+- transaction state ของ filter ที่กำลัง commit
 
-ใช้ microtask เพื่อหลีกเลี่ยงการเปลี่ยน provider ระหว่าง widget tree กำลัง build
+`EditOperation` รองรับ:
 
-### `EditorController.load()`
+- Filter
+- Crop
+- Rotate 90°
+- Rotate degrees / Straighten
+- Flip horizontal
+- Flip vertical
+- Resize
 
-ลำดับคือ:
+### Replay
 
-```text
-loadImage(original bytes)
-preparePreview(maxEdge: 1280)
-originalPreview()
-getHistogram(preview)
-sessionInfo()
-```
+`render_full_resolution()` decode original แล้ว replay operation ตั้งแต่ index `0..<cursor`
 
-### `rust/src/api.rs::load_image()`
+`render_preview()` ใช้ผล replay เดียวกัน แต่ย่อให้ไม่เกิน `preview_max_edge`
 
-Rust decode ภาพเพื่อตรวจสอบว่า bytes ถูกต้อง แล้วเรียก:
-
-```rust
-ENGINE.lock()?.reset(bytes)
-```
-
-### `EngineState.reset()`
-
-รีเซ็ต session เป็น:
-
-```text
-original = compressed source bytes
-operations = []
-cursor = 0
-preview_max_edge = 1280
-pending transaction = none
-```
-
-Original bytes ไม่ถูกแทนที่ด้วย preview และไม่ถูก encode ซ้ำในขั้นนี้
+ข้อดีคือ preview และ export ใช้ semantics เดียวกัน และการ Undo/Redo ไม่ต้องเก็บ full image ทุก state
 
 ---
 
-## 5. Operation-based editing model
+## 5. Undo / Redo ด้วย operation cursor
 
-### `rust/src/engine.rs::EditOperation`
+Undo ลด `cursor` ลงหนึ่ง ส่วน Redo เพิ่ม `cursor` หากยังมี operation ด้านหน้า
 
-ทุกการแก้ไขถูกเก็บเป็น enum:
+หาก Undo แล้ว commit operation ใหม่ engine จะ truncate redo tail ก่อน append operation ใหม่
 
-```rust
-pub enum EditOperation {
-    Filter { name: String, value: f32 },
-    Crop { x: f32, y: f32, width: f32, height: f32 },
-    Rotate90 { turns: u8 },
-    RotateDegrees { degrees: f32 },
-    FlipHorizontal,
-    FlipVertical,
-    Resize { width: u32, height: u32 },
-}
-```
+`session_info()` ส่งข้อมูลกลับ Flutter:
 
-จุดสำคัญ:
+- operation count
+- cursor
+- canUndo
+- canRedo
+- session version
 
-- Crop ใช้ normalized coordinates ช่วง `0.0..1.0`
-- Rotate90 เก็บจำนวน quarter turns
-- Straighten เก็บเป็นองศา
-- Resize เก็บ output dimensions
-- Filter เก็บชื่อและค่า intensity
+Flutter ใช้ข้อมูลนี้เปิด/ปิดปุ่ม Undo/Redo และแสดง `Editor · cursor/operationCount edits`
 
-Operation เหล่านี้ใช้ทั้ง preview, undo/redo และ export จึงไม่มี editing model สองชุด
+---
 
-### `EngineState`
+## 6. Editor state และ background processing
 
-State หลักใน Rust:
+### `lib/state/editor_controller.dart`
+
+`EditorState` เป็น immutable projection สำหรับ UI โดยเก็บ:
+
+- original / preview bytes
+- histogram
+- selected Adjust filter
+- selected creative filter
+- creative filter intensity
+- creative filter thumbnail map
+- selected tool
+- straighten value
+- processing timing
+- busy/export states
+- operation cursor state
+
+งาน filter/transform/undo/redo/export ถูกเรียกผ่าน abstraction ใน `ImageEngine`
+
+### `lib/core/image_engine.dart`
+
+`RustImageEngine` มี synchronous methods สำหรับ native API โดยตรง และ background methods ที่ใช้ `Isolate.run()` สำหรับงานที่อาจใช้เวลานาน
+
+ตัวอย่าง background operation:
 
 ```text
-original
-operations
-cursor
-preview_max_edge
-preview_base
-pending_operation
-pending_preview
-active_filter
+Flutter UI isolate
+    -> Isolate.run
+        -> Rust FRB sync API
+        -> histogram
+        -> session_info
+    <- EngineCommitResult
 ```
 
-`cursor` คือจำนวน operation ที่ active อยู่
+ผลคือ pointer/scroll/animation บน UI isolate ไม่ต้องรอ synchronous native call โดยตรง
+
+---
+
+## 7. Adjust controls: process ตอนปล่อย slider เท่านั้น
+
+### `lib/ui/widgets/filter_slider.dart`
+
+`FilterSlider` อัปเดต `_value` ภายใน widget ตอนลาก เพื่อให้ thumb และตัวเลขตอบสนองทันที
+
+ระหว่าง `onChanged` ไม่มี Rust processing
+
+เมื่อผู้ใช้ปล่อย thumb จึงเรียก `onChangeEnd` เพียงครั้งเดียว
+
+### Adjust flow
+
+```text
+ลาก slider
+  -> Flutter local state only
+
+ปล่อย slider
+  -> EditorController.commitFilterValue(value)
+  -> background isolate
+  -> Rust begin_filter
+  -> Rust update_filter_preview(final value)
+  -> Rust commit_filter
+  -> operation history +1
+```
+
+ดังนั้นหนึ่ง slider gesture เท่ากับหนึ่ง committed operation และไม่มี realtime image processing ระหว่างลาก
+
+---
+
+## 8. Creative Filters
+
+Creative filters ได้แก่:
+
+- grayscale
+- invert
+- vintage
+- oceanic
+- lofi
+- dramatic
+- golden
+- pastel pink
+
+### ไม่มี default filter
+
+เมื่อเข้า Filters ครั้งแรก `selectedCreativeFilter` เป็นค่าว่าง จึงไม่มี filter ไหนถูกเลือกโดยอัตโนมัติ
+
+### Thumbnail preview prewarming
+
+หลัง `load()` รูปเสร็จ Controller จะเริ่ม generate filter thumbnails ล่วงหน้าแบบ fire-and-forget โดยไม่ต้องรอให้ผู้ใช้เปิด Filters
+
+Source ของ thumbnail คือ `originalPreviewBytes` ที่ได้จากรูปก่อน creative filter selection
+
+จึงมีคุณสมบัติสำคัญสองข้อ:
+
+1. เปิด Filters แล้วโดยปกติ thumbnails พร้อมใช้งานแล้ว
+2. thumbnails ไม่ถูก regenerate ทุกครั้งที่ผู้ใช้ลอง filter ใหม่
+
+### Fast Rust thumbnail generation
+
+`rust/src/api.rs::generate_filter_previews()` ทำงานแบบ batch:
+
+1. decode source เพียงครั้งเดียว
+2. resize source เพียงครั้งเดียวให้ด้านยาวประมาณ 180 px
+3. apply creative filters จาก thumbnail base เดียวกัน
+4. ใช้ Rayon ประมวลผล filter variants แบบ parallel
+5. encode thumbnail แต่ละตัวเป็น PNG
+
+วิธีนี้เร็วกว่า implementation เดิมที่ decode + filter รูป preview ขนาดใหญ่ซ้ำทีละ filter
+
+Thumbnail มีหน้าที่เป็น style preview จึงไม่จำเป็นต้องใช้ editor preview ขนาด 1280 px
+
+### Filter selection ไม่ stack ต่อกัน
+
+เมื่อผู้ใช้เลือก creative filter ตัวแรก ระบบ append Filter operation หนึ่งรายการ
+
+หากผู้ใช้กด filter ตัวอื่นต่อ ระบบใช้ `replaceFilterValue()`:
+
+```text
+undo active creative filter
+-> begin new filter from image base ก่อน creative filter
+-> render final value
+-> commit
+```
+
+ดังนั้น:
+
+```text
+Original/base -> Vintage
+```
+
+แล้วเปลี่ยนเป็น Oceanic จะกลายเป็น:
+
+```text
+Original/base -> Oceanic
+```
+
+ไม่ใช่:
+
+```text
+Original/base -> Vintage -> Oceanic
+```
+
+operation count จึงไม่เพิ่มทุกครั้งที่ลอง filter ใหม่
+
+### Creative filter intensity slider
+
+หลังเลือก filter แล้ว UI จะแสดง intensity slider ช่วง `0.0..1.0`
+
+เช่น:
+
+```text
+Vintage 1.00
+```
+
+ระหว่างลาก slider จะเปลี่ยนเฉพาะ thumb/value เช่นเดียวกับ Adjust
+
+เมื่อปล่อย slider จึงเรียก `updateCreativeFilterValue()` ซึ่ง replace operation เดิมแทนการ stack operation ใหม่
 
 ตัวอย่าง:
 
 ```text
-operations = [brightness, crop, rotate, vintage]
-cursor = 2
+Vintage 1.00 -> Vintage 0.45
 ```
 
-หมายถึงภาพปัจจุบันใช้เฉพาะ `brightness` และ `crop` ส่วน `rotate` กับ `vintage` เป็น redo items
+ยังคงเป็น Filter operation เดียว
 
 ---
 
-## 6. Preview rendering
+## 9. Crop / Rotate / Flip / Straighten
 
-### `prepare_preview()`
+Transform tools เป็น replayable operations ทั้งหมด
 
-Dart ส่ง `maxEdge: 1280` ไป Rust
+### Crop
 
-Rust เก็บค่าใน `preview_max_edge` แล้วเรียก `render_preview()`
-
-### `render_preview_image()`
-
-ขั้นตอน:
-
-1. decode original bytes
-2. replay active operations ตั้งแต่ index `0` ถึง `cursor - 1`
-3. ตรวจด้านยาวของภาพ
-4. ถ้าเกิน `preview_max_edge` ให้ resize ด้วย Lanczos3
-5. encode preview เป็น PNG
-
-จึงต่างจากระบบเดิมที่เก็บ preview PNG เป็น history โดยตรง
-
-Preview มีหน้าที่เพื่อ UI เท่านั้น ส่วน original image และ operation list ยังคงอยู่ใน Rust
-
----
-
-## 7. Filter transaction
-
-Filter slider ต้องไม่สร้าง operation ทุก pointer event จึงใช้ transaction สามขั้น
-
-### 7.1 `beginAdjustment()`
-
-Flutter เรียก:
-
-```dart
-_engine.beginFilter(state.selectedFilter)
-```
-
-Rust เรียก `begin_filter()` และสร้าง `preview_base` จาก committed operations ปัจจุบัน
-
-ภาพฐานนี้คงที่ตลอด gesture
-
-### 7.2 `previewValue()`
-
-เมื่อ slider เปลี่ยนค่า:
-
-```dart
-final result = _engine.updateFilterPreview(filter, value)
-```
-
-Rust:
-
-1. clone `preview_base`
-2. apply filter ด้วยค่าล่าสุด
-3. encode PNG preview
-4. เก็บ `pending_operation`
-5. เก็บ `pending_preview`
-6. ส่ง bytes และ elapsed time กลับ Dart
-
-ทุก tick จึงประมวลผลจาก base เดิม ไม่ได้นำผล tick ก่อนหน้ามาปรับซ้ำ
-
-### 7.3 `commitAdjustment()`
-
-เมื่อปล่อย slider:
-
-```dart
-_engine.commitFilter()
-```
-
-Rust push `pending_operation` เพียงรายการเดียวลง history
-
-ถ้าผู้ใช้ลากผ่าน 20 ค่า แต่ปล่อยครั้งเดียว จะเกิดเพียงหนึ่ง committed operation
-
-### `FilterSlider`
-
-Widget throttle callback ประมาณหนึ่งครั้งต่อ frame เพื่อไม่เรียก Rust ทุก pointer event แต่ UI thumb ยังเคลื่อนทันทีด้วย local state
-
----
-
-## 8. Crop, Rotate, Flip และ Straighten
-
-### Dart boundary: `ImageEngine`
-
-เพิ่ม methods:
-
-```dart
-applyCrop(...)
-rotateQuarterTurns(turns)
-straighten(degrees)
-flipHorizontal()
-flipVertical()
-resizeCommitted(...)
-```
-
-`RustImageEngine` แปลง call เหล่านี้ไปยัง generated FRB functions
-
-### Rust API
-
-`rust/src/api.rs` expose:
-
-```text
-apply_crop
-rotate_quarter_turns
-straighten
-flip_horizontal
-flip_vertical
-resize_committed
-```
-
-ทุก method สร้าง `EditOperation` แล้วเรียก:
-
-```rust
-engine.apply_operation(operation)
-```
-
-### `apply_operation()`
-
-ขั้นตอน:
-
-1. clear filter transaction ที่ค้าง
-2. truncate operations หลัง cursor
-3. push operation ใหม่
-4. เลื่อน cursor ไปท้าย list
-5. render preview ใหม่
-
-ดังนั้น transform ทุกตัว undo/redo ได้ และ commit หลัง undo จะลบ redo branch ตามพฤติกรรม editor ปกติ
-
-### Crop presets
-
-`EditorController.applyCenteredCrop()` คำนวณ normalized crop rectangle จาก aspect ratio
-
-ตัวอย่าง `1:1`:
-
-```text
-width = 1.0
-height = 1.0
-x = 0.0
-y = 0.0
-```
-
-สำหรับ landscape ratio เช่น `16:9` จะลด normalized height และจัดให้อยู่กึ่งกลาง
-
-Preset ปัจจุบัน:
+ปัจจุบันมี centered aspect presets:
 
 - 1:1
 - 4:3
@@ -353,328 +311,151 @@ Preset ปัจจุบัน:
 - 16:9
 - 9:16
 
+ค่าที่ส่ง Rust เป็น normalized coordinates
+
+### Rotate
+
+รองรับ quarter-turn ซ้าย/ขวา
+
+### Flip
+
+รองรับ horizontal และ vertical
+
 ### Straighten
 
-Straighten จำกัดค่า `-15°..15°`
+Slider ช่วง -15°..15°
 
-Rust ใช้ `imageproc::geometric_transformations::rotate_about_center` แบบ bilinear interpolation และเติมพื้นที่ว่างด้วย transparent pixels
-
-ค่าที่ใกล้ `0°` จะไม่สร้าง operation เพื่อหลีกเลี่ยง no-op history entry
+ขณะลากเปลี่ยนเฉพาะ Flutter state และ commit ตอนปล่อย slider เพื่อหลีกเลี่ยง expensive rotation ทุก pointer update
 
 ---
 
-## 9. Undo และ Redo
+## 10. Before / After
 
-### `SessionSnapshot`
+`original_preview()` สร้าง preview จาก original source image
 
-Rust ส่ง state summary ผ่าน `session_info()`:
+`EditorState.visiblePreview` สลับระหว่าง original preview กับ edited preview ตาม `showOriginal`
 
-```text
-version
-operation_count
-cursor
-can_undo
-can_redo
-```
-
-Dart map เป็น `EngineSessionInfo`
-
-### Undo
-
-```rust
-cursor = cursor.saturating_sub(1)
-render_preview()
-```
-
-ไม่มีการลบ operation ออกจาก list
-
-### Redo
-
-```rust
-if cursor < operations.len() {
-    cursor += 1;
-}
-render_preview()
-```
-
-### Controller projection
-
-หลัง command ทุกตัว `_applyCommittedPreview()` จะ refresh:
-
-- preview bytes
-- histogram
-- operation count
-- cursor
-- canUndo
-- canRedo
-
-AppBar แสดง:
-
-```text
-Editor · 3/5 edits
-```
-
-หมายถึง active 3 operations จากทั้งหมด 5 รายการ
+Editor ใช้ long-press gesture เพื่อแสดง original ชั่วคราว
 
 ---
 
-## 10. Before / After comparison
+## 11. Full-resolution export
 
-ตอน load controller ขอ `originalPreview()` จาก Rust และเก็บใน `originalPreviewBytes`
-
-`EditorState.visiblePreview` เลือก:
-
-```dart
-showOriginal
-  ? originalPreviewBytes ?? previewBytes
-  : previewBytes
-```
-
-`EditorScreen` ใช้ long press บน canvas:
-
-- `onLongPressStart` → แสดง original
-- `onLongPressEnd` → กลับ edited preview
-- `onLongPressCancel` → reset state
-
-Chip คำว่า `Original` แสดงผ่าน `AnimatedOpacity`
-
-Original preview ถูกสร้างหนึ่งครั้งตอน load ไม่ได้ decode ใหม่ทุกครั้งที่กดค้าง
-
----
-
-## 11. Tool-based Editor UI
-
-### `EditorTool`
-
-```dart
-enum EditorTool {
-  adjust,
-  filters,
-  crop,
-  rotate,
-  details,
-}
-```
-
-### `EditorToolPanel`
-
-ใช้ `SegmentedButton` สำหรับเลือก tool
-
-#### Adjust
-
-แสดง core filters และ slider ช่วง `0..2`
-
-#### Filters
-
-แสดง creative filters แบบ horizontal list และ slider ช่วง `0..1`
-
-#### Crop
-
-แสดง aspect-ratio presets
-
-#### Rotate
-
-มี:
-
-- rotate left
-- rotate right
-- flip horizontal
-- flip vertical
-- straighten slider
-
-#### Details
-
-แสดง histogram, Rust processing time และ operation cursor
-
-Tool navigation ถูกห่อด้วย horizontal scroll เพื่อไม่ overflow บนโทรศัพท์จอแคบ
-
----
-
-## 12. Responsive Editor layout
-
-`EditorScreen` ใช้ `LayoutBuilder`
-
-### Width ต่ำกว่า 900 px
-
-```text
-AppBar
-Canvas
-Tool panel ด้านล่าง
-```
-
-เหมาะกับ phone และ small tablet
-
-### Width ตั้งแต่ 900 px
-
-```text
-AppBar
-Canvas                         Tool panel
-                               fixed width 360
-```
-
-Canvas ใช้พื้นที่ flex 3 ส่วน และ tool panel อยู่ด้านขวา
-
-การแยก layout นี้ช่วยให้ tablet ไม่ต้องบีบ controls ไว้ใต้ภาพ และลด vertical scrolling
-
----
-
-## 13. Histogram และ performance information
-
-`get_histogram()` decode preview เป็น RGBA และใช้ Rayon ประมวลผลแบบ parallel
-
-ผลลัพธ์มี 768 bins:
-
-```text
-0..255     Red
-256..511   Green
-512..767   Blue
-```
-
-Histogram คำนวณจาก preview ไม่ใช่ full-resolution original เพื่อควบคุม latency
-
-`ProcessedImage.elapsed_micros` เป็น `u64` ใน Rust และถูก map เป็น `BigInt` ใน Dart
-
-Controller แปลงเป็น milliseconds:
-
-```dart
-result.elapsedMicros.toDouble() / 1000.0
-```
-
-ค่าดังกล่าวเป็นเวลาที่ Rust ใช้ประมวลผลและ encode preview ไม่ใช่ frame rendering time ทั้งหมดของ Flutter
-
----
-
-## 14. Full-resolution export
-
-### `EditorController.exportImage()`
-
-รับ:
-
-```text
-format
-quality
-```
-
-แล้วเรียก Rust ผ่าน `ImageEngine`
-
-### `rust/src/api.rs::export_image()`
-
-ขั้นตอน:
-
-1. lock engine
-2. decode original image
-3. replay active operations ถึง cursor
-4. encode ตาม format
+Export ไม่ upscale preview แต่เรียก Rust ให้ replay active operations จาก original resolution
 
 รองรับ:
 
 - PNG
-- JPEG/JPG พร้อม quality `1..100`
+- JPEG พร้อม quality
 - WebP
 
-Export ไม่ใช้ `previewBytes` จึงไม่สูญเสีย resolution จาก preview limit 1280 px
+`ExportFileService` บันทึกไฟล์ลง app documents และเปิด system share sheet ได้
 
-Crop, filter, rotate, flip และ straighten ถูก replay ด้วย pipeline เดียวกับ preview
-
-### `ExportFileService`
-
-รับ bytes จาก Rust แล้ว:
-
-1. หา application documents directory
-2. สร้างชื่อไฟล์ตาม timestamp
-3. เขียน bytes ลง disk
-4. ส่ง file path กลับ UI
-5. แชร์ผ่าน system share sheet เมื่อผู้ใช้เลือก Share
-
-ปัจจุบันเป็น save-to-app-documents + share ยังไม่ใช่ direct insertion เข้า Android Gallery หรือ iOS Photos
+ปัจจุบันยังไม่ได้เขียนเข้า Android Gallery / iOS Photos โดยตรง
 
 ---
 
-## 15. Error handling
+## 12. Responsive Editor UI
 
-Controller ครอบ engine calls ด้วย `try/catch` และ project error เป็น string ใน `EditorState.error`
+### `lib/ui/screens/editor_screen.dart`
 
-กรณีสำคัญ:
+หน้าจอใช้ `LayoutBuilder`
 
-- image decode ล้มเหลว
-- engine mutex poisoned
-- invalid crop size
-- invalid resize dimensions
-- straighten เกินช่วง
-- unsupported export format
-- file write/share ล้มเหลว
+- compact width: canvas ด้านบน + tool controls ด้านล่าง
+- width >= 900 px: canvas ซ้าย + side tool panel ขวา
 
-UI แสดง load error กลางหน้าจอ และ export error ผ่าน `SnackBar`
+### `EditorToolPanel`
+
+Tools หลัก:
+
+- Adjust
+- Filters
+- Crop
+- Rotate
+- Details
+
+Tool navigation เลื่อนได้แนวนอนบนหน้าจอแคบ
+
+ระหว่าง heavy committed operation จะ disable controls และ Editor แสดง processing overlay
 
 ---
 
-## 16. Test strategy
+## 13. Histogram
+
+Rust คำนวณ RGB histogram 768 bins:
+
+- 0..255 = Red
+- 256..511 = Green
+- 512..767 = Blue
+
+การ aggregate pixels ใช้ Rayon เพื่อลดเวลาประมวลผลบนภาพ preview
+
+Flutter มีหน้าที่วาดผลลัพธ์เท่านั้น
+
+---
+
+## 14. flutter_rust_bridge code generation
+
+เมื่อ Rust public API เปลี่ยน ต้อง regenerate Dart/Rust bridge files:
+
+```bash
+make codegen
+```
+
+หรือ workflow integration ที่ project กำหนดไว้
+
+การเพิ่ม `generate_filter_previews()` เปลี่ยน FRB API ดังนั้น branch นี้ต้อง commit generated bridge files หลังรัน codegen
+
+---
+
+## 15. Testing strategy
 
 ### Rust unit tests
 
-ตรวจ:
+ครอบคลุม:
 
-- slider gesture สร้าง operation เดียว
-- transform operations replay ได้
-- undo/redo เลื่อน cursor
-- commit ใหม่หลัง undo ลบ redo branch
-- crop bounds และ resize validation
+- filters
+- operation replay
+- undo/redo
+- truncate redo tail
+- transform operations
 
 ### Controller tests
 
-ใช้ `FakeImageEngine` เพื่อทดสอบ:
+ครอบคลุม:
 
-- load original/preview/histogram
-- filter transaction
-- operation cursor
-- crop/rotate/flip/straighten
-- tool selection
+- load state
+- commit-only Adjust slider
+- prewarm creative filter thumbnails
+- no default creative filter
+- filter replacement โดย operation count ไม่เพิ่ม
+- creative intensity replacement
+- transforms
 - undo/redo
-- before/after
 - export
 
 ### Widget tests
 
-ตรวจ:
+ครอบคลุม:
 
-- Editor load สำเร็จ
-- filter gesture เรียก begin/preview/commit
-- Undo/Redo enabled ตาม session state
-- dynamic AppBar title
-- tool interactions
+- Adjust slider ไม่ process ระหว่างลาก
+- creative preview cards
+- slider ปรากฏหลังเลือก creative filter
+- เปลี่ยน creative filter แล้ว operation count คงเดิม
+- creative intensity process ตอนปล่อย slider
+- Undo/Redo buttons
 
 ### Golden tests
 
-ครอบคลุมอย่างน้อย:
+เมื่อ layout/Filters UI เปลี่ยน ต้อง regenerate baseline และ review รูปก่อน commit
 
-- Home phone
-- Editor phone
-- Export dialog
-- Before comparison
+### Native smoke test
 
-เมื่อ UI layout เปลี่ยนต้องรัน:
-
-```bash
-make golden-update
-make golden-test
-```
-
-และ review ภาพ baseline ก่อน commit
-
-### Native integration test
-
-ทดสอบบน device จริงเพื่อยืนยันว่า:
-
-- Rust shared library ถูก bundle
-- FRB init สำเร็จ
-- native API เรียกได้
-- image processing คืนค่าถูกต้อง
+ยืนยันว่า native Rust library โหลดและเรียก FRB ได้บน device จริง
 
 ---
 
-## 17. Validation workflow
-
-หลังแก้ Rust API หรือ operation schema:
+## 16. Validation ก่อน merge
 
 ```bash
 flutter pub get
@@ -691,18 +472,53 @@ make verify-native
 make native-test DEVICE=RF8Y909V0LV
 ```
 
-Generated files, lockfile และ golden baselines ที่เปลี่ยนควรถูกตรวจ diff และ commit ใน feature branch เดียวกัน
+ควร run แอปจริงเพิ่มเติมเพื่อประเมิน interaction latency ของภาพขนาดใหญ่
 
 ---
 
-## 18. ข้อจำกัดปัจจุบัน
+## 17. ข้อจำกัดที่ยังเหลือ
 
-- Rust calls ส่วนใหญ่ยังเป็น synchronous bridge calls
-- Straighten commit ตอนปล่อย slider ยังไม่มี live native preview ระหว่างลาก
-- Crop ปัจจุบันเป็น centered presets ยังไม่มี interactive crop handles
-- Direct save เข้า Gallery/Photos ยังไม่มี
-- Tablet breakpoint ใช้ fixed threshold 900 px
-- Session ยังไม่ persist หลัง process ถูก kill
-- ยังไม่มี stale-request protection สำหรับ async preview pipeline
+- interactive crop frame ยังไม่มี
+- crop gesture/pan/zoom ยังไม่มี
+- direct save เข้า system photo library ยังไม่มี
+- native operation cancellation ยังไม่มี
+- full-resolution export ยังอาจใช้เวลาหลายวินาทีสำหรับไฟล์ขนาดใหญ่มาก
+- creative thumbnails เป็น style preview จาก original preview จึงไม่ regenerate ตาม transform/adjust ล่าสุด เพื่อแลกกับการเปิด Filters ที่รวดเร็วและ behavior ที่คงที่
 
-ข้อจำกัดเหล่านี้เป็นจุดต่อยอดสำหรับ async rendering, draft recovery, interactive crop และ production-quality media saving ในลำดับถัดไป
+---
+
+## สรุป architecture
+
+```text
+Flutter
+  UI / local slider interaction
+        |
+        v
+EditorController / Riverpod
+        |
+        +--> thumbnail prewarm isolate
+        |       |
+        |       v
+        |   Rust batch thumbnail generator
+        |
+        +--> committed-operation isolate
+                |
+                v
+         flutter_rust_bridge
+                |
+                v
+             Rust API
+                |
+                v
+      EngineState + EditOperation
+                |
+       +--------+---------+
+       |                  |
+    Preview          Full-resolution
+       |                  |
+       +--------+---------+
+                |
+             Export
+```
+
+หัวใจของ PixelCraft คือ operation-based non-destructive editing: Flutter ไม่ถือ image history เอง และ UI interaction ที่ถี่ไม่ควร trigger expensive image processing ทุก event ขณะที่ Rust เป็นผู้ replay operation และสร้าง output ทั้ง preview และ full-resolution export
