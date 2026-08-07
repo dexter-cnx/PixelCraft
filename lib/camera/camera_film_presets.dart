@@ -18,7 +18,10 @@ class CameraFilmPreset {
   bool get isOriginal => id.isEmpty;
 
   ColorFilter colorFilter(double strength) => ColorFilter.matrix(
-        interpolateColorMatrix(matrix, strength.clamp(0.0, 1.0)),
+        interpolateColorMatrix(
+          matrix,
+          strength.clamp(0.0, 1.0).toDouble(),
+        ),
       );
 }
 
