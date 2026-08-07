@@ -53,9 +53,11 @@ abstract interface class ImageEngine {
 
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
-    List<String> filters,
-  );
+    List<String> filters, {
+    int maxEdge = 180,
+  });
   Future<EngineCommitResult> commitFilterValue(String filter, double value);
+  Future<EngineCommitResult> replaceFilterValue(String filter, double value);
   Future<EngineCommitResult> applyCropInBackground({
     required double x,
     required double y,
@@ -147,19 +149,19 @@ class RustImageEngine implements ImageEngine {
   @override
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
-    List<String> filters,
-  ) =>
+    List<String> filters, {
+    int maxEdge = 180,
+  }) =>
       Isolate.run(() async {
         await initializeRustBridge();
-        final previews = <String, Uint8List>{};
-        for (final filter in filters) {
-          previews[filter] = rust.applyFilterTimed(
-            imageBytes: bytes,
-            filter: filter,
-            value: 1,
-          ).bytes;
-        }
-        return previews;
+        final generated = rust.generateFilterPreviews(
+          imageBytes: bytes,
+          filterNames: filters,
+          maxEdge: maxEdge,
+        );
+        return <String, Uint8List>{
+          for (final preview in generated) preview.name: preview.bytes,
+        };
       });
 
   @override
@@ -168,6 +170,19 @@ class RustImageEngine implements ImageEngine {
     double value,
   ) =>
       _runCommittedRustTask(() {
+        rust.beginFilter(filter: filter);
+        final preview = rust.updateFilterPreview(filter: filter, value: value);
+        final bytes = rust.commitFilter();
+        return (bytes: bytes, elapsedMicros: preview.elapsedMicros);
+      });
+
+  @override
+  Future<EngineCommitResult> replaceFilterValue(
+    String filter,
+    double value,
+  ) =>
+      _runCommittedRustTask(() {
+        rust.undo();
         rust.beginFilter(filter: filter);
         final preview = rust.updateFilterPreview(filter: filter, value: value);
         final bytes = rust.commitFilter();
