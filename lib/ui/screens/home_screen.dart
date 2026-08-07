@@ -18,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final EditorSessionStore _sessionStore = EditorSessionStore();
   bool _isImporting = false;
   bool _isRecovering = false;
+  String _importLabel = 'Importing image…';
   StoredEditorSession? _recoverableSession;
 
   @override
@@ -72,14 +73,23 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _recoverableSession = null);
   }
 
-  Future<void> _importFromGallery() async {
+  Future<void> _pickImage(ImageSource source) async {
     if (_isImporting || _isRecovering) return;
 
+    final isCamera = source == ImageSource.camera;
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery);
+      final picked = await _picker.pickImage(
+        source: source,
+        preferredCameraDevice: CameraDevice.rear,
+        imageQuality: 100,
+        requestFullMetadata: false,
+      );
       if (picked == null || !mounted) return;
 
-      setState(() => _isImporting = true);
+      setState(() {
+        _isImporting = true;
+        _importLabel = isCamera ? 'Preparing captured photo…' : 'Importing image…';
+      });
       final bytes = await picked.readAsBytes();
       if (!mounted) return;
 
@@ -93,9 +103,43 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _isImporting = false);
+      final action = isCamera ? 'Camera capture' : 'Import';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $error')),
+        SnackBar(content: Text('$action failed: $error')),
       );
+    }
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    if (_isImporting || _isRecovering) return;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              subtitle: const Text('Capture with the device camera'),
+              onTap: () => Navigator.of(context).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              subtitle: const Text('Open an existing image on this device'),
+              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (source != null && mounted) {
+      await _pickImage(source);
     }
   }
 
@@ -125,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Flutter interface, Rust processing engine, zero uploads.',
+                      'Capture or import a photo, then edit it locally with Rust-powered processing.',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     if (_recoverableSession != null) ...[
@@ -218,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2.5),
                           ),
                           const SizedBox(width: 12),
-                          Text(_isRecovering ? 'Recovering session…' : 'Importing image…'),
+                          Text(_isRecovering ? 'Recovering session…' : _importLabel),
                         ],
                       ),
                     ),
@@ -234,9 +278,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 dimension: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Icons.add_photo_alternate_outlined),
-        label: Text(_isImporting ? 'Importing…' : 'Import from Gallery'),
-        onPressed: blocked ? null : _importFromGallery,
+            : const Icon(Icons.add_a_photo_outlined),
+        label: Text(_isImporting ? 'Preparing…' : 'Add Photo'),
+        onPressed: blocked ? null : _showImageSourceSheet,
       ),
     );
   }
