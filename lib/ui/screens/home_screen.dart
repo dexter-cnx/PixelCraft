@@ -77,7 +77,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final picked = await _picker.pickImage(
         source: source,
         preferredCameraDevice: CameraDevice.rear,
-        imageQuality: 100,
+        // Keep the camera's full pixel dimensions, but avoid an unnecessarily
+        // huge quality-100 JPEG. A high-quality 92 JPEG is typically much
+        // smaller to read, transfer to Rust and persist for recovery.
+        // Gallery imports remain untouched.
+        imageQuality: isCamera ? 92 : null,
         requestFullMetadata: false,
       );
       if (picked == null || !mounted) return;
