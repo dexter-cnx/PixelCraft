@@ -48,7 +48,7 @@ must remain three semantic operations. Changing Brightness again may replace onl
 
 ## Film Profiles
 
-Film Profiles are represented as a first-class Rust operation:
+Film Profiles remain a first-class Rust operation:
 
 ```rust
 EditOperation::FilmProfile {
@@ -56,6 +56,16 @@ EditOperation::FilmProfile {
     strength,
 }
 ```
+
+The color science is no longer hardcoded in Rust. Each bundled profile is sourced from files:
+
+```text
+rust/film_profiles/<profile-id>/
+  profile.json
+  lut.cube
+```
+
+`profile.json` owns metadata such as id, display name, description and default strength. `lut.cube` owns the actual 3D color transform. Rust embeds the bundled files with `include_str!`, parses them once through a lazy cache, validates the LUT shape/domain, and applies it with trilinear interpolation.
 
 The initial profile registry contains:
 
@@ -66,20 +76,29 @@ The initial profile registry contains:
 
 These are Pixel Craft interpretations intended to capture broad rendering characteristics. They are not vendor color-science replicas and do not contain proprietary Kodak/Fujifilm formulas.
 
-### v1 processing model
+### File-based processing model
 
-Film Profile v1 uses a compact parameterized transform:
+The runtime path is:
 
-- channel gains,
-- warmth bias,
-- contrast,
-- saturation around luminance,
-- optional black fade,
-- strength blend with the input image.
+```text
+profile.json + lut.cube
+        ↓
+parse + validate once
+        ↓
+cached FilmProfileSpec
+        ↓
+RGB pixel
+        ↓
+3D LUT trilinear interpolation
+        ↓
+strength blend with source RGB
+```
 
-The RGBA pixel transform is parallelized with Rayon. Film thumbnail variants are also generated in parallel from one small source preview.
+Supported `.cube` directives are `TITLE`, `LUT_3D_SIZE`, `DOMAIN_MIN`, and `DOMAIN_MAX`. 1D LUTs are rejected. The parser verifies that the LUT contains exactly `size^3` RGB samples.
 
-This structure deliberately leaves room for a later LUT-backed implementation without changing the operation/session model. A future profile may resolve `id` to a 3D LUT while keeping the same `FilmProfile { id, strength }` recipe.
+The RGBA pixel transform remains parallelized with Rayon. Film thumbnail variants are generated in parallel from one reduced source preview. The same LUT-backed `FilmProfile { id, strength }` operation is replayed during full-resolution export, so preview and export use the same profile source.
+
+Adding or tuning a bundled profile no longer requires changing the Rust processing algorithm: update `profile.json` / `lut.cube`, register the embedded source, rebuild, and rerun validation. The parser is deliberately separated from the operation model so a later user-imported `.cube` feature can reuse the same validation/interpolation code.
 
 ## Preview vs full resolution
 
