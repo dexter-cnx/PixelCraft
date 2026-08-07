@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../state/editor_controller.dart';
@@ -144,7 +146,7 @@ class _FilterPreviewCard extends StatelessWidget {
   });
 
   final String label;
-  final dynamic previewBytes;
+  final Uint8List? previewBytes;
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
@@ -180,7 +182,7 @@ class _FilterPreviewCard extends StatelessWidget {
                         ),
                       )
                     : Image.memory(
-                        previewBytes,
+                        previewBytes!,
                         fit: BoxFit.cover,
                         gaplessPlayback: true,
                       ),
