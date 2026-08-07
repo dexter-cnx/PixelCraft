@@ -19,6 +19,7 @@ class FakeImageEngine implements ImageEngine {
   int undoCalls = 0;
   int redoCalls = 0;
   int exportCalls = 0;
+  int transformCalls = 0;
   int cursor = 0;
   int operationCount = 0;
   String? activeFilter;
@@ -60,9 +61,7 @@ class FakeImageEngine implements ImageEngine {
   @override
   Uint8List commitFilter() {
     commitCalls++;
-    operationCount = cursor + 1;
-    cursor = operationCount;
-    return output;
+    return _commitTransform();
   }
 
   @override
@@ -75,6 +74,31 @@ class FakeImageEngine implements ImageEngine {
     double value,
   ) =>
       EngineResult(bytes: output, elapsedMicros: BigInt.from(8000));
+
+  Uint8List _commitTransform() {
+    transformCalls++;
+    operationCount = cursor + 1;
+    cursor = operationCount;
+    return output;
+  }
+
+  @override
+  Uint8List applyCrop({required double x, required double y, required double width, required double height}) => _commitTransform();
+
+  @override
+  Uint8List rotateQuarterTurns(int turns) => _commitTransform();
+
+  @override
+  Uint8List straighten(double degrees) => _commitTransform();
+
+  @override
+  Uint8List flipHorizontal() => _commitTransform();
+
+  @override
+  Uint8List flipVertical() => _commitTransform();
+
+  @override
+  Uint8List resizeCommitted({required int width, required int height}) => _commitTransform();
 
   @override
   Uint8List undo() {
