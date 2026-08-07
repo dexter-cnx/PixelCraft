@@ -1,7 +1,9 @@
 {
   "id": "e100_inspired",
   "name": "E100 Inspired",
-  "description": "Neutral transparency-film look with moderate saturation and clean highlights.",
+  "description": "Neutral transparency-film inspired rendering with moderate saturation, natural skin and clean highlight detail.",
   "lut": "lut.cube",
+  "lutSize": 33,
+  "packVersion": 2,
   "defaultStrength": 1.0
 }
