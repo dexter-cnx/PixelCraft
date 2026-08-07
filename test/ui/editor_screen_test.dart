@@ -31,7 +31,6 @@ void main() {
     await gesture.moveBy(const Offset(80, 0));
     await tester.pump();
 
-    // Dragging only updates the local Slider thumb. Rust is untouched.
     expect(engine.beginCalls, 0);
     expect(engine.previewCalls, 0);
     expect(engine.commitCalls, 0);
@@ -58,6 +57,29 @@ void main() {
     await tester.tap(find.text('Details'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Rust 12.50 ms'), findsOneWidget);
+  });
+
+  testWidgets('creative filter previews apply immediately when tapped', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+
+    expect(engine.filterPreviewGenerationCalls, 1);
+    expect(find.byType(Slider), findsNothing);
+    expect(find.text('grayscale'), findsOneWidget);
+    expect(find.text('vintage'), findsOneWidget);
+    expect(find.byType(Image), findsWidgets);
+    expect(engine.commitCalls, 0);
+
+    await tester.tap(find.text('vintage'));
+    await tester.pumpAndSettle();
+
+    expect(engine.activeFilter, 'vintage');
+    expect(engine.lastValue, 1);
+    expect(engine.commitCalls, 1);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });
 
   testWidgets('undo and redo buttons call background engine history', (tester) async {
