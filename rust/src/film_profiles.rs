@@ -227,7 +227,9 @@ impl CubeLut {
         if data.len() != expected {
             return Err(format!(
                 "LUT contains {} samples but {} were expected for size {}",
-                data.len(), expected, size
+                data.len(),
+                expected,
+                size
             ));
         }
         for channel in 0..3 {
@@ -319,8 +321,12 @@ mod tests {
         assert_eq!(PROFILES.len(), 6);
         assert_eq!(ids.len(), PROFILES.len());
         assert!(PROFILES.iter().all(|profile| !profile.name.is_empty()));
-        assert!(PROFILES.iter().all(|profile| profile.lut.size == FILM_LUT_SIZE));
-        assert!(PROFILES.iter().all(|profile| profile.lut.data.len() == 35_937));
+        assert!(PROFILES
+            .iter()
+            .all(|profile| profile.lut.size == FILM_LUT_SIZE));
+        assert!(PROFILES
+            .iter()
+            .all(|profile| profile.lut.data.len() == 35_937));
         assert!(get("provia_inspired").is_some());
         assert!(get("velvia_inspired").is_some());
         assert!(get("astia_inspired").is_some());
