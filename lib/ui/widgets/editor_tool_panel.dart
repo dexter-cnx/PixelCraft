@@ -52,20 +52,40 @@ class EditorToolPanel extends StatelessWidget {
           ),
           if (editingTool) ...[
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                key: const ValueKey('apply_edits_button'),
-                onPressed: state.hasUnappliedEdits && !state.isBusy
-                    ? controller.applyEdits
-                    : null,
-                icon: const Icon(Icons.check),
-                label: const Text('Apply'),
-              ),
-            ),
+            _DraftActionBar(state: state, controller: controller),
           ],
         ],
       ),
+    );
+  }
+}
+
+class _DraftActionBar extends StatelessWidget {
+  const _DraftActionBar({required this.state, required this.controller});
+
+  final EditorState state;
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = state.hasUnappliedEdits && !state.isBusy;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        OutlinedButton.icon(
+          key: const ValueKey('cancel_edits_button'),
+          onPressed: enabled ? controller.cancelEdits : null,
+          icon: const Icon(Icons.close),
+          label: const Text('Cancel'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.icon(
+          key: const ValueKey('apply_edits_button'),
+          onPressed: enabled ? controller.applyEdits : null,
+          icon: const Icon(Icons.check),
+          label: const Text('Apply'),
+        ),
+      ],
     );
   }
 }
