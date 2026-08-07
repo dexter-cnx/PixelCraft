@@ -142,15 +142,12 @@ class EditorController extends StateNotifier<EditorState> {
   }
 
   void selectTool(EditorTool tool) {
+    if (state.isBusy) return;
     state = state.copyWith(selectedTool: tool, error: null);
   }
 
   void selectFilter(String filter) {
-    if (state.isAdjusting) {
-      try {
-        _engine.cancelFilter();
-      } catch (_) {}
-    }
+    if (state.isBusy) return;
     state = state.copyWith(
       selectedFilter: filter,
       value: filter == 'gaussian_blur' ? 0 : 1,
@@ -159,74 +156,60 @@ class EditorController extends StateNotifier<EditorState> {
     );
   }
 
-  void beginAdjustment(double _) {
+  /// Commits exactly one filter operation after the user releases the slider.
+  /// No Rust processing occurs while the thumb is moving.
+  Future<void> commitFilterValue(double value) async {
+    if (state.isBusy || state.previewBytes == null) return;
+    state = state.copyWith(isBusy: true, isAdjusting: false, error: null);
     try {
-      _engine.beginFilter(state.selectedFilter);
-      state = state.copyWith(isAdjusting: true, error: null);
+      final result = await _engine.commitFilterValue(state.selectedFilter, value);
+      _applyBackgroundResult(result, value: value);
     } catch (error) {
-      state = state.copyWith(isAdjusting: false, error: '$error');
+      state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
-  void previewValue(double value) {
-    if (!state.isAdjusting) return;
-    try {
-      final result = _engine.updateFilterPreview(state.selectedFilter, value);
-      state = state.copyWith(
-        previewBytes: result.bytes,
-        histogram: _engine.getHistogram(result.bytes),
-        value: value,
-        processingMs: result.elapsedMicros.toDouble() / 1000.0,
-        error: null,
-      );
-    } catch (error) {
-      state = state.copyWith(error: '$error');
+  Future<void> applyCenteredCrop(double aspectRatio) async {
+    if (state.isBusy) return;
+    double width = 1;
+    double height = 1;
+    if (aspectRatio >= 1) {
+      height = 1 / aspectRatio;
+    } else {
+      width = aspectRatio;
     }
+    await _applyBackgroundTransform(
+      () => _engine.applyCropInBackground(
+        x: (1 - width) / 2,
+        y: (1 - height) / 2,
+        width: width,
+        height: height,
+      ),
+    );
   }
 
-  void commitAdjustment(double value) {
-    if (!state.isAdjusting) return;
-    try {
-      _applyCommittedPreview(_engine.commitFilter(), value: value);
-    } catch (error) {
-      state = state.copyWith(isAdjusting: false, error: '$error');
-    }
-  }
+  Future<void> rotateLeft() =>
+      _applyBackgroundTransform(() => _engine.rotateQuarterTurnsInBackground(3));
 
-  void applyCenteredCrop(double aspectRatio) {
-    try {
-      double width = 1;
-      double height = 1;
-      if (aspectRatio >= 1) {
-        height = 1 / aspectRatio;
-      } else {
-        width = aspectRatio;
-      }
-      _applyCommittedPreview(
-        _engine.applyCrop(
-          x: (1 - width) / 2,
-          y: (1 - height) / 2,
-          width: width,
-          height: height,
-        ),
-      );
-    } catch (error) {
-      state = state.copyWith(error: '$error');
-    }
-  }
+  Future<void> rotateRight() =>
+      _applyBackgroundTransform(() => _engine.rotateQuarterTurnsInBackground(1));
 
-  void rotateLeft() => _applyTransform(() => _engine.rotateQuarterTurns(3));
-  void rotateRight() => _applyTransform(() => _engine.rotateQuarterTurns(1));
-  void flipHorizontal() => _applyTransform(_engine.flipHorizontal);
-  void flipVertical() => _applyTransform(_engine.flipVertical);
+  Future<void> flipHorizontal() =>
+      _applyBackgroundTransform(_engine.flipHorizontalInBackground);
 
-  void commitStraighten(double degrees) {
-    if (degrees.abs() < 0.01) return;
-    _applyTransform(() => _engine.straighten(degrees));
+  Future<void> flipVertical() =>
+      _applyBackgroundTransform(_engine.flipVerticalInBackground);
+
+  Future<void> commitStraighten(double degrees) async {
+    if (degrees.abs() < 0.01 || state.isBusy) return;
+    await _applyBackgroundTransform(
+      () => _engine.straightenInBackground(degrees),
+    );
     state = state.copyWith(straightenDegrees: 0);
   }
 
   void setStraightenPreview(double degrees) {
+    if (state.isBusy) return;
     state = state.copyWith(straightenDegrees: degrees);
   }
 
@@ -234,10 +217,19 @@ class EditorController extends StateNotifier<EditorState> {
     state = state.copyWith(showOriginal: value);
   }
 
-  Uint8List exportImage({required String format, required int quality}) {
+  Future<Uint8List> exportImage({
+    required String format,
+    required int quality,
+  }) async {
+    if (state.isBusy || state.isExporting) {
+      throw StateError('Image processing is already in progress');
+    }
     state = state.copyWith(isExporting: true, error: null);
     try {
-      return _engine.exportImage(format: format, quality: quality);
+      return await _engine.exportImageInBackground(
+        format: format,
+        quality: quality,
+      );
     } catch (error) {
       state = state.copyWith(error: '$error');
       rethrow;
@@ -252,35 +244,41 @@ class EditorController extends StateNotifier<EditorState> {
     return _engine.applyFilterTimed(input, state.selectedFilter, state.value);
   }
 
-  void undo() {
-    if (!state.canUndo) return;
-    _applyTransform(_engine.undo);
+  Future<void> undo() async {
+    if (!state.canUndo || state.isBusy) return;
+    await _applyBackgroundTransform(_engine.undoInBackground);
   }
 
-  void redo() {
-    if (!state.canRedo) return;
-    _applyTransform(_engine.redo);
+  Future<void> redo() async {
+    if (!state.canRedo || state.isBusy) return;
+    await _applyBackgroundTransform(_engine.redoInBackground);
   }
 
-  void _applyTransform(Uint8List Function() action) {
+  Future<void> _applyBackgroundTransform(
+    Future<EngineCommitResult> Function() action,
+  ) async {
+    if (state.isBusy) return;
+    state = state.copyWith(isBusy: true, error: null);
     try {
-      _applyCommittedPreview(action());
+      final result = await action();
+      _applyBackgroundResult(result);
     } catch (error) {
-      state = state.copyWith(error: '$error');
+      state = state.copyWith(isBusy: false, error: '$error');
     }
   }
 
-  void _applyCommittedPreview(Uint8List bytes, {double? value}) {
-    final session = _engine.sessionInfo();
+  void _applyBackgroundResult(EngineCommitResult result, {double? value}) {
     state = state.copyWith(
-      previewBytes: bytes,
-      histogram: _engine.getHistogram(bytes),
+      previewBytes: result.bytes,
+      histogram: result.histogram,
       value: value,
+      processingMs: result.elapsedMicros.toDouble() / 1000.0,
+      isBusy: false,
       isAdjusting: false,
-      operationCount: session.operationCount,
-      cursor: session.cursor,
-      canUndo: session.canUndo,
-      canRedo: session.canRedo,
+      operationCount: result.session.operationCount,
+      cursor: result.session.cursor,
+      canUndo: result.session.canUndo,
+      canRedo: result.session.canRedo,
       error: null,
     );
   }
