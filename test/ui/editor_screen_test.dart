@@ -37,7 +37,7 @@ void main() {
 
     expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
     expect(find.text('brightness'), findsOneWidget);
-    expect(find.text('Rust 0.00 ms'), findsOneWidget);
+    expect(find.text('Adjust'), findsOneWidget);
 
     await commitContrastAdjustment(tester);
 
@@ -45,6 +45,9 @@ void main() {
     expect(engine.previewCalls, greaterThanOrEqualTo(1));
     expect(engine.commitCalls, 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('Rust 12.50 ms'), findsOneWidget);
   });
 
@@ -55,7 +58,6 @@ void main() {
     final undoButton = find.widgetWithIcon(IconButton, Icons.undo);
     final redoButton = find.widgetWithIcon(IconButton, Icons.redo);
 
-    // Undo and redo are intentionally disabled until an operation is committed.
     expect(tester.widget<IconButton>(undoButton).onPressed, isNull);
     expect(tester.widget<IconButton>(redoButton).onPressed, isNull);
 
