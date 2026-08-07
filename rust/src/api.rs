@@ -359,9 +359,32 @@ pub fn photon_filter_names() -> Vec<String> {
 
 #[frb(sync)]
 pub fn get_histogram(image_bytes: Vec<u8>) -> Result<Vec<u32>, String> {
-    let rgba = decode(&image_bytes)?.to_rgba8();
-    let bins = rgba
-        .as_raw()
+    // During initial load `image_bytes` is the exact checkpoint preview we just
+    // encoded. Reuse the already-decoded pixels kept by EngineState instead of
+    // decoding that PNG again solely to build a histogram.
+    let cached_rgba = {
+        let engine = ENGINE
+            .lock()
+            .map_err(|_| "Engine lock poisoned".to_string())?;
+        match (&engine.checkpoint_preview_bytes, &engine.checkpoint_preview) {
+            (Some(cached_bytes), Some(cached_image))
+                if cached_bytes.as_slice() == image_bytes.as_slice() =>
+            {
+                Some(cached_image.to_rgba8())
+            }
+            _ => None,
+        }
+    };
+
+    let rgba = match cached_rgba {
+        Some(rgba) => rgba,
+        None => decode(&image_bytes)?.to_rgba8(),
+    };
+    Ok(histogram_bins(&rgba))
+}
+
+fn histogram_bins(rgba: &RgbaImage) -> Vec<u32> {
+    rgba.as_raw()
         .par_chunks(4)
         .fold(
             || vec![0_u32; 768],
@@ -378,8 +401,7 @@ pub fn get_histogram(image_bytes: Vec<u8>) -> Result<Vec<u32>, String> {
                 left.iter_mut().zip(right).for_each(|(a, b)| *a += b);
                 left
             },
-        );
-    Ok(bins)
+        )
 }
 
 #[frb(sync)]
