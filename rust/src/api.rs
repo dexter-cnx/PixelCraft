@@ -1,5 +1,5 @@
 use crate::engine::{decode, encode, encode_png, EditOperation, SessionSnapshot, ENGINE};
-use crate::{filters, photon_filters};
+use crate::{film_profiles, filters, photon_filters};
 use fast_image_resize as fir;
 use flutter_rust_bridge::frb;
 use image::{DynamicImage, GenericImageView, ImageOutputFormat, RgbaImage};
@@ -16,6 +16,19 @@ pub struct ProcessedImage {
 #[derive(Debug, Clone)]
 pub struct FilterPreviewImage {
     pub name: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FilmProfileInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FilmProfilePreviewImage {
+    pub id: String,
     pub bytes: Vec<u8>,
 }
 
@@ -99,6 +112,65 @@ pub fn generate_filter_previews(
             })
         })
         .collect()
+}
+
+#[frb(sync)]
+pub fn film_profiles() -> Vec<FilmProfileInfo> {
+    film_profiles::PROFILES
+        .iter()
+        .map(|profile| FilmProfileInfo {
+            id: profile.id.to_string(),
+            name: profile.name.to_string(),
+            description: profile.description.to_string(),
+        })
+        .collect()
+}
+
+#[frb(sync)]
+pub fn generate_film_profile_previews(
+    image_bytes: Vec<u8>,
+    profile_ids: Vec<String>,
+    max_edge: u32,
+) -> Result<Vec<FilmProfilePreviewImage>, String> {
+    let source = resize_to_max_edge(decode(&image_bytes)?, max_edge.max(1));
+    profile_ids
+        .into_par_iter()
+        .map(|id| {
+            let profiled = film_profiles::apply(source.clone(), &id, 1.0)?;
+            Ok(FilmProfilePreviewImage {
+                id,
+                bytes: encode_png(&profiled)?,
+            })
+        })
+        .collect()
+}
+
+#[frb(sync)]
+pub fn apply_film_profile(id: String, strength: f32) -> Result<Vec<u8>, String> {
+    if film_profiles::get(&id).is_none() {
+        return Err(format!("Unknown film profile: {id}"));
+    }
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::FilmProfile {
+            id,
+            strength: strength.clamp(0.0, 1.0),
+        })
+}
+
+#[frb(sync)]
+pub fn replace_film_profile(id: String, strength: f32) -> Result<Vec<u8>, String> {
+    if film_profiles::get(&id).is_none() {
+        return Err(format!("Unknown film profile: {id}"));
+    }
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .replace_last_draft_operation(EditOperation::FilmProfile {
+            id,
+            strength: strength.clamp(0.0, 1.0),
+        })
 }
 
 fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
@@ -217,6 +289,22 @@ pub fn session_info() -> Result<EditSessionInfo, String> {
         .into())
 }
 
+#[frb(sync)]
+pub fn export_session_recipe() -> Result<String, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .export_recipe_json()
+}
+
+#[frb(sync)]
+pub fn restore_session(bytes: Vec<u8>, recipe_json: String) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .restore_recipe_json(bytes, &recipe_json)
+}
+
 /// Promotes the current reduced preview to the next editing checkpoint while
 /// retaining the complete operation recipe. Full-resolution work is deferred
 /// until export.
@@ -230,8 +318,6 @@ pub fn apply_edits() -> Result<Vec<u8>, String> {
 
 #[frb(sync)]
 pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
-    // This is intentionally the expensive path: decode the untouched original
-    // and replay the complete edit recipe at full resolution only for export.
     let image = ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
