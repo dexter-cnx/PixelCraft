@@ -1,4 +1,5 @@
 use image::{DynamicImage, RgbaImage};
+use rayon::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FilmProfileSpec {
@@ -77,15 +78,16 @@ pub fn apply(image: DynamicImage, id: &str, strength: f32) -> Result<DynamicImag
     }
 
     let source = image.to_rgba8();
-    let mut output = RgbaImage::new(source.width(), source.height());
+    let width = source.width();
+    let height = source.height();
+    let mut raw = source.into_raw();
 
-    for (x, y, pixel) in source.enumerate_pixels() {
+    raw.par_chunks_mut(4).for_each(|pixel| {
         let original = [
             pixel[0] as f32 / 255.0,
             pixel[1] as f32 / 255.0,
             pixel[2] as f32 / 255.0,
         ];
-        let alpha = pixel[3];
 
         let mut transformed = original;
         transformed[0] *= profile.red_gain + profile.warmth;
@@ -107,24 +109,22 @@ pub fn apply(image: DynamicImage, id: &str, strength: f32) -> Result<DynamicImag
             }
         }
 
-        let mixed = [
-            original[0] + (transformed[0] - original[0]) * strength,
-            original[1] + (transformed[1] - original[1]) * strength,
-            original[2] + (transformed[2] - original[2]) * strength,
-        ];
+        pixel[0] = ((original[0] + (transformed[0] - original[0]) * strength)
+            .clamp(0.0, 1.0)
+            * 255.0)
+            .round() as u8;
+        pixel[1] = ((original[1] + (transformed[1] - original[1]) * strength)
+            .clamp(0.0, 1.0)
+            * 255.0)
+            .round() as u8;
+        pixel[2] = ((original[2] + (transformed[2] - original[2]) * strength)
+            .clamp(0.0, 1.0)
+            * 255.0)
+            .round() as u8;
+    });
 
-        output.put_pixel(
-            x,
-            y,
-            image::Rgba([
-                (mixed[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (mixed[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                (mixed[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                alpha,
-            ]),
-        );
-    }
-
+    let output = RgbaImage::from_raw(width, height, raw)
+        .ok_or_else(|| "Unable to rebuild film-profile pixel buffer".to_string())?;
     Ok(DynamicImage::ImageRgba8(output))
 }
 
@@ -150,5 +150,18 @@ mod tests {
         ));
         let output = apply(source.clone(), "provia_inspired", 0.0).unwrap();
         assert_eq!(source.to_rgba8(), output.to_rgba8());
+    }
+
+    #[test]
+    fn full_strength_changes_color_without_changing_dimensions() {
+        let source = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+            3,
+            2,
+            Rgba([80, 120, 160, 255]),
+        ));
+        let output = apply(source.clone(), "ektar_inspired", 1.0).unwrap();
+        assert_eq!(output.width(), 3);
+        assert_eq!(output.height(), 2);
+        assert_ne!(source.to_rgba8(), output.to_rgba8());
     }
 }
