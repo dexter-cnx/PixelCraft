@@ -34,19 +34,16 @@ void main() {
       expect(controller.state.isBusy, isFalse);
     });
 
-    test('one gesture creates one committed operation', () async {
+    test('one released slider value creates one committed operation', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
 
       controller.selectFilter('contrast');
-      controller.beginAdjustment(1);
-      controller.previewValue(1.2);
-      controller.previewValue(1.4);
-      controller.commitAdjustment(1.4);
+      await controller.commitFilterValue(1.4);
 
       expect(engine.beginCalls, 1);
-      expect(engine.previewCalls, 2);
+      expect(engine.previewCalls, 1);
       expect(engine.commitCalls, 1);
       expect(engine.activeFilter, 'contrast');
       expect(engine.lastValue, 1.4);
@@ -54,7 +51,7 @@ void main() {
       expect(controller.state.cursor, 1);
       expect(controller.state.canUndo, isTrue);
       expect(controller.state.processingMs, 12.5);
-      expect(controller.state.isAdjusting, isFalse);
+      expect(controller.state.isBusy, isFalse);
     });
 
     test('crop rotate flip and straighten are committed operations', () async {
@@ -62,11 +59,11 @@ void main() {
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
 
-      controller.applyCenteredCrop(1);
-      controller.rotateRight();
-      controller.flipHorizontal();
-      controller.flipVertical();
-      controller.commitStraighten(2.5);
+      await controller.applyCenteredCrop(1);
+      await controller.rotateRight();
+      await controller.flipHorizontal();
+      await controller.flipVertical();
+      await controller.commitStraighten(2.5);
 
       expect(engine.transformCalls, 5);
       expect(controller.state.operationCount, 5);
@@ -81,20 +78,18 @@ void main() {
       expect(controller.state.selectedTool, EditorTool.rotate);
     });
 
-    test('undo and redo move the operation cursor', () async {
+    test('undo and redo move the operation cursor in background', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
-      controller.beginAdjustment(1);
-      controller.previewValue(1.3);
-      controller.commitAdjustment(1.3);
+      await controller.commitFilterValue(1.3);
 
-      controller.undo();
+      await controller.undo();
       expect(engine.undoCalls, 1);
       expect(controller.state.cursor, 0);
       expect(controller.state.canRedo, isTrue);
 
-      controller.redo();
+      await controller.redo();
       expect(engine.redoCalls, 1);
       expect(controller.state.cursor, 1);
       expect(controller.state.histogram, engine.bins);
@@ -114,12 +109,12 @@ void main() {
       expect(controller.state.visiblePreview, controller.state.previewBytes);
     });
 
-    test('exports through the engine', () async {
+    test('exports through the background engine API', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
 
-      final bytes = controller.exportImage(format: 'jpeg', quality: 90);
+      final bytes = await controller.exportImage(format: 'jpeg', quality: 90);
 
       expect(bytes, testPngBytes);
       expect(engine.exportCalls, 1);
