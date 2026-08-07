@@ -18,7 +18,6 @@ pub struct FilmProfileSpec {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub default_strength: f32,
     lut: CubeLut,
 }
 
@@ -57,7 +56,10 @@ const PROFILE_SOURCES: &[EmbeddedProfileSource] = &[
 pub static PROFILES: Lazy<Vec<FilmProfileSpec>> = Lazy::new(|| {
     PROFILE_SOURCES
         .iter()
-        .map(|source| parse_profile(source).unwrap_or_else(|error| panic!("Invalid bundled film profile: {error}")))
+        .map(|source| {
+            parse_profile(source)
+                .unwrap_or_else(|error| panic!("Invalid bundled film profile: {error}"))
+        })
         .collect()
 });
 
@@ -122,7 +124,6 @@ fn parse_profile(source: &EmbeddedProfileSource) -> Result<FilmProfileSpec, Stri
         id: manifest.id,
         name: manifest.name,
         description: manifest.description,
-        default_strength: manifest.default_strength,
         lut: CubeLut::parse(source.lut)?,
     })
 }
@@ -257,14 +258,14 @@ mod tests {
 
     #[test]
     fn profiles_have_unique_ids_and_valid_file_metadata() {
-        let mut ids = PROFILES.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>();
+        let mut ids = PROFILES
+            .iter()
+            .map(|profile| profile.id.as_str())
+            .collect::<Vec<_>>();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), PROFILES.len());
         assert!(PROFILES.iter().all(|profile| !profile.name.is_empty()));
-        assert!(PROFILES
-            .iter()
-            .all(|profile| (0.0..=1.0).contains(&profile.default_strength)));
     }
 
     #[test]
