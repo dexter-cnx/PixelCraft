@@ -16,6 +16,7 @@ class FakeImageEngine implements ImageEngine {
   int beginCalls = 0;
   int previewCalls = 0;
   int commitCalls = 0;
+  int filterPreviewGenerationCalls = 0;
   int undoCalls = 0;
   int redoCalls = 0;
   int exportCalls = 0;
@@ -74,6 +75,15 @@ class FakeImageEngine implements ImageEngine {
     double value,
   ) =>
       EngineResult(bytes: output, elapsedMicros: BigInt.from(8000));
+
+  @override
+  Future<Map<String, Uint8List>> generateFilterPreviews(
+    Uint8List bytes,
+    List<String> filters,
+  ) async {
+    filterPreviewGenerationCalls++;
+    return {for (final filter in filters) filter: output};
+  }
 
   @override
   Future<EngineCommitResult> commitFilterValue(
