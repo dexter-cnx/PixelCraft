@@ -56,6 +56,9 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path rust/Cargo.toml
 
+      - name: GPU LUT parity
+        run: make gpu-lut-verify
+
       - name: Flutter analyze
         run: flutter analyze
 
