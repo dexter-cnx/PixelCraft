@@ -86,17 +86,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (picked == null || !mounted) return;
 
-      setState(() {
-        _isImporting = true;
-        _importLabel = isCamera ? 'Preparing captured photo…' : 'Importing image…';
-      });
-      final bytes = await picked.readAsBytes();
-      if (!mounted) return;
-
-      setState(() => _isImporting = false);
+      // Do not read a potentially multi-megabyte camera file on Home before
+      // navigating. Enter the editor immediately and let it read + prepare the
+      // source while showing its own loading state. This preserves full
+      // resolution while removing a noticeable pre-editor wait.
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => EditorScreen(imageBytes: Uint8List.fromList(bytes)),
+          builder: (_) => EditorScreen(imagePath: picked.path),
         ),
       );
       await _refreshRecovery();
