@@ -76,9 +76,7 @@ class _AdjustPanel extends StatelessWidget {
           min: 0,
           max: 2,
           enabled: !state.isBusy,
-          onChangeEnd: (value) {
-            controller.commitFilterValue(value);
-          },
+          onChangeEnd: controller.commitFilterValue,
         ),
       ],
     );
@@ -94,33 +92,113 @@ class _FilterPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       key: const ValueKey('filters'),
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (state.isGeneratingFilterPreviews)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox.square(
+                  dimension: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 8),
+                Text('Generating filter previews…'),
+              ],
+            ),
+          ),
         SizedBox(
-          height: 44,
+          height: 126,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: creativeFilters.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (_, index) {
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
               final filter = creativeFilters[index];
-              return ChoiceChip(
-                label: Text(filter.replaceAll('_', ' ')),
-                selected: state.selectedFilter == filter,
-                onSelected: (_) => controller.selectFilter(filter),
+              final preview = state.filterPreviews[filter];
+              final selected = state.selectedCreativeFilter == filter;
+              return _FilterPreviewCard(
+                label: filter.replaceAll('_', ' '),
+                previewBytes: preview,
+                selected: selected,
+                enabled: !state.isGeneratingFilterPreviews && preview != null,
+                onTap: () => controller.applyCreativeFilter(filter),
               );
             },
           ),
         ),
-        FilterSlider(
-          value: state.value.clamp(0, 1).toDouble(),
-          min: 0,
-          max: 1,
-          enabled: !state.isBusy,
-          onChangeEnd: (value) {
-            controller.commitFilterValue(value);
-          },
-        ),
       ],
+    );
+  }
+}
+
+class _FilterPreviewCard extends StatelessWidget {
+  const _FilterPreviewCard({
+    required this.label,
+    required this.previewBytes,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final dynamic previewBytes;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 104,
+      child: Material(
+        color: selected
+            ? colorScheme.secondaryContainer
+            : colorScheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: previewBytes == null
+                    ? ColoredBox(
+                        color: colorScheme.surfaceContainerHighest,
+                        child: const Center(
+                          child: Icon(Icons.image_outlined, size: 24),
+                        ),
+                      )
+                    : Image.memory(
+                        previewBytes,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -178,11 +256,7 @@ class _RotatePanel extends StatelessWidget {
                 divisions: 60,
                 label: '${state.straightenDegrees.toStringAsFixed(1)}°',
                 onChanged: state.isBusy ? null : controller.setStraightenPreview,
-                onChangeEnd: state.isBusy
-                    ? null
-                    : (value) {
-                        controller.commitStraighten(value);
-                      },
+                onChangeEnd: state.isBusy ? null : controller.commitStraighten,
               ),
             ),
             const Text('15°'),
