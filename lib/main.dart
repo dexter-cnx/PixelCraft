@@ -20,9 +20,6 @@ void main() {
     return true;
   };
 
-  // Draw the first Flutter frame immediately. Rust initialization happens in
-  // the bootstrap screen, so a native-loading failure can never leave Android
-  // stuck forever on the launch icon.
   runApp(const ProviderScope(child: PixelCraftApp()));
 }
 
@@ -32,7 +29,7 @@ class PixelCraftApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'PixelCraft',
+        title: 'Pixel Craft',
         theme: ThemeData(
           useMaterial3: true,
           colorSchemeSeed: const Color(0xFF7259E7),
@@ -68,7 +65,7 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
 
   Future<void> _initialize() async {
     final stopwatch = Stopwatch()..start();
-    debugPrint('[PixelCraft] Initializing Rust bridge...');
+    debugPrint('[Pixel Craft] Initializing Rust bridge...');
 
     try {
       await initializeRustBridge().timeout(
@@ -80,10 +77,10 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
         ),
       );
       debugPrint(
-        '[PixelCraft] Rust bridge ready in ${stopwatch.elapsedMilliseconds} ms',
+        '[Pixel Craft] Rust bridge ready in ${stopwatch.elapsedMilliseconds} ms',
       );
     } catch (error, stackTrace) {
-      debugPrint('[PixelCraft] Rust bridge initialization failed: $error');
+      debugPrint('[Pixel Craft] Rust bridge initialization failed: $error');
       debugPrintStack(stackTrace: stackTrace);
       rethrow;
     } finally {
