@@ -18,6 +18,7 @@ class EditorScreen extends ConsumerStatefulWidget {
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
   static const _fileService = ExportFileService();
+  bool _isSavingExport = false;
 
   @override
   void initState() {
@@ -90,6 +91,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
     if (selection == null || !mounted) return;
 
+    setState(() => _isSavingExport = true);
     try {
       final bytes = await ref.read(editorProvider.notifier).exportImage(
             format: selection.format,
@@ -97,11 +99,41 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           );
       final file = await _fileService.save(bytes, format: selection.format);
       if (!mounted) return;
+
       final share = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Export complete'),
-          content: SelectableText(file.path),
+          title: Text(
+            file.savedToGallery
+                ? 'Saved to Gallery'
+                : 'Export complete',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (file.savedToGallery) ...[
+                const Text(
+                  'The exported image was added to your device photo gallery.',
+                ),
+                const SizedBox(height: 8),
+                const Text('Android album: Pictures/PixelCraft'),
+              ] else ...[
+                const Text(
+                  'The image was exported, but PixelCraft could not add it to the device gallery.',
+                ),
+                if (file.galleryError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(file.galleryError!),
+                ],
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'App backup: ${file.path}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -121,6 +153,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Export failed: $error')),
       );
+    } finally {
+      if (mounted) setState(() => _isSavingExport = false);
     }
   }
 
@@ -128,27 +162,28 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(editorProvider);
     final controller = ref.read(editorProvider.notifier);
+    final isProcessing = state.isBusy || _isSavingExport;
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Editor · ${state.cursor}/${state.operationCount} edits'),
         actions: [
           IconButton(
-            onPressed: state.canUndo && !state.isBusy ? controller.undo : null,
+            onPressed: state.canUndo && !isProcessing ? controller.undo : null,
             tooltip: 'Undo',
             icon: const Icon(Icons.undo),
           ),
           IconButton(
-            onPressed: state.canRedo && !state.isBusy ? controller.redo : null,
+            onPressed: state.canRedo && !isProcessing ? controller.redo : null,
             tooltip: 'Redo',
             icon: const Icon(Icons.redo),
           ),
           IconButton(
-            onPressed: state.previewBytes == null || state.isExporting || state.isBusy
+            onPressed: state.previewBytes == null || state.isExporting || isProcessing
                 ? null
                 : _showExportDialog,
             tooltip: 'Export',
-            icon: state.isExporting
+            icon: state.isExporting || _isSavingExport
                 ? const SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
@@ -196,27 +231,31 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   return Stack(
                     children: [
                       content,
-                      if (state.isBusy)
-                        const Positioned.fill(
+                      if (isProcessing)
+                        Positioned.fill(
                           child: IgnorePointer(
                             child: ColoredBox(
-                              color: Color(0x22000000),
+                              color: const Color(0x22000000),
                               child: Center(
                                 child: Card(
                                   child: Padding(
-                                    padding: EdgeInsets.symmetric(
+                                    padding: const EdgeInsets.symmetric(
                                       horizontal: 20,
                                       vertical: 14,
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        SizedBox.square(
+                                        const SizedBox.square(
                                           dimension: 20,
                                           child: CircularProgressIndicator(strokeWidth: 2),
                                         ),
-                                        SizedBox(width: 12),
-                                        Text('Processing image…'),
+                                        const SizedBox(width: 12),
+                                        Text(
+                                          _isSavingExport
+                                              ? 'Saving to Gallery…'
+                                              : 'Processing image…',
+                                        ),
                                       ],
                                     ),
                                   ),
