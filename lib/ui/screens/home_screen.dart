@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/editor_session_store.dart';
+import 'camera_film_preview_screen.dart';
 import 'editor_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -37,10 +38,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (widget.recoverLostPickerData) {
       _isRecoveringLostPickerData = true;
-      // Android may destroy the Flutter activity/process while the external
-      // camera app is open. Keep Home hidden until image_picker has had a
-      // chance to restore that accepted capture, so the user sees a short
-      // handoff screen instead of Home flashing before Editor opens.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _recoverLostPickerData();
       });
@@ -91,6 +88,14 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => EditorScreen(imagePath: picked.path),
       ),
+    );
+    await _refreshRecovery();
+  }
+
+  Future<void> _openFilmCamera() async {
+    if (_isRecovering || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CameraFilmPreviewScreen()),
     );
     await _refreshRecovery();
   }
@@ -171,9 +176,18 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.filter_vintage_outlined),
+              title: const Text('Film Camera'),
+              subtitle: const Text('Preview Film Profiles live before capture'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Future.microtask(_openFilmCamera);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
               title: const Text('Take a photo'),
-              subtitle: const Text('Fast capture, optimized for editing'),
+              subtitle: const Text('Fast system camera capture'),
               onTap: () => Navigator.of(context).pop(ImageSource.camera),
             ),
             ListTile(
