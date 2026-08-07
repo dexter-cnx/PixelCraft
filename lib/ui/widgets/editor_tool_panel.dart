@@ -92,11 +92,12 @@ class _FilterPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selected = state.selectedCreativeFilter;
     return Column(
       key: const ValueKey('filters'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (state.isGeneratingFilterPreviews)
+        if (state.isGeneratingFilterPreviews && state.filterPreviews.isEmpty)
           const Padding(
             padding: EdgeInsets.only(bottom: 8),
             child: Row(
@@ -107,7 +108,7 @@ class _FilterPanel extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
                 SizedBox(width: 8),
-                Text('Generating filter previews…'),
+                Text('Preparing filter previews…'),
               ],
             ),
           ),
@@ -120,17 +121,31 @@ class _FilterPanel extends StatelessWidget {
             itemBuilder: (context, index) {
               final filter = creativeFilters[index];
               final preview = state.filterPreviews[filter];
-              final selected = state.selectedCreativeFilter == filter;
+              final isSelected = selected == filter;
               return _FilterPreviewCard(
                 label: filter.replaceAll('_', ' '),
                 previewBytes: preview,
-                selected: selected,
-                enabled: !state.isGeneratingFilterPreviews && preview != null,
+                selected: isSelected,
+                enabled: preview != null && !state.isBusy,
                 onTap: () => controller.applyCreativeFilter(filter),
               );
             },
           ),
         ),
+        if (selected.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            '${selected.replaceAll('_', ' ')} intensity',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          FilterSlider(
+            value: state.creativeFilterValue,
+            min: 0,
+            max: 1,
+            enabled: !state.isBusy,
+            onChangeEnd: controller.updateCreativeFilterValue,
+          ),
+        ],
       ],
     );
   }
