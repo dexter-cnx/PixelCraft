@@ -17,18 +17,68 @@ class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
   bool _isRecovering = false;
+  bool _isRecoveringLostPickerData = false;
   StoredEditorSession? _recoverableSession;
 
   @override
   void initState() {
     super.initState();
     _refreshRecovery();
+
+    // Android may destroy the Flutter activity/process while the external
+    // camera app is open. In that case the Future returned by pickImage() is
+    // lost and Android recreates Pixel Craft at Home after the user accepts
+    // the capture. image_picker stores that pending result for retrieval on
+    // the next app instance, so consume it after the first frame and continue
+    // directly into the editor.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recoverLostPickerData();
+    });
   }
 
   Future<void> _refreshRecovery() async {
     final session = await _sessionStore.load();
     if (!mounted) return;
     setState(() => _recoverableSession = session);
+  }
+
+  Future<void> _recoverLostPickerData() async {
+    if (_isRecoveringLostPickerData) return;
+    _isRecoveringLostPickerData = true;
+    try {
+      final response = await _picker.retrieveLostData();
+      if (!mounted || response.isEmpty) return;
+
+      final files = response.files;
+      if (files != null && files.isNotEmpty) {
+        await _openPickedFile(files.first);
+        return;
+      }
+
+      final exception = response.exception;
+      if (exception != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera recovery failed: $exception')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Camera recovery failed: $error')),
+      );
+    } finally {
+      _isRecoveringLostPickerData = false;
+    }
+  }
+
+  Future<void> _openPickedFile(XFile picked) async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditorScreen(imagePath: picked.path),
+      ),
+    );
+    await _refreshRecovery();
   }
 
   Future<void> _openBytes(Future<List<int>> bytesFuture) async {
@@ -91,12 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (picked == null || !mounted) return;
 
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => EditorScreen(imagePath: picked.path),
-        ),
-      );
-      await _refreshRecovery();
+      await _openPickedFile(picked);
     } catch (error) {
       if (!mounted) return;
       final action = isCamera ? 'Camera capture' : 'Import';
