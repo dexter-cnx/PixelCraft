@@ -24,6 +24,8 @@ const creativeFilters = <String>[
   'pastel_pink',
 ];
 
+const editorPreviewMaxEdge = 1024;
+
 bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 
 enum EditorTool { adjust, filters, crop, rotate, details }
@@ -147,15 +149,15 @@ class EditorController extends StateNotifier<EditorState> {
     _hasPendingFilterOperation = false;
     state = state.copyWith(isBusy: true, error: null);
     try {
-      _engine.loadImage(bytes);
-      final preview = _engine.preparePreview(bytes, maxEdge: 1280);
-      final originalPreview = _engine.originalPreview();
-      final session = _engine.sessionInfo();
+      final loaded = await _engine.loadImageInBackground(
+        bytes,
+        maxEdge: editorPreviewMaxEdge,
+      );
       state = state.copyWith(
         originalBytes: bytes,
-        originalPreviewBytes: originalPreview,
-        previewBytes: preview,
-        histogram: _engine.getHistogram(preview),
+        originalPreviewBytes: loaded.originalPreviewBytes,
+        previewBytes: loaded.previewBytes,
+        histogram: loaded.histogram,
         filterPreviews: const {},
         selectedFilter: 'brightness',
         selectedCreativeFilter: '',
@@ -164,15 +166,18 @@ class EditorController extends StateNotifier<EditorState> {
         straightenDegrees: 0,
         isBusy: false,
         isGeneratingFilterPreviews: false,
-        operationCount: session.operationCount,
-        cursor: session.cursor,
-        canUndo: session.canUndo,
-        canRedo: session.canRedo,
+        operationCount: loaded.session.operationCount,
+        cursor: loaded.session.cursor,
+        canUndo: loaded.session.canUndo,
+        canRedo: loaded.session.canRedo,
       );
 
-      // Prewarm tiny thumbnails while the user is still looking at the editor.
+      // Prewarm tiny creative-filter thumbnails from the reduced checkpoint.
       unawaited(
-        _generateFilterPreviews(originalPreview, generation: generation),
+        _generateFilterPreviews(
+          loaded.originalPreviewBytes,
+          generation: generation,
+        ),
       );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
@@ -287,7 +292,7 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  /// Adjust sliders also create a draft operation. Releasing the slider again
+  /// Adjust sliders create a draft operation. Releasing the slider again
   /// replaces that operation until Apply is pressed.
   Future<void> commitFilterValue(double value) async {
     if (state.isBusy || state.previewBytes == null) return;
@@ -307,8 +312,9 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  /// Promotes the current draft result to a new base image. Rust bakes the
-  /// active operations into a lossless PNG checkpoint and clears draft history.
+  /// Apply only promotes the reduced working preview to a checkpoint. Rust
+  /// retains the complete operation recipe; full-resolution replay is deferred
+  /// until Export, so Apply stays fast even for large source images.
   Future<void> applyEdits() async {
     if (state.isBusy || !state.hasUnappliedEdits) return;
     final generation = ++_filterPreviewGeneration;
@@ -336,7 +342,6 @@ class EditorController extends StateNotifier<EditorState> {
         canRedo: result.session.canRedo,
         error: null,
       );
-      // The checkpoint changed, so prewarm thumbnails for the new base once.
       unawaited(
         _generateFilterPreviews(result.bytes, generation: generation),
       );
@@ -345,9 +350,6 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  /// Discards every operation since the last Apply checkpoint and returns to
-  /// that base image. Cached filter thumbnails remain valid because the base
-  /// image itself did not change.
   Future<void> cancelEdits() async {
     if (state.isBusy || !state.hasUnappliedEdits) return;
     state = state.copyWith(isBusy: true, error: null);
