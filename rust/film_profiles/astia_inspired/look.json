@@ -1,0 +1,22 @@
+{
+  "lutSize": 33,
+  "contrast": 0.965,
+  "blackLift": 0.008,
+  "toe": 0.015,
+  "shoulder": 0.14,
+  "saturation": 1.06,
+  "matrix": [
+    [1.018, -0.010, -0.008],
+    [-0.002, 1.012, -0.010],
+    [-0.006, -0.004, 1.010]
+  ],
+  "channelGamma": [0.992, 0.997, 1.004],
+  "shadowTint": [0.004, 0.001, 0.002],
+  "highlightTint": [0.010, 0.004, -0.004],
+  "selective": [
+    {"centerHue": 28.0, "width": 42.0, "saturation": 0.92, "value": 1.025, "hueShift": 1.5},
+    {"centerHue": 120.0, "width": 50.0, "saturation": 1.06, "value": 1.00, "hueShift": -1.0},
+    {"centerHue": 210.0, "width": 52.0, "saturation": 1.07, "value": 1.01, "hueShift": -1.0},
+    {"centerHue": 330.0, "width": 36.0, "saturation": 0.96, "value": 1.01, "hueShift": 0.0}
+  ]
+}
