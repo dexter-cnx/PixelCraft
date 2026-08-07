@@ -58,6 +58,7 @@ abstract interface class ImageEngine {
   });
   Future<EngineCommitResult> commitFilterValue(String filter, double value);
   Future<EngineCommitResult> replaceFilterValue(String filter, double value);
+  Future<EngineCommitResult> applyEditsInBackground();
   Future<EngineCommitResult> applyCropInBackground({
     required double x,
     required double y,
@@ -187,6 +188,18 @@ class RustImageEngine implements ImageEngine {
         final preview = rust.updateFilterPreview(filter: filter, value: value);
         final bytes = rust.commitFilter();
         return (bytes: bytes, elapsedMicros: preview.elapsedMicros);
+      });
+
+  @override
+  Future<EngineCommitResult> applyEditsInBackground() =>
+      _runCommittedRustTask(() {
+        final watch = Stopwatch()..start();
+        final bytes = rust.applyEdits();
+        watch.stop();
+        return (
+          bytes: bytes,
+          elapsedMicros: BigInt.from(watch.elapsedMicroseconds),
+        );
       });
 
   @override
