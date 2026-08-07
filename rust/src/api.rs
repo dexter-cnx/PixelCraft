@@ -14,6 +14,12 @@ pub struct ProcessedImage {
 }
 
 #[derive(Debug, Clone)]
+pub struct FilterPreviewImage {
+    pub name: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub struct EditSessionInfo {
     pub version: u32,
     pub operation_count: u32,
@@ -73,6 +79,41 @@ pub fn apply_filter_timed(
         bytes,
         elapsed_micros: started.elapsed().as_micros() as u64,
     })
+}
+
+#[frb(sync)]
+pub fn generate_filter_previews(
+    image_bytes: Vec<u8>,
+    filter_names: Vec<String>,
+    max_edge: u32,
+) -> Result<Vec<FilterPreviewImage>, String> {
+    let source = decode(&image_bytes)?;
+    let thumbnail = resize_to_max_edge(source, max_edge.max(1));
+
+    filter_names
+        .into_par_iter()
+        .map(|name| {
+            let filtered = filters::apply(thumbnail.clone(), &name, 1.0)?;
+            Ok(FilterPreviewImage {
+                name,
+                bytes: encode_png(&filtered)?,
+            })
+        })
+        .collect()
+}
+
+fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
+    let (width, height) = image.dimensions();
+    let source_max_edge = width.max(height);
+    if source_max_edge <= max_edge {
+        return image;
+    }
+    let scale = max_edge as f64 / source_max_edge as f64;
+    image.resize_exact(
+        ((width as f64 * scale).round() as u32).max(1),
+        ((height as f64 * scale).round() as u32).max(1),
+        image::imageops::FilterType::Triangle,
+    )
 }
 
 #[frb(sync)]
