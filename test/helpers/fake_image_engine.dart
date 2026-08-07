@@ -13,6 +13,7 @@ class FakeImageEngine implements ImageEngine {
   Uint8List output;
   bool failLoad = false;
   int loadCalls = 0;
+  int backgroundLoadCalls = 0;
   int beginCalls = 0;
   int previewCalls = 0;
   int commitCalls = 0;
@@ -37,6 +38,21 @@ class FakeImageEngine implements ImageEngine {
     if (failLoad) throw StateError('decode failed');
     cursor = 0;
     operationCount = 0;
+  }
+
+  @override
+  Future<EngineLoadResult> loadImageInBackground(
+    Uint8List bytes, {
+    required int maxEdge,
+  }) async {
+    backgroundLoadCalls++;
+    loadImage(bytes);
+    return EngineLoadResult(
+      previewBytes: output,
+      originalPreviewBytes: output,
+      histogram: bins,
+      session: sessionInfo(),
+    );
   }
 
   @override
@@ -247,7 +263,7 @@ class FakeImageEngine implements ImageEngine {
 
   @override
   EngineSessionInfo sessionInfo() => EngineSessionInfo(
-        version: 1,
+        version: 2,
         operationCount: operationCount,
         cursor: cursor,
         canUndo: cursor > 0,
