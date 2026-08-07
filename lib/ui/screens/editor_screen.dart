@@ -9,6 +9,12 @@ import '../../state/editor_controller.dart';
 import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
 
+typedef ImageFileLoader = Future<Uint8List> Function(String path);
+
+final imageFileLoaderProvider = Provider<ImageFileLoader>(
+  (ref) => (path) => File(path).readAsBytes(),
+);
+
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({
     super.key,
@@ -45,7 +51,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       final Uint8List bytes;
       final path = widget.imagePath;
       if (path != null) {
-        bytes = await File(path).readAsBytes();
+        bytes = await ref.read(imageFileLoaderProvider)(path);
       } else {
         final source = widget.imageBytes!;
         // Camera/gallery reads already produce Uint8List. Reuse that buffer
