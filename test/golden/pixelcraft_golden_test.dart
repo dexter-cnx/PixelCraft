@@ -51,12 +51,14 @@ void main() {
 
   ThemeData lightTheme() => ThemeData(
         useMaterial3: true,
+        platform: TargetPlatform.android,
         colorSchemeSeed: const Color(0xFF7259E7),
         scaffoldBackgroundColor: const Color(0xFFF8F7FC),
       );
 
   ThemeData darkTheme() => ThemeData(
         useMaterial3: true,
+        platform: TargetPlatform.android,
         brightness: Brightness.dark,
         colorSchemeSeed: const Color(0xFF9D8CFF),
       );
