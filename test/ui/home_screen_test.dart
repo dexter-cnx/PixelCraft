@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text('PixelCraft'), findsOneWidget);
+    expect(find.text('Pixel Craft'), findsOneWidget);
     expect(find.text('Edit locally. Move fast.'), findsOneWidget);
     expect(find.text('Import from Gallery'), findsOneWidget);
     expect(find.byType(Image), findsNWidgets(4));
