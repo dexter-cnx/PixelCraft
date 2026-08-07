@@ -4,6 +4,7 @@ use fast_image_resize as fir;
 use flutter_rust_bridge::frb;
 use image::{DynamicImage, GenericImageView, ImageOutputFormat, RgbaImage};
 use rayon::prelude::*;
+use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::time::Instant;
 
@@ -55,7 +56,16 @@ impl From<SessionSnapshot> for EditSessionInfo {
 
 #[frb(sync)]
 pub fn load_image(bytes: Vec<u8>) -> Result<(u32, u32), String> {
-    let dimensions = decode(&bytes)?.dimensions();
+    // Reading dimensions must not fully decode a 12-50 MP camera JPEG. The
+    // editor immediately prepares a reduced preview afterwards, so a full
+    // decode here would make every captured photo pay that cost twice.
+    let reader = image::io::Reader::new(Cursor::new(bytes.as_slice()))
+        .with_guessed_format()
+        .map_err(|error| format!("Unable to detect image format: {error}"))?;
+    let dimensions = reader
+        .into_dimensions()
+        .map_err(|error| format!("Unable to read image dimensions: {error}"))?;
+
     ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
