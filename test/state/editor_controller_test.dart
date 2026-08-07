@@ -57,6 +57,30 @@ void main() {
       expect(controller.state.isAdjusting, isFalse);
     });
 
+    test('crop rotate flip and straighten are committed operations', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+
+      controller.applyCenteredCrop(1);
+      controller.rotateRight();
+      controller.flipHorizontal();
+      controller.flipVertical();
+      controller.commitStraighten(2.5);
+
+      expect(engine.transformCalls, 5);
+      expect(controller.state.operationCount, 5);
+      expect(controller.state.cursor, 5);
+      expect(controller.state.canUndo, isTrue);
+      expect(controller.state.straightenDegrees, 0);
+    });
+
+    test('tool selection is reflected in state', () {
+      final controller = EditorController(FakeImageEngine());
+      controller.selectTool(EditorTool.rotate);
+      expect(controller.state.selectedTool, EditorTool.rotate);
+    });
+
     test('undo and redo move the operation cursor', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
