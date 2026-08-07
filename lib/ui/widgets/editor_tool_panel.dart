@@ -18,6 +18,7 @@ class EditorToolPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final editingTool = state.selectedTool != EditorTool.details;
     return AbsorbPointer(
       absorbing: state.isBusy,
       child: Column(
@@ -49,6 +50,20 @@ class EditorToolPanel extends StatelessWidget {
               EditorTool.details => _DetailsPanel(state: state),
             },
           ),
+          if (editingTool) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                key: const ValueKey('apply_edits_button'),
+                onPressed: state.hasUnappliedEdits && !state.isBusy
+                    ? controller.applyEdits
+                    : null,
+                icon: const Icon(Icons.check),
+                label: const Text('Apply'),
+              ),
+            ),
+          ],
         ],
       ),
     );
