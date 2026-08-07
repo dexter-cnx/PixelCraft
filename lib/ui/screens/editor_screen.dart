@@ -91,7 +91,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (selection == null || !mounted) return;
 
     try {
-      final bytes = ref.read(editorProvider.notifier).exportImage(
+      final bytes = await ref.read(editorProvider.notifier).exportImage(
             format: selection.format,
             quality: selection.quality,
           );
@@ -134,21 +134,26 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         title: Text('Editor · ${state.cursor}/${state.operationCount} edits'),
         actions: [
           IconButton(
-            onPressed: state.canUndo ? controller.undo : null,
+            onPressed: state.canUndo && !state.isBusy ? controller.undo : null,
             tooltip: 'Undo',
             icon: const Icon(Icons.undo),
           ),
           IconButton(
-            onPressed: state.canRedo ? controller.redo : null,
+            onPressed: state.canRedo && !state.isBusy ? controller.redo : null,
             tooltip: 'Redo',
             icon: const Icon(Icons.redo),
           ),
           IconButton(
-            onPressed: state.previewBytes == null || state.isExporting
+            onPressed: state.previewBytes == null || state.isExporting || state.isBusy
                 ? null
                 : _showExportDialog,
             tooltip: 'Export',
-            icon: const Icon(Icons.ios_share),
+            icon: state.isExporting
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.ios_share),
           ),
         ],
       ),
@@ -163,27 +168,64 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 builder: (context, constraints) {
                   final canvas = _EditorCanvas(state: state, controller: controller);
                   final tools = EditorToolPanel(state: state, controller: controller);
-                  if (constraints.maxWidth >= 900) {
-                    return Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Expanded(flex: 3, child: canvas),
-                          const SizedBox(width: 20),
-                          SizedBox(width: 360, child: SingleChildScrollView(child: tools)),
-                        ],
-                      ),
-                    );
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                    child: Column(
-                      children: [
-                        Expanded(child: canvas),
-                        const SizedBox(height: 12),
-                        SingleChildScrollView(child: tools),
-                      ],
-                    ),
+                  final content = constraints.maxWidth >= 900
+                      ? Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              Expanded(flex: 3, child: canvas),
+                              const SizedBox(width: 20),
+                              SizedBox(
+                                width: 360,
+                                child: SingleChildScrollView(child: tools),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                          child: Column(
+                            children: [
+                              Expanded(child: canvas),
+                              const SizedBox(height: 12),
+                              SingleChildScrollView(child: tools),
+                            ],
+                          ),
+                        );
+
+                  return Stack(
+                    children: [
+                      content,
+                      if (state.isBusy)
+                        const Positioned.fill(
+                          child: IgnorePointer(
+                            child: ColoredBox(
+                              color: Color(0x22000000),
+                              child: Center(
+                                child: Card(
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 14,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox.square(
+                                          dimension: 20,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
+                                        SizedBox(width: 12),
+                                        Text('Processing image…'),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   );
                 },
               ),
@@ -202,9 +244,14 @@ class _EditorCanvas extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPressStart: (_) => controller.setShowOriginal(true),
-      onLongPressEnd: (_) => controller.setShowOriginal(false),
-      onLongPressCancel: () => controller.setShowOriginal(false),
+      onLongPressStart: state.isBusy
+          ? null
+          : (_) => controller.setShowOriginal(true),
+      onLongPressEnd: state.isBusy
+          ? null
+          : (_) => controller.setShowOriginal(false),
+      onLongPressCancel:
+          state.isBusy ? null : () => controller.setShowOriginal(false),
       child: Stack(
         fit: StackFit.expand,
         children: [
