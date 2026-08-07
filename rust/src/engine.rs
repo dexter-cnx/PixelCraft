@@ -1,18 +1,24 @@
 use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat, Rgba};
 use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::sync::Mutex;
 
-use crate::filters;
+use crate::{film_profiles, filters};
 
 const DEFAULT_PREVIEW_MAX_EDGE: u32 = 1280;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum EditOperation {
     Filter {
         name: String,
         value: f32,
+    },
+    FilmProfile {
+        id: String,
+        strength: f32,
     },
     Crop {
         x: f32,
@@ -41,6 +47,15 @@ pub struct SessionSnapshot {
     pub cursor: u32,
     pub can_undo: bool,
     pub can_redo: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRecipe {
+    pub version: u32,
+    pub preview_max_edge: u32,
+    pub operations: Vec<EditOperation>,
+    pub cursor: usize,
+    pub checkpoint_cursor: usize,
 }
 
 pub struct EngineState {
@@ -178,6 +193,19 @@ impl EngineState {
         self.render_preview()
     }
 
+    pub fn replace_last_draft_operation(
+        &mut self,
+        operation: EditOperation,
+    ) -> Result<Vec<u8>, String> {
+        self.clear_transaction();
+        if self.cursor > self.checkpoint_cursor {
+            self.cursor -= 1;
+        }
+        self.operations.truncate(self.cursor);
+        self.push_operation(operation);
+        self.render_preview()
+    }
+
     pub fn cancel_filter(&mut self) -> Result<Vec<u8>, String> {
         self.clear_transaction();
         self.render_preview()
@@ -230,12 +258,55 @@ impl EngineState {
         let operation_count = self.operations.len().saturating_sub(self.checkpoint_cursor);
         let cursor = self.cursor.saturating_sub(self.checkpoint_cursor);
         SessionSnapshot {
-            version: 2,
+            version: 3,
             operation_count: operation_count as u32,
             cursor: cursor as u32,
             can_undo: self.cursor > self.checkpoint_cursor,
             can_redo: self.cursor < self.operations.len(),
         }
+    }
+
+    pub fn export_recipe_json(&self) -> Result<String, String> {
+        serde_json::to_string(&SessionRecipe {
+            version: 1,
+            preview_max_edge: self.preview_max_edge,
+            operations: self.operations.clone(),
+            cursor: self.cursor,
+            checkpoint_cursor: self.checkpoint_cursor,
+        })
+        .map_err(|error| format!("Unable to serialize session recipe: {error}"))
+    }
+
+    pub fn restore_recipe_json(&mut self, bytes: Vec<u8>, json: &str) -> Result<Vec<u8>, String> {
+        let recipe: SessionRecipe = serde_json::from_str(json)
+            .map_err(|error| format!("Unable to deserialize session recipe: {error}"))?;
+        if recipe.version != 1 {
+            return Err(format!("Unsupported session recipe version: {}", recipe.version));
+        }
+        if recipe.checkpoint_cursor > recipe.cursor || recipe.cursor > recipe.operations.len() {
+            return Err("Invalid session recipe cursor bounds".to_string());
+        }
+
+        self.reset(bytes);
+        self.preview_max_edge = recipe.preview_max_edge.max(1);
+        self.operations = recipe.operations;
+        self.cursor = recipe.cursor;
+        self.checkpoint_cursor = recipe.checkpoint_cursor;
+
+        let original = self
+            .original
+            .as_ref()
+            .ok_or_else(|| "No image loaded".to_string())?;
+        let base = resize_to_max_edge(decode(original)?, self.preview_max_edge);
+        let checkpoint = replay_preview_operations(
+            base,
+            &self.operations[..self.checkpoint_cursor],
+            self.preview_max_edge,
+        )?;
+        let checkpoint_bytes = encode_png(&checkpoint)?;
+        self.checkpoint_preview = Some(checkpoint);
+        self.checkpoint_preview_bytes = Some(checkpoint_bytes);
+        self.render_preview()
     }
 
     fn push_operation(&mut self, operation: EditOperation) {
@@ -253,7 +324,6 @@ impl EngineState {
             );
         }
 
-        // Fallback for callers that render before prepare_preview().
         let original = self
             .original
             .as_ref()
@@ -298,6 +368,9 @@ fn apply_operation_to_image(
 ) -> Result<DynamicImage, String> {
     Ok(match operation {
         EditOperation::Filter { name, value } => filters::apply(image, name, *value)?,
+        EditOperation::FilmProfile { id, strength } => {
+            film_profiles::apply(image, id, *strength)?
+        }
         EditOperation::Crop {
             x,
             y,
@@ -437,6 +510,22 @@ mod tests {
     }
 
     #[test]
+    fn film_profile_is_replayable() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        let bytes = engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 0.8,
+            })
+            .unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(engine.cursor, 1);
+    }
+
+    #[test]
     fn apply_checkpoint_keeps_full_recipe_but_resets_draft_session() {
         let mut engine = EngineState::default();
         engine.reset(source_png());
@@ -462,6 +551,33 @@ mod tests {
             engine.render_full_resolution().unwrap().dimensions(),
             (40, 30)
         );
+    }
+
+    #[test]
+    fn session_recipe_round_trip_restores_checkpoint_and_draft() {
+        let original = source_png();
+        let mut engine = EngineState::default();
+        engine.reset(original.clone());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "e100_inspired".to_string(),
+                strength: 0.7,
+            })
+            .unwrap();
+        engine.apply_checkpoint().unwrap();
+        engine
+            .apply_operation(EditOperation::Rotate90 { turns: 1 })
+            .unwrap();
+        let expected = engine.render_preview().unwrap();
+        let recipe = engine.export_recipe_json().unwrap();
+
+        let mut restored = EngineState::default();
+        let actual = restored.restore_recipe_json(original, &recipe).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(restored.checkpoint_cursor, 1);
+        assert_eq!(restored.cursor, 2);
     }
 
     #[test]
