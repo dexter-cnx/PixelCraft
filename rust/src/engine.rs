@@ -10,18 +10,28 @@ const DEFAULT_PREVIEW_MAX_EDGE: u32 = 1280;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditOperation {
-    Filter { name: String, value: f32 },
+    Filter {
+        name: String,
+        value: f32,
+    },
     Crop {
         x: f32,
         y: f32,
         width: f32,
         height: f32,
     },
-    Rotate90 { turns: u8 },
-    RotateDegrees { degrees: f32 },
+    Rotate90 {
+        turns: u8,
+    },
+    RotateDegrees {
+        degrees: f32,
+    },
     FlipHorizontal,
     FlipVertical,
-    Resize { width: u32, height: u32 },
+    Resize {
+        width: u32,
+        height: u32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -81,11 +91,7 @@ impl EngineState {
         Ok(())
     }
 
-    pub fn update_filter_preview(
-        &mut self,
-        filter: &str,
-        value: f32,
-    ) -> Result<Vec<u8>, String> {
+    pub fn update_filter_preview(&mut self, filter: &str, value: f32) -> Result<Vec<u8>, String> {
         if self.active_filter.as_deref() != Some(filter) {
             return Err("Filter transaction was not started".to_string());
         }
@@ -181,11 +187,7 @@ impl EngineState {
         let scale = self.preview_max_edge as f64 / max_edge as f64;
         let target_width = ((width as f64 * scale).round() as u32).max(1);
         let target_height = ((height as f64 * scale).round() as u32).max(1);
-        Ok(full.resize_exact(
-            target_width,
-            target_height,
-            imageops::FilterType::Lanczos3,
-        ))
+        Ok(full.resize_exact(target_width, target_height, imageops::FilterType::Lanczos3))
     }
 
     fn clear_transaction(&mut self) {
@@ -257,10 +259,8 @@ fn crop_normalized(
     if source_width == 0 || source_height == 0 {
         return Err("Cannot crop an empty image".to_string());
     }
-    let left = ((x.clamp(0.0, 1.0) * source_width as f32).floor() as u32)
-        .min(source_width - 1);
-    let top = ((y.clamp(0.0, 1.0) * source_height as f32).floor() as u32)
-        .min(source_height - 1);
+    let left = ((x.clamp(0.0, 1.0) * source_width as f32).floor() as u32).min(source_width - 1);
+    let top = ((y.clamp(0.0, 1.0) * source_height as f32).floor() as u32).min(source_height - 1);
     let crop_width = (width.clamp(0.0, 1.0) * source_width as f32).round() as u32;
     let crop_height = (height.clamp(0.0, 1.0) * source_height as f32).round() as u32;
     let crop_width = crop_width.max(1).min(source_width - left);
@@ -292,11 +292,8 @@ mod tests {
     use image::{Rgba, RgbaImage};
 
     fn source_png() -> Vec<u8> {
-        let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-            4,
-            3,
-            Rgba([80, 120, 160, 255]),
-        ));
+        let image =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(4, 3, Rgba([80, 120, 160, 255])));
         encode_png(&image).unwrap()
     }
 

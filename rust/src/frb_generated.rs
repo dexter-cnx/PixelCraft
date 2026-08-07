@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1393617756;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -186001782;
 
 // Section: executor
 
@@ -46,6 +46,39 @@ flutter_rust_bridge::frb_generated_default_handler!();
 
 // Section: wire_funcs
 
+fn wire__crate__api__apply_crop_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "apply_crop",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_x = <f32>::sse_decode(&mut deserializer);
+            let api_y = <f32>::sse_decode(&mut deserializer);
+            let api_width = <f32>::sse_decode(&mut deserializer);
+            let api_height = <f32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::apply_crop(api_x, api_y, api_width, api_height)?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__apply_filter_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -228,6 +261,95 @@ fn wire__crate__api__current_image_impl(
         },
     )
 }
+fn wire__crate__api__export_image_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "export_image",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_format = <String>::sse_decode(&mut deserializer);
+            let api_quality = <u8>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::export_image(api_format, api_quality)?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__flip_horizontal_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "flip_horizontal",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::flip_horizontal()?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__flip_vertical_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "flip_vertical",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::flip_vertical()?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__get_histogram_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -288,6 +410,35 @@ fn wire__crate__api__load_image_impl(
         },
     )
 }
+fn wire__crate__api__original_preview_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "original_preview",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::original_preview()?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__photon_filter_names_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -338,11 +489,11 @@ fn wire__crate__api__prepare_preview_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_image_bytes = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api__image_bytes = <Vec<u8>>::sse_decode(&mut deserializer);
             let api_max_edge = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             transform_result_sse::<_, String>((move || {
-                let output_ok = crate::api::prepare_preview(api_image_bytes, api_max_edge)?;
+                let output_ok = crate::api::prepare_preview(api__image_bytes, api_max_edge)?;
                 Ok(output_ok)
             })())
         },
@@ -377,6 +528,37 @@ fn wire__crate__api__redo_impl(
         },
     )
 }
+fn wire__crate__api__resize_committed_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "resize_committed",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_width = <u32>::sse_decode(&mut deserializer);
+            let api_height = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::resize_committed(api_width, api_height)?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__resize_image_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -404,6 +586,95 @@ fn wire__crate__api__resize_image_impl(
             deserializer.end();
             transform_result_sse::<_, String>((move || {
                 let output_ok = crate::api::resize_image(api_image_bytes, api_width, api_height)?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__rotate_quarter_turns_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "rotate_quarter_turns",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_turns = <u8>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::rotate_quarter_turns(api_turns)?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__session_info_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "session_info",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::session_info()?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__straighten_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "straighten",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_degrees = <f32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let output_ok = crate::api::straighten(api_degrees)?;
                 Ok(output_ok)
             })())
         },
@@ -477,6 +748,31 @@ impl SseDecode for String {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <Vec<u8>>::sse_decode(deserializer);
         return String::from_utf8(inner).unwrap();
+    }
+}
+
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
+impl SseDecode for crate::api::EditSessionInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_version = <u32>::sse_decode(deserializer);
+        let mut var_operationCount = <u32>::sse_decode(deserializer);
+        let mut var_cursor = <u32>::sse_decode(deserializer);
+        let mut var_canUndo = <bool>::sse_decode(deserializer);
+        let mut var_canRedo = <bool>::sse_decode(deserializer);
+        return crate::api::EditSessionInfo {
+            version: var_version,
+            operation_count: var_operationCount,
+            cursor: var_cursor,
+            can_undo: var_canUndo,
+            can_redo: var_canRedo,
+        };
     }
 }
 
@@ -577,13 +873,6 @@ impl SseDecode for i32 {
     }
 }
 
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
-    }
-}
-
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -605,26 +894,56 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        1 => wire__crate__api__apply_filter_impl(ptr, rust_vec_len, data_len),
-        2 => wire__crate__api__apply_filter_timed_impl(ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__begin_filter_impl(ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__cancel_filter_impl(ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__commit_filter_impl(ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__current_image_impl(ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__get_histogram_impl(ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__load_image_impl(ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__photon_filter_names_impl(ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__prepare_preview_impl(ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__redo_impl(ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__resize_image_impl(ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__undo_impl(ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__update_filter_preview_impl(ptr, rust_vec_len, data_len),
+        1 => wire__crate__api__apply_crop_impl(ptr, rust_vec_len, data_len),
+        2 => wire__crate__api__apply_filter_impl(ptr, rust_vec_len, data_len),
+        3 => wire__crate__api__apply_filter_timed_impl(ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__begin_filter_impl(ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__cancel_filter_impl(ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__commit_filter_impl(ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__current_image_impl(ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__export_image_impl(ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__flip_horizontal_impl(ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__flip_vertical_impl(ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__get_histogram_impl(ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__load_image_impl(ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__original_preview_impl(ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__photon_filter_names_impl(ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__prepare_preview_impl(ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__redo_impl(ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__resize_committed_impl(ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__resize_image_impl(ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__rotate_quarter_turns_impl(ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__session_info_impl(ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__straighten_impl(ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__undo_impl(ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__update_filter_preview_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::EditSessionInfo {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.version.into_into_dart().into_dart(),
+            self.operation_count.into_into_dart().into_dart(),
+            self.cursor.into_into_dart().into_dart(),
+            self.can_undo.into_into_dart().into_dart(),
+            self.can_redo.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::EditSessionInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::EditSessionInfo>
+    for crate::api::EditSessionInfo
+{
+    fn into_into_dart(self) -> crate::api::EditSessionInfo {
+        self
+    }
+}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::ProcessedImage {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -646,6 +965,24 @@ impl SseEncode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<u8>>::sse_encode(self.into_bytes(), serializer);
+    }
+}
+
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
+impl SseEncode for crate::api::EditSessionInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.version, serializer);
+        <u32>::sse_encode(self.operation_count, serializer);
+        <u32>::sse_encode(self.cursor, serializer);
+        <bool>::sse_encode(self.can_undo, serializer);
+        <bool>::sse_encode(self.can_redo, serializer);
     }
 }
 
@@ -732,13 +1069,6 @@ impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
-    }
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
     }
 }
 
