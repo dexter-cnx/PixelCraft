@@ -17,28 +17,33 @@ class StoredEditorSession {
 }
 
 class EditorSessionStore {
-  EditorSessionStore();
+  EditorSessionStore({Directory? rootDirectory}) : _rootDirectory = rootDirectory;
 
+  final Directory? _rootDirectory;
   Future<void> _writeTail = Future.value();
 
   Future<Directory> _directory() async {
-    final root = await getApplicationSupportDirectory();
+    final root = _rootDirectory ?? await getApplicationSupportDirectory();
     return Directory('${root.path}/pixelcraft-session');
   }
 
   Future<bool> exists() async {
-    final directory = await _directory();
-    return File('${directory.path}/source.bin').existsSync() &&
-        File('${directory.path}/recipe.json').existsSync();
+    try {
+      final directory = await _directory();
+      return File('${directory.path}/source.bin').existsSync() &&
+          File('${directory.path}/recipe.json').existsSync();
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<StoredEditorSession?> load() async {
-    final directory = await _directory();
-    final source = File('${directory.path}/source.bin');
-    final recipe = File('${directory.path}/recipe.json');
-    if (!await source.exists() || !await recipe.exists()) return null;
-
     try {
+      final directory = await _directory();
+      final source = File('${directory.path}/source.bin');
+      final recipe = File('${directory.path}/recipe.json');
+      if (!await source.exists() || !await recipe.exists()) return null;
+
       final originalBytes = await source.readAsBytes();
       final recipeJson = await recipe.readAsString();
       final metadata = File('${directory.path}/metadata.json');
