@@ -218,6 +218,25 @@ pub fn session_info() -> Result<EditSessionInfo, String> {
         .into())
 }
 
+/// Bakes all active operations into a new lossless PNG base and clears history.
+/// This creates an explicit editing checkpoint: subsequent edits start from the
+/// currently visible result and Undo/Redo do not cross the checkpoint.
+#[frb(sync)]
+pub fn apply_edits() -> Result<Vec<u8>, String> {
+    let mut engine = ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?;
+    let applied = engine.render_full_resolution()?;
+    engine.original = Some(encode_png(&applied)?);
+    engine.operations.clear();
+    engine.cursor = 0;
+    engine.preview_base = None;
+    engine.pending_operation = None;
+    engine.pending_preview = None;
+    engine.active_filter = None;
+    engine.render_preview()
+}
+
 #[frb(sync)]
 pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
     let image = ENGINE
