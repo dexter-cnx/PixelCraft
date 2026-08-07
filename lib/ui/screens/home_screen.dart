@@ -5,7 +5,16 @@ import '../../core/editor_session_store.dart';
 import 'editor_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.recoverLostPickerData = true,
+  });
+
+  /// Android can recreate the app while the external camera is open. Keep
+  /// this enabled in production so accepted captures are recovered through
+  /// image_picker. Tests that are not exercising that platform handoff can
+  /// disable it to stay deterministic and avoid a real platform-channel call.
+  final bool recoverLostPickerData;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -17,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
   bool _isRecovering = false;
-  bool _isRecoveringLostPickerData = true;
+  bool _isRecoveringLostPickerData = false;
   bool _lostPickerRecoveryStarted = false;
   StoredEditorSession? _recoverableSession;
 
@@ -26,13 +35,16 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _refreshRecovery();
 
-    // Android may destroy the Flutter activity/process while the external
-    // camera app is open. Keep Home hidden until image_picker has had a chance
-    // to restore that accepted capture, so the user sees a short handoff
-    // screen instead of Home flashing before Editor opens.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _recoverLostPickerData();
-    });
+    if (widget.recoverLostPickerData) {
+      _isRecoveringLostPickerData = true;
+      // Android may destroy the Flutter activity/process while the external
+      // camera app is open. Keep Home hidden until image_picker has had a
+      // chance to restore that accepted capture, so the user sees a short
+      // handoff screen instead of Home flashing before Editor opens.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _recoverLostPickerData();
+      });
+    }
   }
 
   Future<void> _refreshRecovery() async {
