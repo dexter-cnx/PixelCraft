@@ -1,4 +1,5 @@
-use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat, Rgba};
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::{imageops, DynamicImage, GenericImageView, ImageEncoder, ImageOutputFormat, Rgba};
 use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -469,7 +470,25 @@ pub fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
 }
 
 pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
-    encode(image, ImageOutputFormat::Png)
+    // Editor previews are transient working buffers. Use the PNG encoder's
+    // fastest compression mode instead of DynamicImage::write_to defaults;
+    // this keeps previews lossless (including alpha) while avoiding seconds
+    // of CPU time on camera photos.
+    let rgba = image.to_rgba8();
+    let mut output = Vec::new();
+    PngEncoder::new_with_quality(
+        &mut output,
+        CompressionType::Fast,
+        FilterType::NoFilter,
+    )
+    .write_image(
+        rgba.as_raw(),
+        rgba.width(),
+        rgba.height(),
+        image::ColorType::Rgba8,
+    )
+    .map_err(|error| format!("Unable to encode PNG: {error}"))?;
+    Ok(output)
 }
 
 pub fn encode(image: &DynamicImage, format: ImageOutputFormat) -> Result<Vec<u8>, String> {
