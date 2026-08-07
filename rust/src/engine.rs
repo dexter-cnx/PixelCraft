@@ -59,19 +59,11 @@ pub struct SessionRecipe {
 }
 
 pub struct EngineState {
-    /// Original full-resolution compressed bytes are kept untouched until export.
     pub original: Option<Vec<u8>>,
-    /// Full edit recipe. Applied checkpoints stay in this list so export can
-    /// replay the complete recipe against the original full-resolution image.
     pub operations: Vec<EditOperation>,
-    /// Absolute cursor inside `operations`.
     pub cursor: usize,
-    /// Operations before this cursor belong to the latest Apply checkpoint.
-    /// Undo/Redo and the UI session counters operate only after this boundary.
     pub checkpoint_cursor: usize,
     pub preview_max_edge: u32,
-    /// Reduced image representing the latest Apply checkpoint. All interactive
-    /// editing is replayed from this image, never from the full-resolution source.
     pub checkpoint_preview: Option<DynamicImage>,
     pub checkpoint_preview_bytes: Option<Vec<u8>>,
     pub preview_base: Option<DynamicImage>,
@@ -119,8 +111,6 @@ impl EngineState {
         }
     }
 
-    /// Decodes the full-resolution source once, immediately reduces it to the
-    /// editor working size, and caches that reduced image for all later edits.
     pub fn prepare_preview(&mut self) -> Result<Vec<u8>, String> {
         let original = self
             .original
@@ -193,15 +183,20 @@ impl EngineState {
         self.render_preview()
     }
 
+    /// Replaces only when the immediately previous draft operation belongs to
+    /// the same editor family. Switching Filter -> Film -> Filter therefore
+    /// appends a new Filter instead of accidentally deleting the Film step.
     pub fn replace_last_draft_operation(
         &mut self,
         operation: EditOperation,
     ) -> Result<Vec<u8>, String> {
         self.clear_transaction();
-        if self.cursor > self.checkpoint_cursor {
+        let should_replace = self.cursor > self.checkpoint_cursor
+            && same_replaceable_family(&self.operations[self.cursor - 1], &operation);
+        if should_replace {
             self.cursor -= 1;
+            self.operations.truncate(self.cursor);
         }
-        self.operations.truncate(self.cursor);
         self.push_operation(operation);
         self.render_preview()
     }
@@ -231,9 +226,6 @@ impl EngineState {
         encode_png(&self.render_preview_image()?)
     }
 
-    /// Apply is intentionally cheap: promote the already-rendered bounded
-    /// preview to the next checkpoint and keep the full operation recipe.
-    /// No full-resolution decode/filter/encode happens here.
     pub fn apply_checkpoint(&mut self) -> Result<Vec<u8>, String> {
         self.clear_transaction();
         let preview = self.render_preview_image()?;
@@ -338,6 +330,17 @@ impl EngineState {
         self.pending_preview = None;
         self.active_filter = None;
     }
+}
+
+fn same_replaceable_family(previous: &EditOperation, next: &EditOperation) -> bool {
+    matches!(
+        (previous, next),
+        (EditOperation::Filter { .. }, EditOperation::Filter { .. })
+            | (
+                EditOperation::FilmProfile { .. },
+                EditOperation::FilmProfile { .. }
+            )
+    )
 }
 
 pub fn replay_operations(
@@ -523,6 +526,66 @@ mod tests {
             .unwrap();
         assert!(!bytes.is_empty());
         assert_eq!(engine.cursor, 1);
+    }
+
+    #[test]
+    fn replacement_never_removes_a_different_operation_family() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        engine
+            .apply_operation(EditOperation::Filter {
+                name: "contrast".to_string(),
+                value: 1.2,
+            })
+            .unwrap();
+        engine
+            .replace_last_draft_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 1.0,
+            })
+            .unwrap();
+        engine
+            .replace_last_draft_operation(EditOperation::Filter {
+                name: "brightness".to_string(),
+                value: 1.1,
+            })
+            .unwrap();
+
+        assert_eq!(engine.operations.len(), 3);
+        assert!(matches!(engine.operations[0], EditOperation::Filter { .. }));
+        assert!(matches!(
+            engine.operations[1],
+            EditOperation::FilmProfile { .. }
+        ));
+        assert!(matches!(engine.operations[2], EditOperation::Filter { .. }));
+    }
+
+    #[test]
+    fn same_family_replacement_keeps_one_draft_operation() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 1.0,
+            })
+            .unwrap();
+        engine
+            .replace_last_draft_operation(EditOperation::FilmProfile {
+                id: "e100_inspired".to_string(),
+                strength: 0.6,
+            })
+            .unwrap();
+
+        assert_eq!(engine.operations.len(), 1);
+        assert!(matches!(
+            engine.operations[0],
+            EditOperation::FilmProfile { ref id, .. } if id == "e100_inspired"
+        ));
     }
 
     #[test]
