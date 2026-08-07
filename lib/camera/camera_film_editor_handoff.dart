@@ -42,7 +42,8 @@ class _CameraFilmEditorHandoffState
         !_filmScheduled &&
         !editor.isBusy &&
         !editor.isGeneratingFilmPreviews &&
-        editor.previewBytes != null;
+        editor.previewBytes != null &&
+        editor.selectedFilmProfile != widget.profileId;
 
     if (canApplyInitialFilm) {
       _filmScheduled = true;
@@ -51,6 +52,12 @@ class _CameraFilmEditorHandoffState
         final controller = ref.read(editorProvider.notifier);
         await controller.selectFilmProfile(widget.profileId);
         if (!mounted) return;
+
+        if (ref.read(editorProvider).selectedFilmProfile != widget.profileId) {
+          setState(() => _filmScheduled = false);
+          return;
+        }
+
         if (widget.strength < 0.999) {
           await controller.updateFilmProfileStrength(widget.strength);
         }
