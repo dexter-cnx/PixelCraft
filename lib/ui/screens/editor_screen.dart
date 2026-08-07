@@ -233,15 +233,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ),
       body: SafeArea(
         child: _isPreparingSource
-            ? const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Preparing photo…'),
-                  ],
-                ),
+            ? _PreparingPhotoView(
+                imagePath: widget.imagePath,
+                imageBytes: widget.imageBytes,
               )
             : _sourceError != null
                 ? Center(child: Text(_sourceError!))
@@ -322,6 +316,124 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       ),
       ),
     );
+  }
+}
+
+class _PreparingPhotoView extends StatelessWidget {
+  const _PreparingPhotoView({
+    required this.imagePath,
+    required this.imageBytes,
+  });
+
+  final String? imagePath;
+  final List<int>? imageBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _sourceImage(context);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          child: image,
+        ),
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x00000000),
+                  Color(0x00000000),
+                  Color(0x66000000),
+                ],
+                stops: [0, 0.55, 1],
+              ),
+            ),
+          ),
+        ),
+        const Positioned(
+          left: 16,
+          right: 16,
+          bottom: 20,
+          child: SafeArea(
+            top: false,
+            child: Card(
+              color: Color(0xE61E1E1E),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Preparing photo…',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Your photo is ready. Setting up editing tools.',
+                            style: TextStyle(color: Color(0xCCFFFFFF)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sourceImage(BuildContext context) {
+    final path = imagePath;
+    if (path != null) {
+      final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+      final logicalWidth = MediaQuery.sizeOf(context).width;
+      final cacheWidth = (logicalWidth * devicePixelRatio).round().clamp(720, 1440);
+      return Image.file(
+        File(path),
+        fit: BoxFit.contain,
+        cacheWidth: cacheWidth,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => const SizedBox.expand(),
+      );
+    }
+
+    final source = imageBytes;
+    if (source != null) {
+      final bytes = source is Uint8List ? source : Uint8List.fromList(source);
+      return Image.memory(
+        bytes,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => const SizedBox.expand(),
+      );
+    }
+
+    return const SizedBox.expand();
   }
 }
 
