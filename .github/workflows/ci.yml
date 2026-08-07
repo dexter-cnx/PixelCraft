@@ -65,6 +65,25 @@ jobs:
       - name: Widget tests
         run: flutter test test/ui --exclude-tags=golden
 
+  golden:
+    name: Golden tests (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
       - name: Golden tests
         run: flutter test test/golden
 
@@ -72,6 +91,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: golden-failures-${{ github.run_id }}
+          name: golden-failures-macos-${{ github.run_id }}
           path: test/golden/failures/**
           if-no-files-found: ignore
