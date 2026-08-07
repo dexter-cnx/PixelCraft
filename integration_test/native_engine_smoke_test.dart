@@ -35,8 +35,19 @@ void main() {
     expect(filtered.elapsedMicros, greaterThanOrEqualTo(BigInt.zero));
 
     final profiles = rust.filmProfiles();
-    expect(profiles, isNotEmpty);
-    expect(profiles.any((profile) => profile.id == 'provia_inspired'), isTrue);
+    expect(profiles, hasLength(6));
+    final profileIds = profiles.map((profile) => profile.id).toSet();
+    expect(
+      profileIds,
+      containsAll(<String>{
+        'provia_inspired',
+        'velvia_inspired',
+        'astia_inspired',
+        'e100_inspired',
+        'ektar_inspired',
+        'chrome64_inspired',
+      }),
+    );
 
     final profiled = rust.applyFilmProfile(
       id: 'provia_inspired',
