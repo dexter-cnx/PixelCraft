@@ -10,13 +10,14 @@ DEVICE ?=
 APK ?= build/app/outputs/flutter-apk/app-debug.apk
 RUST_CRATE_DIR ?= rust
 RUST_BUILDER_DIR ?= rust_builder
+GPU_LUT_DIR ?= build/gpu_luts
 
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
-        setup repair patch-cargokit app-icon film-luts run run-release clean clean-all analyze test test-unit test-widget \
-        golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check \
-        build-apk build-apk-release verify-native adb-abi
+        setup repair patch-cargokit app-icon film-luts gpu-luts gpu-lut-verify run run-release clean clean-all \
+        analyze test test-unit test-widget golden-test golden-update native-test profile-native test-full \
+        rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
 	@printf "Pixel Craft development commands\n\n"
@@ -82,6 +83,12 @@ film-luts: ## Materialize Film Profile Pack v2 as inspectable 33^3 .cube files
 	done
 	@echo "[Pixel Craft] Film Profile Pack v2 materialized: 6 x 33^3 LUTs"
 
+gpu-luts: film-luts ## Generate deterministic RGBA8 33^3 LUT atlases for native GPU preview
+	python3 tool/generate_gpu_lut_atlas.py --output "$(GPU_LUT_DIR)"
+
+gpu-lut-verify: film-luts ## Verify GPU atlas sampling parity against canonical Rust-generated cubes
+	python3 tool/generate_gpu_lut_atlas.py --verify-only
+
 setup: integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## First-time setup
 
 repair: doctor install-frb platforms integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## Repair integration
@@ -132,7 +139,7 @@ rust-clippy: ## Run strict Rust lints
 rust-test: ## Run Rust unit tests
 	$(CARGO) test --manifest-path $(RUST_CRATE_DIR)/Cargo.toml
 
-test-full: analyze rust-fmt rust-clippy rust-test test golden-test ## Run complete host-side suite
+test-full: analyze rust-fmt rust-clippy rust-test gpu-lut-verify test golden-test ## Run complete host-side suite
 
 check: test-full ## Alias for the complete host-side suite
 
