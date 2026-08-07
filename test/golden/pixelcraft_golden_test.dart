@@ -98,7 +98,10 @@ void main() {
     final gesture = await tester.startGesture(
       tester.getCenter(find.byType(ImagePreview)),
     );
-    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+    // Flutter's default long-press recognition threshold is 500 ms. Pump a
+    // little longer while keeping the pointer down so the before state remains
+    // visible during the golden capture.
+    await tester.pump(const Duration(milliseconds: 550));
 
     expect(find.text('Original'), findsOneWidget);
     await expectLater(
