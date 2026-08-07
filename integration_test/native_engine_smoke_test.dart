@@ -12,13 +12,15 @@ void main() {
   testWidgets('native Rust engine loads, filters and builds histogram', (tester) async {
     await initializeRustBridge();
 
+    // Valid 1x1 PNG fixture. Keep this self-contained so the native smoke test
+    // does not depend on Flutter asset loading or test helper imports.
     final bytes = Uint8List.fromList(base64Decode(
-      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP8z8AARAwMjDAGAAQYAQHLR3GQAAAAAElFTkSuQmCC',
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     ));
 
     final dimensions = rust.loadImage(bytes: bytes);
-    expect(dimensions.$1, 2);
-    expect(dimensions.$2, 2);
+    expect(dimensions.$1, 1);
+    expect(dimensions.$2, 1);
 
     final preview = rust.preparePreview(imageBytes: bytes, maxEdge: 1280);
     expect(preview, isNotEmpty);
