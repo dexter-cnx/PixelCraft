@@ -182,6 +182,7 @@ class EditorController extends StateNotifier<EditorState> {
   int _latestPreviewRequestId = 0;
   _PendingPreview? _pendingPreview;
   bool _previewWorkerRunning = false;
+  Future<void> _persistTail = Future.value();
 
   Future<void> load(Uint8List bytes) async {
     final generation = ++_thumbnailGeneration;
@@ -419,9 +420,6 @@ class EditorController extends StateNotifier<EditorState> {
             _hasPendingFilterOperation = true;
           }
 
-          // Results can complete after the user has already requested another
-          // value. Rust must finish serially, but only the latest result is
-          // projected to Flutter: classic latest-request-wins semantics.
           if (request.requestId == _latestPreviewRequestId) {
             _applyBackgroundResult(
               result,
@@ -536,28 +534,32 @@ class EditorController extends StateNotifier<EditorState> {
     );
   }
 
-  Future<void> rotateLeft() {
+  Future<void> rotateLeft() async {
+    if (state.isBusy || state.isPreviewProcessing) return;
     _resetPendingKinds();
-    return _applyBackgroundTransform(
+    await _applyBackgroundTransform(
       () => _engine.rotateQuarterTurnsInBackground(3),
     );
   }
 
-  Future<void> rotateRight() {
+  Future<void> rotateRight() async {
+    if (state.isBusy || state.isPreviewProcessing) return;
     _resetPendingKinds();
-    return _applyBackgroundTransform(
+    await _applyBackgroundTransform(
       () => _engine.rotateQuarterTurnsInBackground(1),
     );
   }
 
-  Future<void> flipHorizontal() {
+  Future<void> flipHorizontal() async {
+    if (state.isBusy || state.isPreviewProcessing) return;
     _resetPendingKinds();
-    return _applyBackgroundTransform(_engine.flipHorizontalInBackground);
+    await _applyBackgroundTransform(_engine.flipHorizontalInBackground);
   }
 
-  Future<void> flipVertical() {
+  Future<void> flipVertical() async {
+    if (state.isBusy || state.isPreviewProcessing) return;
     _resetPendingKinds();
-    return _applyBackgroundTransform(_engine.flipVerticalInBackground);
+    await _applyBackgroundTransform(_engine.flipVerticalInBackground);
   }
 
   Future<void> commitStraighten(double degrees) async {
@@ -670,15 +672,24 @@ class EditorController extends StateNotifier<EditorState> {
     _latestPreviewRequestId++;
   }
 
-  Future<void> _persistSession() async {
+  Future<void> _persistSession() {
     final original = state.originalBytes;
-    if (original == null) return;
-    try {
-      final recipe = await _engine.exportSessionRecipeInBackground();
-      await _sessionStore.save(originalBytes: original, recipeJson: recipe);
-    } catch (_) {
-      // Session recovery is best-effort and must never interrupt editing.
-    }
+    if (original == null) return Future.value();
+
+    final task = _persistTail.then((_) async {
+      // A queued save for a previous image must never export the recipe from a
+      // newly loaded image and pair it with stale source bytes.
+      if (!identical(state.originalBytes, original)) return;
+      try {
+        final recipe = await _engine.exportSessionRecipeInBackground();
+        if (!identical(state.originalBytes, original)) return;
+        await _sessionStore.save(originalBytes: original, recipeJson: recipe);
+      } catch (_) {
+        // Session recovery is best-effort and must never interrupt editing.
+      }
+    });
+    _persistTail = task.catchError((_) {});
+    return task;
   }
 }
 
