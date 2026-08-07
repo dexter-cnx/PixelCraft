@@ -176,7 +176,9 @@ impl CubeLut {
         if data.len() != expected {
             return Err(format!(
                 "LUT contains {} samples but {} were expected for size {}",
-                data.len(), expected, size
+                data.len(),
+                expected,
+                size
             ));
         }
         for channel in 0..3 {
