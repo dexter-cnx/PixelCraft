@@ -17,6 +17,15 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> tapTool(WidgetTester tester, String label) async {
+    final finder = find.text(label);
+    expect(finder, findsOneWidget);
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
   Future<void> commitContrastAdjustment(
     WidgetTester tester,
     FakeImageEngine engine,
@@ -57,8 +66,7 @@ void main() {
     expect(find.byKey(const ValueKey('apply_edits_button')), findsOneWidget);
     expect(find.byKey(const ValueKey('cancel_edits_button')), findsOneWidget);
 
-    await tester.tap(find.text('Details'));
-    await tester.pumpAndSettle();
+    await tapTool(tester, 'Details');
     expect(find.textContaining('Rust 12.50 ms'), findsOneWidget);
   });
 
@@ -67,8 +75,7 @@ void main() {
     await pumpEditor(tester, engine);
 
     expect(engine.filterPreviewGenerationCalls, 1);
-    await tester.tap(find.text('Filters'));
-    await tester.pumpAndSettle();
+    await tapTool(tester, 'Filters');
 
     expect(engine.filterPreviewGenerationCalls, 1);
     expect(find.byType(Slider), findsNothing);
@@ -100,8 +107,7 @@ void main() {
     await pumpEditor(tester, engine);
 
     expect(engine.filmPreviewGenerationCalls, 1);
-    await tester.tap(find.text('Film'));
-    await tester.pumpAndSettle();
+    await tapTool(tester, 'Film');
 
     expect(find.text('Provia Inspired'), findsOneWidget);
     expect(find.text('E100 Inspired'), findsOneWidget);
@@ -120,8 +126,7 @@ void main() {
   testWidgets('creative filter intensity processes only when slider is released', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
-    await tester.tap(find.text('Filters'));
-    await tester.pumpAndSettle();
+    await tapTool(tester, 'Filters');
     await tester.tap(find.text('vintage'));
     await tester.pumpAndSettle();
 
@@ -141,8 +146,7 @@ void main() {
   testWidgets('Apply promotes current draft and resets film selection', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
-    await tester.tap(find.text('Film'));
-    await tester.pumpAndSettle();
+    await tapTool(tester, 'Film');
     await tester.tap(find.text('Provia Inspired'));
     await tester.pumpAndSettle();
 
