@@ -5,7 +5,12 @@
 build/
 android/.gradle/
 ios/Pods/
+
+# Rust/Cargo build artifacts. Because PixelCraft is a Cargo workspace,
+# Cargo writes build output to the repository-root target/ directory.
+target/
 rust/target/
+
 lib/src/rust/
 !lib/src/rust/.gitkeep
 .DS_Store
