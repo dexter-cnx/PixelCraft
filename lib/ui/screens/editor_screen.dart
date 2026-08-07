@@ -9,8 +9,14 @@ import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
-  const EditorScreen({super.key, required this.imageBytes});
+  const EditorScreen({
+    super.key,
+    required this.imageBytes,
+    this.recoveryRecipe,
+  });
+
   final List<int> imageBytes;
+  final String? recoveryRecipe;
 
   @override
   ConsumerState<EditorScreen> createState() => _EditorScreenState();
@@ -23,11 +29,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => ref
-          .read(editorProvider.notifier)
-          .load(Uint8List.fromList(widget.imageBytes)),
-    );
+    Future.microtask(() {
+      final bytes = Uint8List.fromList(widget.imageBytes);
+      final controller = ref.read(editorProvider.notifier);
+      final recipe = widget.recoveryRecipe;
+      if (recipe != null) {
+        return controller.restore(bytes, recipe);
+      }
+      return controller.load(bytes);
+    });
   }
 
   Future<void> _showExportDialog() async {
@@ -42,7 +52,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('PixelCraft replays active edits against the original image.'),
+              const Text('Pixel Craft replays active edits against the original image.'),
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 initialValue: format,
@@ -103,35 +113,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       final share = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(
-            file.savedToGallery
-                ? 'Saved to Gallery'
-                : 'Export complete',
-          ),
+          title: Text(file.savedToGallery ? 'Saved to Gallery' : 'Export complete'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (file.savedToGallery) ...[
-                const Text(
-                  'The exported image was added to your device photo gallery.',
-                ),
+                const Text('The exported image was added to your device photo gallery.'),
                 const SizedBox(height: 8),
                 const Text('Android album: Pictures/PixelCraft'),
               ] else ...[
-                const Text(
-                  'The image was exported, but PixelCraft could not add it to the device gallery.',
-                ),
+                const Text('The image was exported, but Pixel Craft could not add it to the device gallery.'),
                 if (file.galleryError != null) ...[
                   const SizedBox(height: 8),
                   Text(file.galleryError!),
                 ],
               ],
               const SizedBox(height: 12),
-              Text(
-                'App backup: ${file.path}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              Text('App backup: ${file.path}', style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
           actions: [
@@ -163,23 +162,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final state = ref.watch(editorProvider);
     final controller = ref.read(editorProvider.notifier);
     final isProcessing = state.isBusy || _isSavingExport;
+    final actionsBlocked = isProcessing || state.isPreviewProcessing;
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Editor · ${state.cursor}/${state.operationCount} edits'),
         actions: [
           IconButton(
-            onPressed: state.canUndo && !isProcessing ? controller.undo : null,
+            onPressed: state.canUndo && !actionsBlocked ? controller.undo : null,
             tooltip: 'Undo',
             icon: const Icon(Icons.undo),
           ),
           IconButton(
-            onPressed: state.canRedo && !isProcessing ? controller.redo : null,
+            onPressed: state.canRedo && !actionsBlocked ? controller.redo : null,
             tooltip: 'Redo',
             icon: const Icon(Icons.redo),
           ),
           IconButton(
-            onPressed: state.previewBytes == null || state.isExporting || isProcessing
+            onPressed: state.previewBytes == null || state.isExporting || actionsBlocked
                 ? null
                 : _showExportDialog,
             tooltip: 'Export',
