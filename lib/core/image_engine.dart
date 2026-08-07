@@ -27,6 +27,20 @@ class EngineSessionInfo {
   final bool canRedo;
 }
 
+class EngineLoadResult {
+  const EngineLoadResult({
+    required this.previewBytes,
+    required this.originalPreviewBytes,
+    required this.histogram,
+    required this.session,
+  });
+
+  final Uint8List previewBytes;
+  final Uint8List originalPreviewBytes;
+  final List<int> histogram;
+  final EngineSessionInfo session;
+}
+
 class EngineCommitResult {
   const EngineCommitResult({
     required this.bytes,
@@ -51,6 +65,10 @@ abstract interface class ImageEngine {
   Uint8List cancelFilter();
   EngineResult applyFilterTimed(Uint8List bytes, String filter, double value);
 
+  Future<EngineLoadResult> loadImageInBackground(
+    Uint8List bytes, {
+    required int maxEdge,
+  });
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
     List<String> filters, {
@@ -149,6 +167,25 @@ class RustImageEngine implements ImageEngine {
   }
 
   @override
+  Future<EngineLoadResult> loadImageInBackground(
+    Uint8List bytes, {
+    required int maxEdge,
+  }) =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        rust.loadImage(bytes: bytes);
+        final preview = rust.preparePreview(imageBytes: bytes, maxEdge: maxEdge);
+        final originalPreview = rust.originalPreview();
+        final histogram = rust.getHistogram(imageBytes: preview);
+        return EngineLoadResult(
+          previewBytes: preview,
+          originalPreviewBytes: originalPreview,
+          histogram: histogram,
+          session: _sessionInfo(),
+        );
+      });
+
+  @override
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
     List<String> filters, {
@@ -211,7 +248,6 @@ class RustImageEngine implements ImageEngine {
         for (var index = 0; index < session.cursor; index++) {
           rust.undo();
         }
-        // Bake the unchanged checkpoint to clear the redo branch as well.
         final bytes = rust.applyEdits();
         watch.stop();
         return (
