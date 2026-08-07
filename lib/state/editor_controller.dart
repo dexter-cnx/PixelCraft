@@ -25,6 +25,8 @@ const creativeFilters = <String>[
 
 bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 
+enum EditorTool { adjust, filters, crop, rotate, details }
+
 class EditorState {
   const EditorState({
     this.originalBytes,
@@ -32,7 +34,9 @@ class EditorState {
     this.previewBytes,
     this.histogram = const [],
     this.selectedFilter = 'brightness',
+    this.selectedTool = EditorTool.adjust,
     this.value = 1,
+    this.straightenDegrees = 0,
     this.processingMs = 0,
     this.isBusy = false,
     this.isAdjusting = false,
@@ -50,7 +54,9 @@ class EditorState {
   final Uint8List? previewBytes;
   final List<int> histogram;
   final String selectedFilter;
+  final EditorTool selectedTool;
   final double value;
+  final double straightenDegrees;
   final double processingMs;
   final bool isBusy;
   final bool isAdjusting;
@@ -71,7 +77,9 @@ class EditorState {
     Uint8List? previewBytes,
     List<int>? histogram,
     String? selectedFilter,
+    EditorTool? selectedTool,
     double? value,
+    double? straightenDegrees,
     double? processingMs,
     bool? isBusy,
     bool? isAdjusting,
@@ -89,7 +97,9 @@ class EditorState {
         previewBytes: previewBytes ?? this.previewBytes,
         histogram: histogram ?? this.histogram,
         selectedFilter: selectedFilter ?? this.selectedFilter,
+        selectedTool: selectedTool ?? this.selectedTool,
         value: value ?? this.value,
+        straightenDegrees: straightenDegrees ?? this.straightenDegrees,
         processingMs: processingMs ?? this.processingMs,
         isBusy: isBusy ?? this.isBusy,
         isAdjusting: isAdjusting ?? this.isAdjusting,
@@ -114,13 +124,12 @@ class EditorController extends StateNotifier<EditorState> {
       _engine.loadImage(bytes);
       final preview = _engine.preparePreview(bytes, maxEdge: 1280);
       final originalPreview = _engine.originalPreview();
-      final histogram = _engine.getHistogram(preview);
       final session = _engine.sessionInfo();
       state = state.copyWith(
         originalBytes: bytes,
         originalPreviewBytes: originalPreview,
         previewBytes: preview,
-        histogram: histogram,
+        histogram: _engine.getHistogram(preview),
         isBusy: false,
         operationCount: session.operationCount,
         cursor: session.cursor,
@@ -132,13 +141,15 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
+  void selectTool(EditorTool tool) {
+    state = state.copyWith(selectedTool: tool, error: null);
+  }
+
   void selectFilter(String filter) {
     if (state.isAdjusting) {
       try {
         _engine.cancelFilter();
-      } catch (_) {
-        // Selection remains responsive even if no transaction exists.
-      }
+      } catch (_) {}
     }
     state = state.copyWith(
       selectedFilter: filter,
@@ -176,11 +187,47 @@ class EditorController extends StateNotifier<EditorState> {
   void commitAdjustment(double value) {
     if (!state.isAdjusting) return;
     try {
-      final bytes = _engine.commitFilter();
-      _applyCommittedPreview(bytes, value: value);
+      _applyCommittedPreview(_engine.commitFilter(), value: value);
     } catch (error) {
       state = state.copyWith(isAdjusting: false, error: '$error');
     }
+  }
+
+  void applyCenteredCrop(double aspectRatio) {
+    try {
+      double width = 1;
+      double height = 1;
+      if (aspectRatio >= 1) {
+        height = 1 / aspectRatio;
+      } else {
+        width = aspectRatio;
+      }
+      _applyCommittedPreview(
+        _engine.applyCrop(
+          x: (1 - width) / 2,
+          y: (1 - height) / 2,
+          width: width,
+          height: height,
+        ),
+      );
+    } catch (error) {
+      state = state.copyWith(error: '$error');
+    }
+  }
+
+  void rotateLeft() => _applyTransform(() => _engine.rotateQuarterTurns(3));
+  void rotateRight() => _applyTransform(() => _engine.rotateQuarterTurns(1));
+  void flipHorizontal() => _applyTransform(_engine.flipHorizontal);
+  void flipVertical() => _applyTransform(_engine.flipVertical);
+
+  void commitStraighten(double degrees) {
+    if (degrees.abs() < 0.01) return;
+    _applyTransform(() => _engine.straighten(degrees));
+    state = state.copyWith(straightenDegrees: 0);
+  }
+
+  void setStraightenPreview(double degrees) {
+    state = state.copyWith(straightenDegrees: degrees);
   }
 
   void setShowOriginal(bool value) {
@@ -207,17 +254,17 @@ class EditorController extends StateNotifier<EditorState> {
 
   void undo() {
     if (!state.canUndo) return;
-    try {
-      _applyCommittedPreview(_engine.undo());
-    } catch (error) {
-      state = state.copyWith(error: '$error');
-    }
+    _applyTransform(_engine.undo);
   }
 
   void redo() {
     if (!state.canRedo) return;
+    _applyTransform(_engine.redo);
+  }
+
+  void _applyTransform(Uint8List Function() action) {
     try {
-      _applyCommittedPreview(_engine.redo());
+      _applyCommittedPreview(action());
     } catch (error) {
       state = state.copyWith(error: '$error');
     }
