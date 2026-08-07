@@ -12,6 +12,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const double _cameraMaxDimension = 2560;
+
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
   bool _isRecovering = false;
@@ -77,18 +79,18 @@ class _HomeScreenState extends State<HomeScreen> {
       final picked = await _picker.pickImage(
         source: source,
         preferredCameraDevice: CameraDevice.rear,
-        // Keep the camera's full pixel dimensions, but avoid an unnecessarily
-        // huge quality-100 JPEG. A high-quality 92 JPEG is typically much
-        // smaller to read, transfer to Rust and persist for recovery.
-        // Gallery imports remain untouched.
-        imageQuality: isCamera ? 92 : null,
+        // Modern phones can return 50 MP+ captures. The editor only renders a
+        // 1024 px working preview, so decoding the full sensor image first can
+        // cost tens of seconds and hundreds of MB on mid-range devices. Cap
+        // camera captures to a still-high 2560 px source before they enter the
+        // Rust pipeline. Gallery imports remain untouched/full-resolution.
+        maxWidth: isCamera ? _cameraMaxDimension : null,
+        maxHeight: isCamera ? _cameraMaxDimension : null,
+        imageQuality: isCamera ? 90 : null,
         requestFullMetadata: false,
       );
       if (picked == null || !mounted) return;
 
-      // Enter the editor before reading a potentially multi-megabyte file.
-      // The editor reads and prepares it while already visible, preserving the
-      // original full-resolution capture without a long Home-screen spinner.
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => EditorScreen(imagePath: picked.path),
@@ -117,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
               title: const Text('Take a photo'),
-              subtitle: const Text('Capture with the device camera'),
+              subtitle: const Text('Fast capture, optimized for editing'),
               onTap: () => Navigator.of(context).pop(ImageSource.camera),
             ),
             ListTile(
