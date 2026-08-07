@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(useMaterial3: true),
-        home: const HomeScreen(),
+        home: const HomeScreen(recoverLostPickerData: false),
       ),
     );
     await tester.pumpAndSettle();
