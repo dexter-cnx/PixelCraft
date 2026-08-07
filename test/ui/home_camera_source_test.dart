@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/ui/screens/home_screen.dart';
 
 void main() {
-  testWidgets('Add Photo offers camera and gallery sources', (tester) async {
+  testWidgets('Add Photo offers Film Camera, camera and gallery sources',
+      (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(useMaterial3: true),
@@ -16,8 +17,10 @@ void main() {
     await tester.tap(find.text('Add Photo'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Film Camera'), findsOneWidget);
+    expect(find.text('Preview Film Profiles live before capture'), findsOneWidget);
     expect(find.text('Take a photo'), findsOneWidget);
-    expect(find.text('Fast capture, optimized for editing'), findsOneWidget);
+    expect(find.text('Fast system camera capture'), findsOneWidget);
     expect(find.text('Choose from gallery'), findsOneWidget);
     expect(find.text('Open an existing image on this device'), findsOneWidget);
   });
