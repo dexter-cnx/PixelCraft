@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -25,6 +26,18 @@ class EngineSessionInfo {
   final int cursor;
   final bool canUndo;
   final bool canRedo;
+}
+
+class EngineFilmProfile {
+  const EngineFilmProfile({
+    required this.id,
+    required this.name,
+    required this.description,
+  });
+
+  final String id;
+  final String name;
+  final String description;
 }
 
 class EngineLoadResult {
@@ -69,11 +82,24 @@ abstract interface class ImageEngine {
     Uint8List bytes, {
     required int maxEdge,
   });
+  Future<EngineLoadResult> restoreSessionInBackground(
+    Uint8List bytes,
+    String recipeJson,
+  );
+  Future<String> exportSessionRecipeInBackground();
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
     List<String> filters, {
     int maxEdge = 180,
   });
+  Future<List<EngineFilmProfile>> filmProfilesInBackground();
+  Future<Map<String, Uint8List>> generateFilmProfilePreviews(
+    Uint8List bytes,
+    List<String> profileIds, {
+    int maxEdge = 180,
+  });
+  Future<EngineCommitResult> applyFilmProfile(String id, double strength);
+  Future<EngineCommitResult> replaceFilmProfile(String id, double strength);
   Future<EngineCommitResult> commitFilterValue(String filter, double value);
   Future<EngineCommitResult> replaceFilterValue(String filter, double value);
   Future<EngineCommitResult> applyEditsInBackground();
@@ -186,6 +212,30 @@ class RustImageEngine implements ImageEngine {
       });
 
   @override
+  Future<EngineLoadResult> restoreSessionInBackground(
+    Uint8List bytes,
+    String recipeJson,
+  ) =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        final preview = rust.restoreSession(bytes: bytes, recipeJson: recipeJson);
+        final originalPreview = rust.originalPreview();
+        final histogram = rust.getHistogram(imageBytes: preview);
+        return EngineLoadResult(
+          previewBytes: preview,
+          originalPreviewBytes: originalPreview,
+          histogram: histogram,
+          session: _sessionInfo(),
+        );
+      });
+
+  @override
+  Future<String> exportSessionRecipeInBackground() => Isolate.run(() async {
+        await initializeRustBridge();
+        return rust.exportSessionRecipe();
+      });
+
+  @override
   Future<Map<String, Uint8List>> generateFilterPreviews(
     Uint8List bytes,
     List<String> filters, {
@@ -201,6 +251,64 @@ class RustImageEngine implements ImageEngine {
         return <String, Uint8List>{
           for (final preview in generated) preview.name: preview.bytes,
         };
+      });
+
+  @override
+  Future<List<EngineFilmProfile>> filmProfilesInBackground() =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        return rust
+            .filmProfiles()
+            .map(
+              (profile) => EngineFilmProfile(
+                id: profile.id,
+                name: profile.name,
+                description: profile.description,
+              ),
+            )
+            .toList(growable: false);
+      });
+
+  @override
+  Future<Map<String, Uint8List>> generateFilmProfilePreviews(
+    Uint8List bytes,
+    List<String> profileIds, {
+    int maxEdge = 180,
+  }) =>
+      Isolate.run(() async {
+        await initializeRustBridge();
+        final generated = rust.generateFilmProfilePreviews(
+          imageBytes: bytes,
+          profileIds: profileIds,
+          maxEdge: maxEdge,
+        );
+        return <String, Uint8List>{
+          for (final preview in generated) preview.id: preview.bytes,
+        };
+      });
+
+  @override
+  Future<EngineCommitResult> applyFilmProfile(String id, double strength) =>
+      _runCommittedRustTask(() {
+        final watch = Stopwatch()..start();
+        final bytes = rust.applyFilmProfile(id: id, strength: strength);
+        watch.stop();
+        return (
+          bytes: bytes,
+          elapsedMicros: BigInt.from(watch.elapsedMicroseconds),
+        );
+      });
+
+  @override
+  Future<EngineCommitResult> replaceFilmProfile(String id, double strength) =>
+      _runCommittedRustTask(() {
+        final watch = Stopwatch()..start();
+        final bytes = rust.replaceFilmProfile(id: id, strength: strength);
+        watch.stop();
+        return (
+          bytes: bytes,
+          elapsedMicros: BigInt.from(watch.elapsedMicroseconds),
+        );
       });
 
   @override
@@ -221,7 +329,13 @@ class RustImageEngine implements ImageEngine {
     double value,
   ) =>
       _runCommittedRustTask(() {
-        rust.undo();
+        // The controller knows that a filter has existed in this draft, but it
+        // may no longer be the immediately previous operation (for example
+        // Filter -> Film -> Filter). Only undo when the recipe confirms the
+        // latest operation is itself a Filter.
+        if (_lastRecipeOperationType() == 'filter') {
+          rust.undo();
+        }
         rust.beginFilter(filter: filter);
         final preview = rust.updateFilterPreview(filter: filter, value: value);
         final bytes = rust.commitFilter();
@@ -426,6 +540,23 @@ Future<EngineCommitResult> _runCommittedRustTask(_RustCommittedCall task) =>
         session: session,
       );
     });
+
+String? _lastRecipeOperationType() {
+  try {
+    final decoded = jsonDecode(rust.exportSessionRecipe());
+    if (decoded is! Map<String, dynamic>) return null;
+    final operations = decoded['operations'];
+    final cursor = decoded['cursor'];
+    if (operations is! List || cursor is! int || cursor <= 0 || cursor > operations.length) {
+      return null;
+    }
+    final operation = operations[cursor - 1];
+    if (operation is! Map) return null;
+    return operation['type'] as String?;
+  } catch (_) {
+    return null;
+  }
+}
 
 EngineSessionInfo _sessionInfo() {
   final info = rust.sessionInfo();

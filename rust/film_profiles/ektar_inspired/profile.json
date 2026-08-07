@@ -1,0 +1,9 @@
+{
+  "id": "ektar_inspired",
+  "name": "Ektar Inspired",
+  "description": "Ultra-vivid color-negative inspired rendering with strong reds, saturated landscapes and crisp tonal separation.",
+  "lut": "lut.cube",
+  "lutSize": 33,
+  "packVersion": 2,
+  "defaultStrength": 1.0
+}

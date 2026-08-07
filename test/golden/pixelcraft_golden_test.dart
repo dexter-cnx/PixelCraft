@@ -23,22 +23,55 @@ void main() {
     binding.platformDispatcher.clearPlatformBrightnessTestValue();
   });
 
-  Future<void> setPhoneSurface(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1.0;
+  Future<void> setSurface(
+    WidgetTester tester,
+    Size size, {
+    double devicePixelRatio = 1,
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = devicePixelRatio;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  Widget editorHarness(FakeImageEngine engine) => ProviderScope(
+  Future<void> setPhoneSurface(WidgetTester tester) =>
+      setSurface(tester, const Size(390, 844));
+
+  Future<void> setTabletSurface(WidgetTester tester) =>
+      setSurface(tester, const Size(1180, 820));
+
+  Future<void> tapTool(WidgetTester tester, String label) async {
+    final finder = find.text(label);
+    expect(finder, findsOneWidget);
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
+  ThemeData lightTheme() => ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF7259E7),
+        scaffoldBackgroundColor: const Color(0xFFF8F7FC),
+      );
+
+  ThemeData darkTheme() => ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorSchemeSeed: const Color(0xFF9D8CFF),
+      );
+
+  Widget editorHarness(
+    FakeImageEngine engine, {
+    ThemeMode themeMode = ThemeMode.light,
+  }) =>
+      ProviderScope(
         overrides: [imageEngineProvider.overrideWithValue(engine)],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorSchemeSeed: const Color(0xFF7259E7),
-            scaffoldBackgroundColor: const Color(0xFFF8F7FC),
-          ),
+          theme: lightTheme(),
+          darkTheme: darkTheme(),
+          themeMode: themeMode,
           home: EditorScreen(imageBytes: testPngBytes),
         ),
       );
@@ -48,11 +81,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: const Color(0xFF7259E7),
-          scaffoldBackgroundColor: const Color(0xFFF8F7FC),
-        ),
+        theme: lightTheme(),
         home: const HomeScreen(),
       ),
     );
@@ -72,6 +101,59 @@ void main() {
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/editor_phone.png'),
+    );
+  });
+
+  testWidgets('editor screen golden - tablet', (tester) async {
+    await setTabletSurface(tester);
+    await tester.pumpWidget(editorHarness(FakeImageEngine()));
+    await tester.pumpAndSettle();
+
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/editor_tablet.png'),
+    );
+  });
+
+  testWidgets('editor screen golden - dark phone', (tester) async {
+    await setPhoneSurface(tester);
+    TestWidgetsFlutterBinding.instance.platformDispatcher
+        .platformBrightnessTestValue = Brightness.dark;
+    await tester.pumpWidget(
+      editorHarness(FakeImageEngine(), themeMode: ThemeMode.dark),
+    );
+    await tester.pumpAndSettle();
+
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/editor_dark_phone.png'),
+    );
+  });
+
+  testWidgets('editor screen golden - accessibility text scale', (tester) async {
+    await setPhoneSurface(tester);
+    TestWidgetsFlutterBinding.instance.platformDispatcher
+        .textScaleFactorTestValue = 1.5;
+    await tester.pumpWidget(editorHarness(FakeImageEngine()));
+    await tester.pumpAndSettle();
+
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/editor_accessibility_phone.png'),
+    );
+  });
+
+  testWidgets('film profiles golden - phone', (tester) async {
+    await setPhoneSurface(tester);
+    await tester.pumpWidget(editorHarness(FakeImageEngine()));
+    await tester.pumpAndSettle();
+
+    await tapTool(tester, 'Film');
+
+    expect(find.text('Provia Inspired'), findsOneWidget);
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/editor_film_phone.png'),
     );
   });
 
@@ -98,9 +180,6 @@ void main() {
     final gesture = await tester.startGesture(
       tester.getCenter(find.byType(ImagePreview)),
     );
-    // Flutter's default long-press recognition threshold is 500 ms. Pump a
-    // little longer while keeping the pointer down so the before state remains
-    // visible during the golden capture.
     await tester.pump(const Duration(milliseconds: 550));
 
     expect(find.text('Original'), findsOneWidget);

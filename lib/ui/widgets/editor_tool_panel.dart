@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../core/image_engine.dart';
 import '../../state/editor_controller.dart';
 import 'filter_slider.dart';
 import 'histogram_widget.dart';
@@ -31,6 +32,7 @@ class EditorToolPanel extends StatelessWidget {
               segments: const [
                 ButtonSegment(value: EditorTool.adjust, icon: Icon(Icons.tune), label: Text('Adjust')),
                 ButtonSegment(value: EditorTool.filters, icon: Icon(Icons.auto_awesome), label: Text('Filters')),
+                ButtonSegment(value: EditorTool.film, icon: Icon(Icons.camera_roll_outlined), label: Text('Film')),
                 ButtonSegment(value: EditorTool.crop, icon: Icon(Icons.crop), label: Text('Crop')),
                 ButtonSegment(value: EditorTool.rotate, icon: Icon(Icons.rotate_90_degrees_ccw), label: Text('Rotate')),
                 ButtonSegment(value: EditorTool.details, icon: Icon(Icons.analytics_outlined), label: Text('Details')),
@@ -39,12 +41,25 @@ class EditorToolPanel extends StatelessWidget {
               onSelectionChanged: (selection) => controller.selectTool(selection.first),
             ),
           ),
+          if (state.isPreviewProcessing) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Updating preview…',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
             child: switch (state.selectedTool) {
               EditorTool.adjust => _AdjustPanel(state: state, controller: controller),
               EditorTool.filters => _FilterPanel(state: state, controller: controller),
+              EditorTool.film => _FilmPanel(state: state, controller: controller),
               EditorTool.crop => _CropPanel(controller: controller),
               EditorTool.rotate => _RotatePanel(state: state, controller: controller),
               EditorTool.details => _DetailsPanel(state: state),
@@ -68,7 +83,9 @@ class _DraftActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final enabled = state.hasUnappliedEdits && !state.isBusy;
+    final enabled = state.hasUnappliedEdits &&
+        !state.isBusy &&
+        !state.isPreviewProcessing;
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -133,20 +150,7 @@ class _FilterPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (state.isGeneratingFilterPreviews && state.filterPreviews.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox.square(
-                  dimension: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 8),
-                Text('Preparing filter previews…'),
-              ],
-            ),
-          ),
+          const _PreparingLabel(label: 'Preparing filter previews…'),
         SizedBox(
           height: 126,
           child: ListView.separated(
@@ -155,13 +159,11 @@ class _FilterPanel extends StatelessWidget {
             separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final filter = creativeFilters[index];
-              final preview = state.filterPreviews[filter];
-              final isSelected = selected == filter;
-              return _FilterPreviewCard(
+              return _PreviewCard(
                 label: filter.replaceAll('_', ' '),
-                previewBytes: preview,
-                selected: isSelected,
-                enabled: preview != null && !state.isBusy,
+                previewBytes: state.filterPreviews[filter],
+                selected: selected == filter,
+                enabled: state.filterPreviews[filter] != null && !state.isBusy,
                 onTap: () => controller.applyCreativeFilter(filter),
               );
             },
@@ -186,8 +188,89 @@ class _FilterPanel extends StatelessWidget {
   }
 }
 
-class _FilterPreviewCard extends StatelessWidget {
-  const _FilterPreviewCard({
+class _FilmPanel extends StatelessWidget {
+  const _FilmPanel({required this.state, required this.controller});
+  final EditorState state;
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = state.selectedFilmProfile;
+    final selectedProfile = state.filmProfiles.cast<EngineFilmProfile?>().firstWhere(
+          (profile) => profile?.id == selected,
+          orElse: () => null,
+        );
+
+    return Column(
+      key: const ValueKey('film'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (state.isGeneratingFilmPreviews && state.filmProfilePreviews.isEmpty)
+          const _PreparingLabel(label: 'Preparing film previews…'),
+        SizedBox(
+          height: 132,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: state.filmProfiles.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final profile = state.filmProfiles[index];
+              return _PreviewCard(
+                label: profile.name,
+                previewBytes: state.filmProfilePreviews[profile.id],
+                selected: selected == profile.id,
+                enabled: state.filmProfilePreviews[profile.id] != null && !state.isBusy,
+                onTap: () => controller.selectFilmProfile(profile.id),
+              );
+            },
+          ),
+        ),
+        if (selectedProfile != null) ...[
+          const SizedBox(height: 10),
+          Text(selectedProfile.description, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 6),
+          Text(
+            '${selectedProfile.name} strength',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          FilterSlider(
+            value: state.filmProfileStrength,
+            min: 0,
+            max: 1,
+            enabled: !state.isBusy,
+            onChangeEnd: controller.updateFilmProfileStrength,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _PreparingLabel extends StatelessWidget {
+  const _PreparingLabel({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox.square(
+            dimension: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewCard extends StatelessWidget {
+  const _PreviewCard({
     required this.label,
     required this.previewBytes,
     required this.selected,
@@ -205,49 +288,54 @@ class _FilterPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: 104,
-      child: Material(
-        color: selected
-            ? colorScheme.secondaryContainer
-            : colorScheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: selected ? colorScheme.primary : colorScheme.outlineVariant,
-            width: selected ? 2 : 1,
+      width: 108,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: Material(
+          color: selected
+              ? colorScheme.secondaryContainer
+              : colorScheme.surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
           ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: previewBytes == null
-                    ? ColoredBox(
-                        color: colorScheme.surfaceContainerHighest,
-                        child: const Center(
-                          child: Icon(Icons.image_outlined, size: 24),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: previewBytes == null
+                      ? ColoredBox(
+                          color: colorScheme.surfaceContainerHighest,
+                          child: const Center(
+                            child: Icon(Icons.image_outlined, size: 24),
+                          ),
+                        )
+                      : Image.memory(
+                          previewBytes!,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
                         ),
-                      )
-                    : Image.memory(
-                        previewBytes!,
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                      ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelMedium,
                 ),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

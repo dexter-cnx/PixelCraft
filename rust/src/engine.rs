@@ -1,18 +1,24 @@
 use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat, Rgba};
 use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::sync::Mutex;
 
-use crate::filters;
+use crate::{film_profiles, filters};
 
 const DEFAULT_PREVIEW_MAX_EDGE: u32 = 1280;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum EditOperation {
     Filter {
         name: String,
         value: f32,
+    },
+    FilmProfile {
+        id: String,
+        strength: f32,
     },
     Crop {
         x: f32,
@@ -43,20 +49,21 @@ pub struct SessionSnapshot {
     pub can_redo: bool,
 }
 
-pub struct EngineState {
-    /// Original full-resolution compressed bytes are kept untouched until export.
-    pub original: Option<Vec<u8>>,
-    /// Full edit recipe. Applied checkpoints stay in this list so export can
-    /// replay the complete recipe against the original full-resolution image.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRecipe {
+    pub version: u32,
+    pub preview_max_edge: u32,
     pub operations: Vec<EditOperation>,
-    /// Absolute cursor inside `operations`.
     pub cursor: usize,
-    /// Operations before this cursor belong to the latest Apply checkpoint.
-    /// Undo/Redo and the UI session counters operate only after this boundary.
+    pub checkpoint_cursor: usize,
+}
+
+pub struct EngineState {
+    pub original: Option<Vec<u8>>,
+    pub operations: Vec<EditOperation>,
+    pub cursor: usize,
     pub checkpoint_cursor: usize,
     pub preview_max_edge: u32,
-    /// Reduced image representing the latest Apply checkpoint. All interactive
-    /// editing is replayed from this image, never from the full-resolution source.
     pub checkpoint_preview: Option<DynamicImage>,
     pub checkpoint_preview_bytes: Option<Vec<u8>>,
     pub preview_base: Option<DynamicImage>,
@@ -104,8 +111,6 @@ impl EngineState {
         }
     }
 
-    /// Decodes the full-resolution source once, immediately reduces it to the
-    /// editor working size, and caches that reduced image for all later edits.
     pub fn prepare_preview(&mut self) -> Result<Vec<u8>, String> {
         let original = self
             .original
@@ -178,6 +183,24 @@ impl EngineState {
         self.render_preview()
     }
 
+    /// Replaces only when the immediately previous draft operation belongs to
+    /// the same editor family. Switching Filter -> Film -> Filter therefore
+    /// appends a new Filter instead of accidentally deleting the Film step.
+    pub fn replace_last_draft_operation(
+        &mut self,
+        operation: EditOperation,
+    ) -> Result<Vec<u8>, String> {
+        self.clear_transaction();
+        let should_replace = self.cursor > self.checkpoint_cursor
+            && same_replaceable_family(&self.operations[self.cursor - 1], &operation);
+        if should_replace {
+            self.cursor -= 1;
+            self.operations.truncate(self.cursor);
+        }
+        self.push_operation(operation);
+        self.render_preview()
+    }
+
     pub fn cancel_filter(&mut self) -> Result<Vec<u8>, String> {
         self.clear_transaction();
         self.render_preview()
@@ -203,9 +226,6 @@ impl EngineState {
         encode_png(&self.render_preview_image()?)
     }
 
-    /// Apply is intentionally cheap: promote the already-rendered bounded
-    /// preview to the next checkpoint and keep the full operation recipe.
-    /// No full-resolution decode/filter/encode happens here.
     pub fn apply_checkpoint(&mut self) -> Result<Vec<u8>, String> {
         self.clear_transaction();
         let preview = self.render_preview_image()?;
@@ -230,12 +250,58 @@ impl EngineState {
         let operation_count = self.operations.len().saturating_sub(self.checkpoint_cursor);
         let cursor = self.cursor.saturating_sub(self.checkpoint_cursor);
         SessionSnapshot {
-            version: 2,
+            version: 3,
             operation_count: operation_count as u32,
             cursor: cursor as u32,
             can_undo: self.cursor > self.checkpoint_cursor,
             can_redo: self.cursor < self.operations.len(),
         }
+    }
+
+    pub fn export_recipe_json(&self) -> Result<String, String> {
+        serde_json::to_string(&SessionRecipe {
+            version: 1,
+            preview_max_edge: self.preview_max_edge,
+            operations: self.operations.clone(),
+            cursor: self.cursor,
+            checkpoint_cursor: self.checkpoint_cursor,
+        })
+        .map_err(|error| format!("Unable to serialize session recipe: {error}"))
+    }
+
+    pub fn restore_recipe_json(&mut self, bytes: Vec<u8>, json: &str) -> Result<Vec<u8>, String> {
+        let recipe: SessionRecipe = serde_json::from_str(json)
+            .map_err(|error| format!("Unable to deserialize session recipe: {error}"))?;
+        if recipe.version != 1 {
+            return Err(format!(
+                "Unsupported session recipe version: {}",
+                recipe.version
+            ));
+        }
+        if recipe.checkpoint_cursor > recipe.cursor || recipe.cursor > recipe.operations.len() {
+            return Err("Invalid session recipe cursor bounds".to_string());
+        }
+
+        self.reset(bytes);
+        self.preview_max_edge = recipe.preview_max_edge.max(1);
+        self.operations = recipe.operations;
+        self.cursor = recipe.cursor;
+        self.checkpoint_cursor = recipe.checkpoint_cursor;
+
+        let original = self
+            .original
+            .as_ref()
+            .ok_or_else(|| "No image loaded".to_string())?;
+        let base = resize_to_max_edge(decode(original)?, self.preview_max_edge);
+        let checkpoint = replay_preview_operations(
+            base,
+            &self.operations[..self.checkpoint_cursor],
+            self.preview_max_edge,
+        )?;
+        let checkpoint_bytes = encode_png(&checkpoint)?;
+        self.checkpoint_preview = Some(checkpoint);
+        self.checkpoint_preview_bytes = Some(checkpoint_bytes);
+        self.render_preview()
     }
 
     fn push_operation(&mut self, operation: EditOperation) {
@@ -253,7 +319,6 @@ impl EngineState {
             );
         }
 
-        // Fallback for callers that render before prepare_preview().
         let original = self
             .original
             .as_ref()
@@ -268,6 +333,17 @@ impl EngineState {
         self.pending_preview = None;
         self.active_filter = None;
     }
+}
+
+fn same_replaceable_family(previous: &EditOperation, next: &EditOperation) -> bool {
+    matches!(
+        (previous, next),
+        (EditOperation::Filter { .. }, EditOperation::Filter { .. })
+            | (
+                EditOperation::FilmProfile { .. },
+                EditOperation::FilmProfile { .. }
+            )
+    )
 }
 
 pub fn replay_operations(
@@ -298,6 +374,7 @@ fn apply_operation_to_image(
 ) -> Result<DynamicImage, String> {
     Ok(match operation {
         EditOperation::Filter { name, value } => filters::apply(image, name, *value)?,
+        EditOperation::FilmProfile { id, strength } => film_profiles::apply(image, id, *strength)?,
         EditOperation::Crop {
             x,
             y,
@@ -437,6 +514,82 @@ mod tests {
     }
 
     #[test]
+    fn film_profile_is_replayable() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        let bytes = engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 0.8,
+            })
+            .unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(engine.cursor, 1);
+    }
+
+    #[test]
+    fn replacement_never_removes_a_different_operation_family() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        engine
+            .apply_operation(EditOperation::Filter {
+                name: "contrast".to_string(),
+                value: 1.2,
+            })
+            .unwrap();
+        engine
+            .replace_last_draft_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 1.0,
+            })
+            .unwrap();
+        engine
+            .replace_last_draft_operation(EditOperation::Filter {
+                name: "brightness".to_string(),
+                value: 1.1,
+            })
+            .unwrap();
+
+        assert_eq!(engine.operations.len(), 3);
+        assert!(matches!(engine.operations[0], EditOperation::Filter { .. }));
+        assert!(matches!(
+            engine.operations[1],
+            EditOperation::FilmProfile { .. }
+        ));
+        assert!(matches!(engine.operations[2], EditOperation::Filter { .. }));
+    }
+
+    #[test]
+    fn same_family_replacement_keeps_one_draft_operation() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 1.0,
+            })
+            .unwrap();
+        engine
+            .replace_last_draft_operation(EditOperation::FilmProfile {
+                id: "e100_inspired".to_string(),
+                strength: 0.6,
+            })
+            .unwrap();
+
+        assert_eq!(engine.operations.len(), 1);
+        assert!(matches!(
+            engine.operations[0],
+            EditOperation::FilmProfile { ref id, .. } if id == "e100_inspired"
+        ));
+    }
+
+    #[test]
     fn apply_checkpoint_keeps_full_recipe_but_resets_draft_session() {
         let mut engine = EngineState::default();
         engine.reset(source_png());
@@ -462,6 +615,33 @@ mod tests {
             engine.render_full_resolution().unwrap().dimensions(),
             (40, 30)
         );
+    }
+
+    #[test]
+    fn session_recipe_round_trip_restores_checkpoint_and_draft() {
+        let original = source_png();
+        let mut engine = EngineState::default();
+        engine.reset(original.clone());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+        engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "e100_inspired".to_string(),
+                strength: 0.7,
+            })
+            .unwrap();
+        engine.apply_checkpoint().unwrap();
+        engine
+            .apply_operation(EditOperation::Rotate90 { turns: 1 })
+            .unwrap();
+        let expected = engine.render_preview().unwrap();
+        let recipe = engine.export_recipe_json().unwrap();
+
+        let mut restored = EngineState::default();
+        let actual = restored.restore_recipe_json(original, &recipe).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(restored.checkpoint_cursor, 1);
+        assert_eq!(restored.cursor, 2);
     }
 
     #[test]

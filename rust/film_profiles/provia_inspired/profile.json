@@ -1,0 +1,9 @@
+{
+  "id": "provia_inspired",
+  "name": "Provia Inspired",
+  "description": "Balanced slide-film color with clean blues, lively greens and natural skin.",
+  "lut": "lut.cube",
+  "lutSize": 33,
+  "packVersion": 2,
+  "defaultStrength": 1.0
+}

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -12,15 +13,21 @@ class FakeImageEngine implements ImageEngine {
 
   Uint8List output;
   bool failLoad = false;
+  Duration previewDelay = Duration.zero;
   int loadCalls = 0;
   int backgroundLoadCalls = 0;
+  int restoreSessionCalls = 0;
+  int exportSessionRecipeCalls = 0;
   int beginCalls = 0;
   int previewCalls = 0;
   int commitCalls = 0;
   int replaceFilterCalls = 0;
+  int applyFilmProfileCalls = 0;
+  int replaceFilmProfileCalls = 0;
   int applyEditsCalls = 0;
   int discardEditsCalls = 0;
   int filterPreviewGenerationCalls = 0;
+  int filmPreviewGenerationCalls = 0;
   int undoCalls = 0;
   int redoCalls = 0;
   int exportCalls = 0;
@@ -28,9 +35,42 @@ class FakeImageEngine implements ImageEngine {
   int cursor = 0;
   int operationCount = 0;
   String? activeFilter;
+  String? activeFilmProfile;
   double? lastValue;
 
   final List<int> bins = List<int>.generate(768, (index) => index % 256);
+  final List<EngineFilmProfile> profiles = const [
+    EngineFilmProfile(
+      id: 'provia_inspired',
+      name: 'Provia Inspired',
+      description: 'Balanced slide-film color.',
+    ),
+    EngineFilmProfile(
+      id: 'velvia_inspired',
+      name: 'Velvia Inspired',
+      description: 'Vivid high-contrast landscape color.',
+    ),
+    EngineFilmProfile(
+      id: 'astia_inspired',
+      name: 'Astia Inspired',
+      description: 'Soft portrait-oriented slide-film color.',
+    ),
+    EngineFilmProfile(
+      id: 'e100_inspired',
+      name: 'E100 Inspired',
+      description: 'Neutral transparency-film look.',
+    ),
+    EngineFilmProfile(
+      id: 'ektar_inspired',
+      name: 'Ektar Inspired',
+      description: 'Ultra-vivid color-negative look.',
+    ),
+    EngineFilmProfile(
+      id: 'chrome64_inspired',
+      name: 'Chrome 64 Inspired',
+      description: 'Warm nostalgic chrome look.',
+    ),
+  ];
 
   @override
   void loadImage(Uint8List bytes) {
@@ -47,12 +87,32 @@ class FakeImageEngine implements ImageEngine {
   }) async {
     backgroundLoadCalls++;
     loadImage(bytes);
-    return EngineLoadResult(
-      previewBytes: output,
-      originalPreviewBytes: output,
-      histogram: bins,
-      session: sessionInfo(),
-    );
+    return _loadResult();
+  }
+
+  @override
+  Future<EngineLoadResult> restoreSessionInBackground(
+    Uint8List bytes,
+    String recipeJson,
+  ) async {
+    restoreSessionCalls++;
+    loadImage(bytes);
+    cursor = recipeJson.contains('draft') ? 1 : 0;
+    operationCount = cursor;
+    return _loadResult();
+  }
+
+  EngineLoadResult _loadResult() => EngineLoadResult(
+        previewBytes: output,
+        originalPreviewBytes: output,
+        histogram: bins,
+        session: sessionInfo(),
+      );
+
+  @override
+  Future<String> exportSessionRecipeInBackground() async {
+    exportSessionRecipeCalls++;
+    return '{"version":1,"cursor":$cursor}';
   }
 
   @override
@@ -106,10 +166,50 @@ class FakeImageEngine implements ImageEngine {
   }
 
   @override
+  Future<List<EngineFilmProfile>> filmProfilesInBackground() async => profiles;
+
+  @override
+  Future<Map<String, Uint8List>> generateFilmProfilePreviews(
+    Uint8List bytes,
+    List<String> profileIds, {
+    int maxEdge = 180,
+  }) async {
+    filmPreviewGenerationCalls++;
+    return {for (final id in profileIds) id: output};
+  }
+
+  Future<void> _waitPreview() async {
+    if (previewDelay > Duration.zero) await Future<void>.delayed(previewDelay);
+  }
+
+  @override
+  Future<EngineCommitResult> applyFilmProfile(String id, double strength) async {
+    await _waitPreview();
+    applyFilmProfileCalls++;
+    activeFilmProfile = id;
+    lastValue = strength;
+    _commitTransform();
+    return _result(elapsedMicros: BigInt.from(9000));
+  }
+
+  @override
+  Future<EngineCommitResult> replaceFilmProfile(String id, double strength) async {
+    await _waitPreview();
+    replaceFilmProfileCalls++;
+    if (cursor > 0) cursor--;
+    activeFilmProfile = id;
+    lastValue = strength;
+    operationCount = cursor + 1;
+    cursor = operationCount;
+    return _result(elapsedMicros: BigInt.from(9000));
+  }
+
+  @override
   Future<EngineCommitResult> commitFilterValue(
     String filter,
     double value,
   ) async {
+    await _waitPreview();
     beginFilter(filter);
     updateFilterPreview(filter, value);
     commitCalls++;
@@ -122,6 +222,7 @@ class FakeImageEngine implements ImageEngine {
     String filter,
     double value,
   ) async {
+    await _waitPreview();
     replaceFilterCalls++;
     if (cursor > 0) cursor--;
     beginFilter(filter);
@@ -138,6 +239,7 @@ class FakeImageEngine implements ImageEngine {
     cursor = 0;
     operationCount = 0;
     activeFilter = null;
+    activeFilmProfile = null;
     lastValue = null;
     return _result();
   }
@@ -148,6 +250,7 @@ class FakeImageEngine implements ImageEngine {
     cursor = 0;
     operationCount = 0;
     activeFilter = null;
+    activeFilmProfile = null;
     lastValue = null;
     return _result();
   }
@@ -263,7 +366,7 @@ class FakeImageEngine implements ImageEngine {
 
   @override
   EngineSessionInfo sessionInfo() => EngineSessionInfo(
-        version: 2,
+        version: 3,
         operationCount: operationCount,
         cursor: cursor,
         canUndo: cursor > 0,

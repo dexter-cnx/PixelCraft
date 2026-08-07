@@ -1,0 +1,9 @@
+{
+  "id": "velvia_inspired",
+  "name": "Velvia Inspired",
+  "description": "Ultra-vivid slide-film inspired rendering with bold color, deep shadows and strong landscape contrast.",
+  "lut": "lut.cube",
+  "lutSize": 33,
+  "packVersion": 2,
+  "defaultStrength": 1.0
+}

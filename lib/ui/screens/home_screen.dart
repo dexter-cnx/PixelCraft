@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/editor_session_store.dart';
 import 'editor_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -14,7 +15,22 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _picker = ImagePicker();
+  final EditorSessionStore _sessionStore = EditorSessionStore();
   bool _isImporting = false;
+  bool _isRecovering = false;
+  StoredEditorSession? _recoverableSession;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshRecovery();
+  }
+
+  Future<void> _refreshRecovery() async {
+    final session = await _sessionStore.load();
+    if (!mounted) return;
+    setState(() => _recoverableSession = session);
+  }
 
   Future<void> _openBytes(Future<List<int>> bytesFuture) async {
     final bytes = await bytesFuture;
@@ -22,10 +38,42 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => EditorScreen(imageBytes: bytes)),
     );
+    await _refreshRecovery();
+  }
+
+  Future<void> _resumeLastSession() async {
+    if (_isRecovering || _recoverableSession == null) return;
+    setState(() => _isRecovering = true);
+    final session = await _sessionStore.load();
+    if (!mounted) return;
+    if (session == null) {
+      setState(() {
+        _isRecovering = false;
+        _recoverableSession = null;
+      });
+      return;
+    }
+
+    setState(() => _isRecovering = false);
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditorScreen(
+          imageBytes: session.originalBytes,
+          recoveryRecipe: session.recipeJson,
+        ),
+      ),
+    );
+    await _refreshRecovery();
+  }
+
+  Future<void> _discardRecovery() async {
+    await _sessionStore.clear();
+    if (!mounted) return;
+    setState(() => _recoverableSession = null);
   }
 
   Future<void> _importFromGallery() async {
-    if (_isImporting) return;
+    if (_isImporting || _isRecovering) return;
 
     try {
       final picked = await _picker.pickImage(source: ImageSource.gallery);
@@ -41,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => EditorScreen(imageBytes: Uint8List.fromList(bytes)),
         ),
       );
+      await _refreshRecovery();
     } catch (error) {
       if (!mounted) return;
       setState(() => _isImporting = false);
@@ -58,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'sample_3.png',
       'sample_4.png',
     ];
+    final blocked = _isImporting || _isRecovering;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pixel Craft')),
@@ -78,6 +128,42 @@ class _HomeScreenState extends State<HomeScreen> {
                       'Flutter interface, Rust processing engine, zero uploads.',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
+                    if (_recoverableSession != null) ...[
+                      const SizedBox(height: 20),
+                      Card.filled(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.history_rounded),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Resume last edit',
+                                      style: TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text('Restore the original image and its edit recipe.'),
+                                  ],
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: blocked ? null : _discardRecovery,
+                                child: const Text('Discard'),
+                              ),
+                              const SizedBox(width: 4),
+                              FilledButton(
+                                onPressed: blocked ? null : _resumeLastSession,
+                                child: const Text('Resume'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -93,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   itemBuilder: (context, index) => InkWell(
                     borderRadius: BorderRadius.circular(20),
-                    onTap: _isImporting
+                    onTap: blocked
                         ? null
                         : () => _openBytes(
                               DefaultAssetBundle.of(context)
@@ -116,23 +202,23 @@ class _HomeScreenState extends State<HomeScreen> {
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ),
-          if (_isImporting)
-            const Positioned.fill(
+          if (blocked)
+            Positioned.fill(
               child: ColoredBox(
-                color: Color(0x33000000),
+                color: const Color(0x33000000),
                 child: Center(
                   child: Card(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox.square(
+                          const SizedBox.square(
                             dimension: 22,
                             child: CircularProgressIndicator(strokeWidth: 2.5),
                           ),
-                          SizedBox(width: 12),
-                          Text('Importing image…'),
+                          const SizedBox(width: 12),
+                          Text(_isRecovering ? 'Recovering session…' : 'Importing image…'),
                         ],
                       ),
                     ),
@@ -143,14 +229,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        icon: _isImporting
+        icon: blocked
             ? const SizedBox.square(
                 dimension: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.add_photo_alternate_outlined),
         label: Text(_isImporting ? 'Importing…' : 'Import from Gallery'),
-        onPressed: _isImporting ? null : _importFromGallery,
+        onPressed: blocked ? null : _importFromGallery,
       ),
     );
   }

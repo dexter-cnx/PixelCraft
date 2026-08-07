@@ -1,0 +1,77 @@
+name: Pixel Craft CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: pixelcraft-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Install flutter_rust_bridge codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+
+      - name: Regenerate FRB bridge
+        run: make codegen
+
+      - name: Verify generated bridge is committed
+        run: git diff --exit-code -- lib/src/rust rust/src/frb_generated.rs
+
+      - name: Rust format
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path rust/Cargo.toml
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: State tests
+        run: flutter test test/state
+
+      - name: Widget tests
+        run: flutter test test/ui --exclude-tags=golden
+
+      - name: Golden tests
+        run: flutter test test/golden
+
+      - name: Upload golden failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures-${{ github.run_id }}
+          path: test/golden/failures/**
+          if-no-files-found: ignore
