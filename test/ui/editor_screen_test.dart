@@ -39,7 +39,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('loads editor and processes filter only after release', (tester) async {
+  testWidgets('loads editor and processes adjust filter only after release', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
 
@@ -59,10 +59,11 @@ void main() {
     expect(find.textContaining('Rust 12.50 ms'), findsOneWidget);
   });
 
-  testWidgets('creative filter previews apply immediately when tapped', (tester) async {
+  testWidgets('creative filters use prewarmed previews and show intensity after selection', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
 
+    expect(engine.filterPreviewGenerationCalls, 1);
     await tester.tap(find.text('Filters'));
     await tester.pumpAndSettle();
 
@@ -71,7 +72,6 @@ void main() {
     expect(find.text('grayscale'), findsOneWidget);
     expect(find.text('vintage'), findsOneWidget);
     expect(find.byType(Image), findsWidgets);
-    expect(engine.commitCalls, 0);
 
     await tester.tap(find.text('vintage'));
     await tester.pumpAndSettle();
@@ -79,6 +79,37 @@ void main() {
     expect(engine.activeFilter, 'vintage');
     expect(engine.lastValue, 1);
     expect(engine.commitCalls, 1);
+    expect(find.text('vintage intensity'), findsOneWidget);
+    expect(find.byType(Slider), findsOneWidget);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+
+    await tester.tap(find.text('oceanic'));
+    await tester.pumpAndSettle();
+
+    expect(engine.replaceFilterCalls, 1);
+    expect(engine.activeFilter, 'oceanic');
+    expect(engine.filterPreviewGenerationCalls, 1);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+  });
+
+  testWidgets('creative filter intensity processes only when slider is released', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('vintage'));
+    await tester.pumpAndSettle();
+
+    final slider = find.byType(Slider);
+    final replaceCallsBeforeDrag = engine.replaceFilterCalls;
+    final gesture = await tester.startGesture(tester.getCenter(slider));
+    await gesture.moveBy(const Offset(-50, 0));
+    await tester.pump();
+    expect(engine.replaceFilterCalls, replaceCallsBeforeDrag);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(engine.replaceFilterCalls, replaceCallsBeforeDrag + 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });
 
