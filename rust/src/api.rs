@@ -42,8 +42,7 @@ impl From<SessionSnapshot> for EditSessionInfo {
 
 #[frb(sync)]
 pub fn load_image(bytes: Vec<u8>) -> Result<(u32, u32), String> {
-    let image = decode(&bytes)?;
-    let dimensions = image.dimensions();
+    let dimensions = decode(&bytes)?.dimensions();
     ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
@@ -57,7 +56,7 @@ pub fn prepare_preview(_image_bytes: Vec<u8>, max_edge: u32) -> Result<Vec<u8>, 
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?;
     engine.set_preview_max_edge(max_edge);
-    engine.render_preview()
+    engine.prepare_preview()
 }
 
 #[frb(sync)]
@@ -158,12 +157,7 @@ pub fn apply_crop(x: f32, y: f32, width: f32, height: f32) -> Result<Vec<u8>, St
     ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
-        .apply_operation(EditOperation::Crop {
-            x,
-            y,
-            width,
-            height,
-        })
+        .apply_operation(EditOperation::Crop { x, y, width, height })
 }
 
 #[frb(sync)]
@@ -218,27 +212,21 @@ pub fn session_info() -> Result<EditSessionInfo, String> {
         .into())
 }
 
-/// Bakes all active operations into a new lossless PNG base and clears history.
-/// This creates an explicit editing checkpoint: subsequent edits start from the
-/// currently visible result and Undo/Redo do not cross the checkpoint.
+/// Promotes the current reduced preview to the next editing checkpoint while
+/// retaining the complete operation recipe. Full-resolution work is deferred
+/// until export.
 #[frb(sync)]
 pub fn apply_edits() -> Result<Vec<u8>, String> {
-    let mut engine = ENGINE
+    ENGINE
         .lock()
-        .map_err(|_| "Engine lock poisoned".to_string())?;
-    let applied = engine.render_full_resolution()?;
-    engine.original = Some(encode_png(&applied)?);
-    engine.operations.clear();
-    engine.cursor = 0;
-    engine.preview_base = None;
-    engine.pending_operation = None;
-    engine.pending_preview = None;
-    engine.active_filter = None;
-    engine.render_preview()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_checkpoint()
 }
 
 #[frb(sync)]
 pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
+    // This is intentionally the expensive path: decode the untouched original
+    // and replay the complete edit recipe at full resolution only for export.
     let image = ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
@@ -254,26 +242,10 @@ pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
 
 #[frb(sync)]
 pub fn original_preview() -> Result<Vec<u8>, String> {
-    let engine = ENGINE
+    ENGINE
         .lock()
-        .map_err(|_| "Engine lock poisoned".to_string())?;
-    let original = engine
-        .original
-        .as_ref()
-        .ok_or_else(|| "No image loaded".to_string())?;
-    let image = decode(original)?;
-    let (width, height) = image.dimensions();
-    let max_edge = width.max(height);
-    if max_edge <= engine.preview_max_edge {
-        return encode_png(&image);
-    }
-    let scale = engine.preview_max_edge as f64 / max_edge as f64;
-    let resized = image.resize_exact(
-        ((width as f64 * scale).round() as u32).max(1),
-        ((height as f64 * scale).round() as u32).max(1),
-        image::imageops::FilterType::Lanczos3,
-    );
-    encode_png(&resized)
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .original_preview()
 }
 
 #[frb(sync)]
