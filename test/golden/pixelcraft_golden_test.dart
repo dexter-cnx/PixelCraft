@@ -40,6 +40,15 @@ void main() {
   Future<void> setTabletSurface(WidgetTester tester) =>
       setSurface(tester, const Size(1180, 820));
 
+  Future<void> tapTool(WidgetTester tester, String label) async {
+    final finder = find.text(label);
+    expect(finder, findsOneWidget);
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
   ThemeData lightTheme() => ThemeData(
         useMaterial3: true,
         colorSchemeSeed: const Color(0xFF7259E7),
@@ -139,8 +148,7 @@ void main() {
     await tester.pumpWidget(editorHarness(FakeImageEngine()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Film'));
-    await tester.pumpAndSettle();
+    await tapTool(tester, 'Film');
 
     expect(find.text('Provia Inspired'), findsOneWidget);
     await expectLater(
