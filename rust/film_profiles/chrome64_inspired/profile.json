@@ -1,0 +1,7 @@
+{
+  "id": "chrome64_inspired",
+  "name": "Chrome 64 Inspired",
+  "description": "Warm nostalgic chrome rendering with restrained saturation and gently lifted blacks.",
+  "lut": "lut.cube",
+  "defaultStrength": 1.0
+}
