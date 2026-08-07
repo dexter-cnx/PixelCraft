@@ -46,9 +46,29 @@ class FakeImageEngine implements ImageEngine {
       description: 'Balanced slide-film color.',
     ),
     EngineFilmProfile(
+      id: 'velvia_inspired',
+      name: 'Velvia Inspired',
+      description: 'Vivid high-contrast landscape color.',
+    ),
+    EngineFilmProfile(
+      id: 'astia_inspired',
+      name: 'Astia Inspired',
+      description: 'Soft portrait-oriented slide-film color.',
+    ),
+    EngineFilmProfile(
       id: 'e100_inspired',
       name: 'E100 Inspired',
       description: 'Neutral transparency-film look.',
+    ),
+    EngineFilmProfile(
+      id: 'ektar_inspired',
+      name: 'Ektar Inspired',
+      description: 'Ultra-vivid color-negative look.',
+    ),
+    EngineFilmProfile(
+      id: 'chrome64_inspired',
+      name: 'Chrome 64 Inspired',
+      description: 'Warm nostalgic chrome look.',
     ),
   ];
 
