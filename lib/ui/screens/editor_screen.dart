@@ -5,8 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/export_file_service.dart';
 import '../../state/editor_controller.dart';
-import '../widgets/filter_slider.dart';
-import '../widgets/histogram_widget.dart';
+import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
@@ -18,7 +17,6 @@ class EditorScreen extends ConsumerStatefulWidget {
 }
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
-  static const filters = <String>[...coreFilters, ...creativeFilters];
   static const _fileService = ExportFileService();
 
   @override
@@ -43,9 +41,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'PixelCraft replays every active edit against the original image.',
-              ),
+              const Text('PixelCraft replays active edits against the original image.'),
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 initialValue: format,
@@ -70,7 +66,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   min: 40,
                   max: 100,
                   divisions: 12,
-                  label: quality.round().toString(),
                   onChanged: (value) => setDialogState(() => quality = value),
                 ),
               ],
@@ -129,43 +124,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
-  Future<void> _showBenchmark() async {
-    final state = ref.read(editorProvider);
-    final input = state.previewBytes;
-    if (input == null) return;
-    final rustWatch = Stopwatch()..start();
-    final rustResult = ref.read(editorProvider.notifier).benchmarkCurrentFilter();
-    rustWatch.stop();
-
-    final dartWatch = Stopwatch()..start();
-    var checksum = 0;
-    for (var pass = 0; pass < 20; pass++) {
-      for (final byte in input) {
-        checksum = (checksum + byte) & 0x7fffffff;
-      }
-    }
-    dartWatch.stop();
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Benchmark'),
-        content: Text(
-          'Rust filter: '
-          '${(rustResult.elapsedMicros.toDouble() / 1000.0).toStringAsFixed(2)} ms\n'
-          'Dart byte-loop baseline: ${dartWatch.elapsedMicroseconds / 1000} ms\n'
-          'Bridge wall time: ${rustWatch.elapsedMicroseconds / 1000} ms\n'
-          'Checksum: $checksum',
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(editorProvider);
     final controller = ref.read(editorProvider.notifier);
-    final withinBudget = state.processingMs <= 16;
 
     return Scaffold(
       appBar: AppBar(
@@ -186,20 +148,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 ? null
                 : _showExportDialog,
             tooltip: 'Export',
-            icon: state.isExporting
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.ios_share),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'benchmark') _showBenchmark();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'benchmark', child: Text('Benchmark')),
-            ],
+            icon: const Icon(Icons.ios_share),
           ),
         ],
       ),
@@ -210,91 +159,66 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     ? const CircularProgressIndicator()
                     : Text(state.error!),
               )
-            : Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onLongPressStart: (_) => controller.setShowOriginal(true),
-                        onLongPressEnd: (_) => controller.setShowOriginal(false),
-                        onLongPressCancel: () => controller.setShowOriginal(false),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ImagePreview(bytes: state.visiblePreview!),
-                            Positioned(
-                              top: 12,
-                              left: 12,
-                              child: AnimatedOpacity(
-                                opacity: state.showOriginal ? 1 : 0,
-                                duration: const Duration(milliseconds: 120),
-                                child: const Chip(label: Text('Original')),
-                              ),
-                            ),
-                          ],
-                        ),
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final canvas = _EditorCanvas(state: state, controller: controller);
+                  final tools = EditorToolPanel(state: state, controller: controller);
+                  if (constraints.maxWidth >= 900) {
+                    return Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Expanded(flex: 3, child: canvas),
+                          const SizedBox(width: 20),
+                          SizedBox(width: 360, child: SingleChildScrollView(child: tools)),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('Hold the image to compare with the original'),
-                    const SizedBox(height: 8),
-                    HistogramWidget(bins: state.histogram),
-                    const SizedBox(height: 8),
-                    Row(
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                    child: Column(
                       children: [
-                        const Icon(Icons.memory, size: 16),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            'Rust ${state.processingMs.toStringAsFixed(2)} ms',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            withinBudget
-                                ? 'Within frame budget'
-                                : 'Preview over 16 ms',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                          ),
-                        ),
+                        Expanded(child: canvas),
+                        const SizedBox(height: 12),
+                        SingleChildScrollView(child: tools),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 44,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: filters.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (_, index) {
-                          final filter = filters[index];
-                          return ChoiceChip(
-                            label: Text(filter.replaceAll('_', ' ')),
-                            selected: state.selectedFilter == filter,
-                            onSelected: (_) => controller.selectFilter(filter),
-                          );
-                        },
-                      ),
-                    ),
-                    FilterSlider(
-                      value: state.value,
-                      min: 0,
-                      max: isCreativeFilter(state.selectedFilter) ? 1 : 2,
-                      onChangeStart: controller.beginAdjustment,
-                      onChanged: controller.previewValue,
-                      onChangeEnd: controller.commitAdjustment,
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
+      ),
+    );
+  }
+}
+
+class _EditorCanvas extends StatelessWidget {
+  const _EditorCanvas({required this.state, required this.controller});
+
+  final EditorState state;
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: (_) => controller.setShowOriginal(true),
+      onLongPressEnd: (_) => controller.setShowOriginal(false),
+      onLongPressCancel: () => controller.setShowOriginal(false),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ImagePreview(bytes: state.visiblePreview!),
+          Positioned(
+            top: 12,
+            left: 12,
+            child: AnimatedOpacity(
+              opacity: state.showOriginal ? 1 : 0,
+              duration: const Duration(milliseconds: 120),
+              child: const Chip(label: Text('Original')),
+            ),
+          ),
+        ],
       ),
     );
   }
