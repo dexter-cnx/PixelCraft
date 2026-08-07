@@ -5,8 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/export_file_service.dart';
 import '../../state/editor_controller.dart';
-import '../widgets/filter_slider.dart';
-import '../widgets/histogram_widget.dart';
+import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
@@ -18,8 +17,8 @@ class EditorScreen extends ConsumerStatefulWidget {
 }
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
-  static const filters = <String>[...coreFilters, ...creativeFilters];
   static const _fileService = ExportFileService();
+  bool _isSavingExport = false;
 
   @override
   void initState() {
@@ -43,9 +42,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'PixelCraft replays every active edit against the original image.',
-              ),
+              const Text('PixelCraft replays active edits against the original image.'),
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 initialValue: format,
@@ -70,7 +67,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   min: 40,
                   max: 100,
                   divisions: 12,
-                  label: quality.round().toString(),
                   onChanged: (value) => setDialogState(() => quality = value),
                 ),
               ],
@@ -95,18 +91,49 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
     if (selection == null || !mounted) return;
 
+    setState(() => _isSavingExport = true);
     try {
-      final bytes = ref.read(editorProvider.notifier).exportImage(
+      final bytes = await ref.read(editorProvider.notifier).exportImage(
             format: selection.format,
             quality: selection.quality,
           );
       final file = await _fileService.save(bytes, format: selection.format);
       if (!mounted) return;
+
       final share = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Export complete'),
-          content: SelectableText(file.path),
+          title: Text(
+            file.savedToGallery
+                ? 'Saved to Gallery'
+                : 'Export complete',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (file.savedToGallery) ...[
+                const Text(
+                  'The exported image was added to your device photo gallery.',
+                ),
+                const SizedBox(height: 8),
+                const Text('Android album: Pictures/PixelCraft'),
+              ] else ...[
+                const Text(
+                  'The image was exported, but PixelCraft could not add it to the device gallery.',
+                ),
+                if (file.galleryError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(file.galleryError!),
+                ],
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'App backup: ${file.path}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -126,80 +153,42 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Export failed: $error')),
       );
+    } finally {
+      if (mounted) setState(() => _isSavingExport = false);
     }
-  }
-
-  Future<void> _showBenchmark() async {
-    final state = ref.read(editorProvider);
-    final input = state.previewBytes;
-    if (input == null) return;
-    final rustWatch = Stopwatch()..start();
-    final rustResult = ref.read(editorProvider.notifier).benchmarkCurrentFilter();
-    rustWatch.stop();
-
-    final dartWatch = Stopwatch()..start();
-    var checksum = 0;
-    for (var pass = 0; pass < 20; pass++) {
-      for (final byte in input) {
-        checksum = (checksum + byte) & 0x7fffffff;
-      }
-    }
-    dartWatch.stop();
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Benchmark'),
-        content: Text(
-          'Rust filter: '
-          '${(rustResult.elapsedMicros.toDouble() / 1000.0).toStringAsFixed(2)} ms\n'
-          'Dart byte-loop baseline: ${dartWatch.elapsedMicroseconds / 1000} ms\n'
-          'Bridge wall time: ${rustWatch.elapsedMicroseconds / 1000} ms\n'
-          'Checksum: $checksum',
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(editorProvider);
     final controller = ref.read(editorProvider.notifier);
-    final withinBudget = state.processingMs <= 16;
+    final isProcessing = state.isBusy || _isSavingExport;
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Editor · ${state.cursor}/${state.operationCount} edits'),
         actions: [
           IconButton(
-            onPressed: state.canUndo ? controller.undo : null,
+            onPressed: state.canUndo && !isProcessing ? controller.undo : null,
             tooltip: 'Undo',
             icon: const Icon(Icons.undo),
           ),
           IconButton(
-            onPressed: state.canRedo ? controller.redo : null,
+            onPressed: state.canRedo && !isProcessing ? controller.redo : null,
             tooltip: 'Redo',
             icon: const Icon(Icons.redo),
           ),
           IconButton(
-            onPressed: state.previewBytes == null || state.isExporting
+            onPressed: state.previewBytes == null || state.isExporting || isProcessing
                 ? null
                 : _showExportDialog,
             tooltip: 'Export',
-            icon: state.isExporting
+            icon: state.isExporting || _isSavingExport
                 ? const SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.ios_share),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'benchmark') _showBenchmark();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'benchmark', child: Text('Benchmark')),
-            ],
           ),
         ],
       ),
@@ -210,91 +199,112 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     ? const CircularProgressIndicator()
                     : Text(state.error!),
               )
-            : Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onLongPressStart: (_) => controller.setShowOriginal(true),
-                        onLongPressEnd: (_) => controller.setShowOriginal(false),
-                        onLongPressCancel: () => controller.setShowOriginal(false),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ImagePreview(bytes: state.visiblePreview!),
-                            Positioned(
-                              top: 12,
-                              left: 12,
-                              child: AnimatedOpacity(
-                                opacity: state.showOriginal ? 1 : 0,
-                                duration: const Duration(milliseconds: 120),
-                                child: const Chip(label: Text('Original')),
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final canvas = _EditorCanvas(state: state, controller: controller);
+                  final tools = EditorToolPanel(state: state, controller: controller);
+                  final content = constraints.maxWidth >= 900
+                      ? Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              Expanded(flex: 3, child: canvas),
+                              const SizedBox(width: 20),
+                              SizedBox(
+                                width: 360,
+                                child: SingleChildScrollView(child: tools),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                          child: Column(
+                            children: [
+                              Expanded(child: canvas),
+                              const SizedBox(height: 12),
+                              SingleChildScrollView(child: tools),
+                            ],
+                          ),
+                        );
+
+                  return Stack(
+                    children: [
+                      content,
+                      if (isProcessing)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: ColoredBox(
+                              color: const Color(0x22000000),
+                              child: Center(
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 14,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const SizedBox.square(
+                                          dimension: 20,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Text(
+                                          _isSavingExport
+                                              ? 'Saving to Gallery…'
+                                              : 'Processing image…',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('Hold the image to compare with the original'),
-                    const SizedBox(height: 8),
-                    HistogramWidget(bins: state.histogram),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.memory, size: 16),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            'Rust ${state.processingMs.toStringAsFixed(2)} ms',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelLarge,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            withinBudget
-                                ? 'Within frame budget'
-                                : 'Preview over 16 ms',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 44,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: filters.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (_, index) {
-                          final filter = filters[index];
-                          return ChoiceChip(
-                            label: Text(filter.replaceAll('_', ' ')),
-                            selected: state.selectedFilter == filter,
-                            onSelected: (_) => controller.selectFilter(filter),
-                          );
-                        },
-                      ),
-                    ),
-                    FilterSlider(
-                      value: state.value,
-                      min: 0,
-                      max: isCreativeFilter(state.selectedFilter) ? 1 : 2,
-                      onChangeStart: controller.beginAdjustment,
-                      onChanged: controller.previewValue,
-                      onChangeEnd: controller.commitAdjustment,
-                    ),
-                  ],
-                ),
+                    ],
+                  );
+                },
               ),
+      ),
+    );
+  }
+}
+
+class _EditorCanvas extends StatelessWidget {
+  const _EditorCanvas({required this.state, required this.controller});
+
+  final EditorState state;
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: state.isBusy
+          ? null
+          : (_) => controller.setShowOriginal(true),
+      onLongPressEnd: state.isBusy
+          ? null
+          : (_) => controller.setShowOriginal(false),
+      onLongPressCancel:
+          state.isBusy ? null : () => controller.setShowOriginal(false),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ImagePreview(bytes: state.visiblePreview!),
+          Positioned(
+            top: 12,
+            left: 12,
+            child: AnimatedOpacity(
+              opacity: state.showOriginal ? 1 : 0,
+              duration: const Duration(milliseconds: 120),
+              child: const Chip(label: Text('Original')),
+            ),
+          ),
+        ],
       ),
     );
   }

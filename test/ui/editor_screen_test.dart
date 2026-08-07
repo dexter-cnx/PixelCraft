@@ -17,7 +17,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> commitContrastAdjustment(WidgetTester tester) async {
+  Future<void> commitContrastAdjustment(
+    WidgetTester tester,
+    FakeImageEngine engine,
+  ) async {
     await tester.tap(find.text('contrast'));
     await tester.pump();
 
@@ -27,50 +30,148 @@ void main() {
     final gesture = await tester.startGesture(tester.getCenter(slider));
     await gesture.moveBy(const Offset(80, 0));
     await tester.pump();
+
+    expect(engine.beginCalls, 0);
+    expect(engine.previewCalls, 0);
+    expect(engine.commitCalls, 0);
+
     await gesture.up();
-    await tester.pump();
+    await tester.pumpAndSettle();
   }
 
-  testWidgets('loads editor and performs filter transaction', (tester) async {
+  testWidgets('loads editor and processes adjust filter only after release', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
 
     expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
     expect(find.text('brightness'), findsOneWidget);
-    expect(find.text('Rust 0.00 ms'), findsOneWidget);
+    expect(find.text('Adjust'), findsOneWidget);
 
-    await commitContrastAdjustment(tester);
+    await commitContrastAdjustment(tester, engine);
 
     expect(engine.beginCalls, 1);
-    expect(engine.previewCalls, greaterThanOrEqualTo(1));
+    expect(engine.previewCalls, 1);
     expect(engine.commitCalls, 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.byKey(const ValueKey('apply_edits_button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cancel_edits_button')), findsOneWidget);
+
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('Rust 12.50 ms'), findsOneWidget);
   });
 
-  testWidgets('undo and redo buttons call engine history', (tester) async {
+  testWidgets('creative filters use prewarmed previews and show intensity after selection', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+
+    expect(engine.filterPreviewGenerationCalls, 1);
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+
+    expect(engine.filterPreviewGenerationCalls, 1);
+    expect(find.byType(Slider), findsNothing);
+    expect(find.text('grayscale'), findsOneWidget);
+    expect(find.text('vintage'), findsOneWidget);
+    expect(find.byType(Image), findsWidgets);
+
+    await tester.tap(find.text('vintage'));
+    await tester.pumpAndSettle();
+
+    expect(engine.activeFilter, 'vintage');
+    expect(engine.lastValue, 1);
+    expect(engine.commitCalls, 1);
+    expect(find.text('vintage intensity'), findsOneWidget);
+    expect(find.byType(Slider), findsOneWidget);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+
+    await tester.tap(find.text('oceanic'));
+    await tester.pumpAndSettle();
+
+    expect(engine.replaceFilterCalls, 1);
+    expect(engine.activeFilter, 'oceanic');
+    expect(engine.filterPreviewGenerationCalls, 1);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+  });
+
+  testWidgets('creative filter intensity processes only when slider is released', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('vintage'));
+    await tester.pumpAndSettle();
+
+    final slider = find.byType(Slider);
+    final replaceCallsBeforeDrag = engine.replaceFilterCalls;
+    final gesture = await tester.startGesture(tester.getCenter(slider));
+    await gesture.moveBy(const Offset(-50, 0));
+    await tester.pump();
+    expect(engine.replaceFilterCalls, replaceCallsBeforeDrag);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(engine.replaceFilterCalls, replaceCallsBeforeDrag + 1);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+  });
+
+  testWidgets('Apply promotes current draft and resets creative filter selection', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('vintage'));
+    await tester.pumpAndSettle();
+
+    final applyButton = find.byKey(const ValueKey('apply_edits_button'));
+    expect(tester.widget<FilledButton>(applyButton).onPressed, isNotNull);
+
+    await tester.tap(applyButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.applyEditsCalls, 1);
+    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(find.text('vintage intensity'), findsNothing);
+  });
+
+  testWidgets('Cancel discards current draft and returns to checkpoint', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+    await commitContrastAdjustment(tester, engine);
+
+    final cancelButton = find.byKey(const ValueKey('cancel_edits_button'));
+    expect(tester.widget<OutlinedButton>(cancelButton).onPressed, isNotNull);
+
+    await tester.tap(cancelButton);
+    await tester.pumpAndSettle();
+
+    expect(engine.discardEditsCalls, 1);
+    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(tester.widget<OutlinedButton>(cancelButton).onPressed, isNull);
+  });
+
+  testWidgets('undo and redo buttons call background engine history', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
 
     final undoButton = find.widgetWithIcon(IconButton, Icons.undo);
     final redoButton = find.widgetWithIcon(IconButton, Icons.redo);
 
-    // Undo and redo are intentionally disabled until an operation is committed.
     expect(tester.widget<IconButton>(undoButton).onPressed, isNull);
     expect(tester.widget<IconButton>(redoButton).onPressed, isNull);
 
-    await commitContrastAdjustment(tester);
+    await commitContrastAdjustment(tester, engine);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
     expect(tester.widget<IconButton>(undoButton).onPressed, isNotNull);
 
     await tester.tap(undoButton);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(engine.undoCalls, 1);
     expect(find.textContaining('Editor · 0/1 edits'), findsOneWidget);
     expect(tester.widget<IconButton>(redoButton).onPressed, isNotNull);
 
     await tester.tap(redoButton);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(engine.redoCalls, 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });

@@ -13,12 +13,18 @@ class FakeImageEngine implements ImageEngine {
   Uint8List output;
   bool failLoad = false;
   int loadCalls = 0;
+  int backgroundLoadCalls = 0;
   int beginCalls = 0;
   int previewCalls = 0;
   int commitCalls = 0;
+  int replaceFilterCalls = 0;
+  int applyEditsCalls = 0;
+  int discardEditsCalls = 0;
+  int filterPreviewGenerationCalls = 0;
   int undoCalls = 0;
   int redoCalls = 0;
   int exportCalls = 0;
+  int transformCalls = 0;
   int cursor = 0;
   int operationCount = 0;
   String? activeFilter;
@@ -32,6 +38,21 @@ class FakeImageEngine implements ImageEngine {
     if (failLoad) throw StateError('decode failed');
     cursor = 0;
     operationCount = 0;
+  }
+
+  @override
+  Future<EngineLoadResult> loadImageInBackground(
+    Uint8List bytes, {
+    required int maxEdge,
+  }) async {
+    backgroundLoadCalls++;
+    loadImage(bytes);
+    return EngineLoadResult(
+      previewBytes: output,
+      originalPreviewBytes: output,
+      histogram: bins,
+      session: sessionInfo(),
+    );
   }
 
   @override
@@ -60,9 +81,7 @@ class FakeImageEngine implements ImageEngine {
   @override
   Uint8List commitFilter() {
     commitCalls++;
-    operationCount = cursor + 1;
-    cursor = operationCount;
-    return output;
+    return _commitTransform();
   }
 
   @override
@@ -75,6 +94,158 @@ class FakeImageEngine implements ImageEngine {
     double value,
   ) =>
       EngineResult(bytes: output, elapsedMicros: BigInt.from(8000));
+
+  @override
+  Future<Map<String, Uint8List>> generateFilterPreviews(
+    Uint8List bytes,
+    List<String> filters, {
+    int maxEdge = 180,
+  }) async {
+    filterPreviewGenerationCalls++;
+    return {for (final filter in filters) filter: output};
+  }
+
+  @override
+  Future<EngineCommitResult> commitFilterValue(
+    String filter,
+    double value,
+  ) async {
+    beginFilter(filter);
+    updateFilterPreview(filter, value);
+    commitCalls++;
+    _commitTransform();
+    return _result(elapsedMicros: BigInt.from(12500));
+  }
+
+  @override
+  Future<EngineCommitResult> replaceFilterValue(
+    String filter,
+    double value,
+  ) async {
+    replaceFilterCalls++;
+    if (cursor > 0) cursor--;
+    beginFilter(filter);
+    updateFilterPreview(filter, value);
+    commitCalls++;
+    operationCount = cursor + 1;
+    cursor = operationCount;
+    return _result(elapsedMicros: BigInt.from(12500));
+  }
+
+  @override
+  Future<EngineCommitResult> applyEditsInBackground() async {
+    applyEditsCalls++;
+    cursor = 0;
+    operationCount = 0;
+    activeFilter = null;
+    lastValue = null;
+    return _result();
+  }
+
+  @override
+  Future<EngineCommitResult> discardEditsInBackground() async {
+    discardEditsCalls++;
+    cursor = 0;
+    operationCount = 0;
+    activeFilter = null;
+    lastValue = null;
+    return _result();
+  }
+
+  Uint8List _commitTransform() {
+    transformCalls++;
+    operationCount = cursor + 1;
+    cursor = operationCount;
+    return output;
+  }
+
+  EngineCommitResult _result({BigInt? elapsedMicros}) => EngineCommitResult(
+        bytes: output,
+        histogram: bins,
+        elapsedMicros: elapsedMicros ?? BigInt.from(1000),
+        session: sessionInfo(),
+      );
+
+  Future<EngineCommitResult> _backgroundTransform() async {
+    _commitTransform();
+    return _result();
+  }
+
+  @override
+  Future<EngineCommitResult> applyCropInBackground({
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  }) =>
+      _backgroundTransform();
+
+  @override
+  Future<EngineCommitResult> rotateQuarterTurnsInBackground(int turns) =>
+      _backgroundTransform();
+
+  @override
+  Future<EngineCommitResult> straightenInBackground(double degrees) =>
+      _backgroundTransform();
+
+  @override
+  Future<EngineCommitResult> flipHorizontalInBackground() =>
+      _backgroundTransform();
+
+  @override
+  Future<EngineCommitResult> flipVerticalInBackground() =>
+      _backgroundTransform();
+
+  @override
+  Future<EngineCommitResult> resizeCommittedInBackground({
+    required int width,
+    required int height,
+  }) =>
+      _backgroundTransform();
+
+  @override
+  Future<EngineCommitResult> undoInBackground() async {
+    undo();
+    return _result();
+  }
+
+  @override
+  Future<EngineCommitResult> redoInBackground() async {
+    redo();
+    return _result();
+  }
+
+  @override
+  Future<Uint8List> exportImageInBackground({
+    required String format,
+    required int quality,
+  }) async =>
+      exportImage(format: format, quality: quality);
+
+  @override
+  Uint8List applyCrop({
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  }) =>
+      _commitTransform();
+
+  @override
+  Uint8List rotateQuarterTurns(int turns) => _commitTransform();
+
+  @override
+  Uint8List straighten(double degrees) => _commitTransform();
+
+  @override
+  Uint8List flipHorizontal() => _commitTransform();
+
+  @override
+  Uint8List flipVertical() => _commitTransform();
+
+  @override
+  Uint8List resizeCommitted({required int width, required int height}) =>
+      _commitTransform();
 
   @override
   Uint8List undo() {
@@ -92,7 +263,7 @@ class FakeImageEngine implements ImageEngine {
 
   @override
   EngineSessionInfo sessionInfo() => EngineSessionInfo(
-        version: 1,
+        version: 2,
         operationCount: operationCount,
         cursor: cursor,
         canUndo: cursor > 0,

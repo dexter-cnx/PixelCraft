@@ -7,11 +7,12 @@ import '../helpers/fake_image_engine.dart';
 
 void main() {
   group('EditorController', () {
-    test('loads image, original preview and histogram', () async {
+    test('loads image, original preview and prewarms filter thumbnails', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
 
       await controller.load(Uint8List.fromList([1, 2, 3]));
+      await Future<void>.delayed(Duration.zero);
 
       expect(engine.loadCalls, 1);
       expect(controller.state.previewBytes, testPngBytes);
@@ -19,6 +20,9 @@ void main() {
       expect(controller.state.histogram.length, 768);
       expect(controller.state.cursor, 0);
       expect(controller.state.canUndo, isFalse);
+      expect(controller.state.selectedCreativeFilter, isEmpty);
+      expect(engine.filterPreviewGenerationCalls, 1);
+      expect(controller.state.filterPreviews.keys, containsAll(creativeFilters));
       expect(controller.state.error, isNull);
       expect(controller.state.isBusy, isFalse);
     });
@@ -34,43 +38,165 @@ void main() {
       expect(controller.state.isBusy, isFalse);
     });
 
-    test('one gesture creates one committed operation', () async {
+    test('adjust slider releases replace one pending draft operation', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
 
       controller.selectFilter('contrast');
-      controller.beginAdjustment(1);
-      controller.previewValue(1.2);
-      controller.previewValue(1.4);
-      controller.commitAdjustment(1.4);
+      await controller.commitFilterValue(1.2);
+      await controller.commitFilterValue(1.4);
 
-      expect(engine.beginCalls, 1);
+      expect(engine.beginCalls, 2);
       expect(engine.previewCalls, 2);
-      expect(engine.commitCalls, 1);
+      expect(engine.commitCalls, 2);
+      expect(engine.replaceFilterCalls, 1);
       expect(engine.activeFilter, 'contrast');
       expect(engine.lastValue, 1.4);
       expect(controller.state.operationCount, 1);
       expect(controller.state.cursor, 1);
       expect(controller.state.canUndo, isTrue);
       expect(controller.state.processingMs, 12.5);
-      expect(controller.state.isAdjusting, isFalse);
+      expect(controller.state.isBusy, isFalse);
     });
 
-    test('undo and redo move the operation cursor', () async {
+    test('opening filters reuses thumbnails prewarmed at image load', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
-      controller.beginAdjustment(1);
-      controller.previewValue(1.3);
-      controller.commitAdjustment(1.3);
+      await Future<void>.delayed(Duration.zero);
 
-      controller.undo();
+      expect(engine.filterPreviewGenerationCalls, 1);
+      await controller.selectTool(EditorTool.filters);
+
+      expect(engine.filterPreviewGenerationCalls, 1);
+      expect(controller.state.filterPreviews.keys, containsAll(creativeFilters));
+      expect(controller.state.selectedCreativeFilter, isEmpty);
+    });
+
+    test('changing creative filters replaces the same history operation', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
+
+      await controller.applyCreativeFilter('vintage');
+      expect(controller.state.operationCount, 1);
+      expect(controller.state.selectedCreativeFilter, 'vintage');
+      expect(controller.state.creativeFilterValue, 1);
+
+      await controller.applyCreativeFilter('oceanic');
+
+      expect(engine.replaceFilterCalls, 1);
+      expect(engine.activeFilter, 'oceanic');
+      expect(engine.lastValue, 1);
+      expect(controller.state.operationCount, 1);
+      expect(controller.state.cursor, 1);
+      expect(controller.state.selectedCreativeFilter, 'oceanic');
+      expect(engine.filterPreviewGenerationCalls, 1);
+    });
+
+    test('creative intensity slider replaces filter instead of stacking', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
+      await controller.applyCreativeFilter('vintage');
+
+      await controller.updateCreativeFilterValue(0.45);
+
+      expect(engine.replaceFilterCalls, 1);
+      expect(engine.activeFilter, 'vintage');
+      expect(engine.lastValue, 0.45);
+      expect(controller.state.operationCount, 1);
+      expect(controller.state.creativeFilterValue, 0.45);
+      expect(engine.filterPreviewGenerationCalls, 1);
+    });
+
+    test('apply promotes draft to base and prewarms thumbnails for new base', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
+      final previewsBeforeApply = engine.filterPreviewGenerationCalls;
+
+      await controller.applyCreativeFilter('vintage');
+      expect(controller.state.hasUnappliedEdits, isTrue);
+      await controller.applyEdits();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(engine.applyEditsCalls, 1);
+      expect(controller.state.cursor, 0);
+      expect(controller.state.operationCount, 0);
+      expect(controller.state.hasUnappliedEdits, isFalse);
+      expect(controller.state.selectedCreativeFilter, isEmpty);
+      expect(controller.state.creativeFilterValue, 1);
+      expect(controller.state.originalPreviewBytes, controller.state.previewBytes);
+      expect(
+        engine.filterPreviewGenerationCalls,
+        previewsBeforeApply + 1,
+      );
+    });
+
+    test('cancel discards every draft operation without regenerating thumbnails', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
+      final previewCalls = engine.filterPreviewGenerationCalls;
+
+      await controller.applyCreativeFilter('vintage');
+      await controller.rotateRight();
+      expect(controller.state.hasUnappliedEdits, isTrue);
+
+      await controller.cancelEdits();
+
+      expect(engine.discardEditsCalls, 1);
+      expect(controller.state.cursor, 0);
+      expect(controller.state.operationCount, 0);
+      expect(controller.state.hasUnappliedEdits, isFalse);
+      expect(controller.state.selectedCreativeFilter, isEmpty);
+      expect(controller.state.straightenDegrees, 0);
+      expect(engine.filterPreviewGenerationCalls, previewCalls);
+    });
+
+    test('crop rotate flip and straighten remain draft operations until apply', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+
+      await controller.applyCenteredCrop(1);
+      await controller.rotateRight();
+      await controller.flipHorizontal();
+      await controller.flipVertical();
+      await controller.commitStraighten(2.5);
+
+      expect(engine.transformCalls, 5);
+      expect(controller.state.operationCount, 5);
+      expect(controller.state.cursor, 5);
+      expect(controller.state.hasUnappliedEdits, isTrue);
+      expect(controller.state.canUndo, isTrue);
+      expect(controller.state.straightenDegrees, 0);
+    });
+
+    test('tool selection is reflected in state', () async {
+      final controller = EditorController(FakeImageEngine());
+      await controller.selectTool(EditorTool.rotate);
+      expect(controller.state.selectedTool, EditorTool.rotate);
+    });
+
+    test('undo and redo move the operation cursor in background', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await controller.commitFilterValue(1.3);
+
+      await controller.undo();
       expect(engine.undoCalls, 1);
       expect(controller.state.cursor, 0);
       expect(controller.state.canRedo, isTrue);
 
-      controller.redo();
+      await controller.redo();
       expect(engine.redoCalls, 1);
       expect(controller.state.cursor, 1);
       expect(controller.state.histogram, engine.bins);
@@ -90,12 +216,12 @@ void main() {
       expect(controller.state.visiblePreview, controller.state.previewBytes);
     });
 
-    test('exports through the engine', () async {
+    test('exports through the background engine API', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
 
-      final bytes = controller.exportImage(format: 'jpeg', quality: 90);
+      final bytes = await controller.exportImage(format: 'jpeg', quality: 90);
 
       expect(bytes, testPngBytes);
       expect(engine.exportCalls, 1);

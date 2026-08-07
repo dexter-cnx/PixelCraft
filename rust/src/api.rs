@@ -1,4 +1,4 @@
-use crate::engine::{decode, encode, encode_png, SessionSnapshot, ENGINE};
+use crate::engine::{decode, encode, encode_png, EditOperation, SessionSnapshot, ENGINE};
 use crate::{filters, photon_filters};
 use fast_image_resize as fir;
 use flutter_rust_bridge::frb;
@@ -11,6 +11,12 @@ use std::time::Instant;
 pub struct ProcessedImage {
     pub bytes: Vec<u8>,
     pub elapsed_micros: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct FilterPreviewImage {
+    pub name: String,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,8 +42,7 @@ impl From<SessionSnapshot> for EditSessionInfo {
 
 #[frb(sync)]
 pub fn load_image(bytes: Vec<u8>) -> Result<(u32, u32), String> {
-    let image = decode(&bytes)?;
-    let dimensions = image.dimensions();
+    let dimensions = decode(&bytes)?.dimensions();
     ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
@@ -51,7 +56,7 @@ pub fn prepare_preview(_image_bytes: Vec<u8>, max_edge: u32) -> Result<Vec<u8>, 
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?;
     engine.set_preview_max_edge(max_edge);
-    engine.render_preview()
+    engine.prepare_preview()
 }
 
 #[frb(sync)]
@@ -73,6 +78,41 @@ pub fn apply_filter_timed(
         bytes,
         elapsed_micros: started.elapsed().as_micros() as u64,
     })
+}
+
+#[frb(sync)]
+pub fn generate_filter_previews(
+    image_bytes: Vec<u8>,
+    filter_names: Vec<String>,
+    max_edge: u32,
+) -> Result<Vec<FilterPreviewImage>, String> {
+    let source = decode(&image_bytes)?;
+    let thumbnail = resize_to_max_edge(source, max_edge.max(1));
+
+    filter_names
+        .into_par_iter()
+        .map(|name| {
+            let filtered = filters::apply(thumbnail.clone(), &name, 1.0)?;
+            Ok(FilterPreviewImage {
+                name,
+                bytes: encode_png(&filtered)?,
+            })
+        })
+        .collect()
+}
+
+fn resize_to_max_edge(image: DynamicImage, max_edge: u32) -> DynamicImage {
+    let (width, height) = image.dimensions();
+    let source_max_edge = width.max(height);
+    if source_max_edge <= max_edge {
+        return image;
+    }
+    let scale = max_edge as f64 / source_max_edge as f64;
+    image.resize_exact(
+        ((width as f64 * scale).round() as u32).max(1),
+        ((height as f64 * scale).round() as u32).max(1),
+        image::imageops::FilterType::Triangle,
+    )
 }
 
 #[frb(sync)]
@@ -113,6 +153,62 @@ pub fn cancel_filter() -> Result<Vec<u8>, String> {
 }
 
 #[frb(sync)]
+pub fn apply_crop(x: f32, y: f32, width: f32, height: f32) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::Crop {
+            x,
+            y,
+            width,
+            height,
+        })
+}
+
+#[frb(sync)]
+pub fn rotate_quarter_turns(turns: u8) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::Rotate90 { turns: turns % 4 })
+}
+
+#[frb(sync)]
+pub fn straighten(degrees: f32) -> Result<Vec<u8>, String> {
+    if !(-15.0..=15.0).contains(&degrees) {
+        return Err("Straighten angle must be between -15 and 15 degrees".to_string());
+    }
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::RotateDegrees { degrees })
+}
+
+#[frb(sync)]
+pub fn flip_horizontal() -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::FlipHorizontal)
+}
+
+#[frb(sync)]
+pub fn flip_vertical() -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::FlipVertical)
+}
+
+#[frb(sync)]
+pub fn resize_committed(width: u32, height: u32) -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_operation(EditOperation::Resize { width, height })
+}
+
+#[frb(sync)]
 pub fn session_info() -> Result<EditSessionInfo, String> {
     Ok(ENGINE
         .lock()
@@ -121,10 +217,21 @@ pub fn session_info() -> Result<EditSessionInfo, String> {
         .into())
 }
 
-/// Replays active operations against the original image and encodes the result.
-/// Supported formats: png, jpeg/jpg, webp. Quality is used for JPEG.
+/// Promotes the current reduced preview to the next editing checkpoint while
+/// retaining the complete operation recipe. Full-resolution work is deferred
+/// until export.
+#[frb(sync)]
+pub fn apply_edits() -> Result<Vec<u8>, String> {
+    ENGINE
+        .lock()
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .apply_checkpoint()
+}
+
 #[frb(sync)]
 pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
+    // This is intentionally the expensive path: decode the untouched original
+    // and replay the complete edit recipe at full resolution only for export.
     let image = ENGINE
         .lock()
         .map_err(|_| "Engine lock poisoned".to_string())?
@@ -140,26 +247,10 @@ pub fn export_image(format: String, quality: u8) -> Result<Vec<u8>, String> {
 
 #[frb(sync)]
 pub fn original_preview() -> Result<Vec<u8>, String> {
-    let engine = ENGINE
+    ENGINE
         .lock()
-        .map_err(|_| "Engine lock poisoned".to_string())?;
-    let original = engine
-        .original
-        .as_ref()
-        .ok_or_else(|| "No image loaded".to_string())?;
-    let image = decode(original)?;
-    let (width, height) = image.dimensions();
-    let max_edge = width.max(height);
-    if max_edge <= engine.preview_max_edge {
-        return encode_png(&image);
-    }
-    let scale = engine.preview_max_edge as f64 / max_edge as f64;
-    let resized = image.resize_exact(
-        ((width as f64 * scale).round() as u32).max(1),
-        ((height as f64 * scale).round() as u32).max(1),
-        image::imageops::FilterType::Lanczos3,
-    );
-    encode_png(&resized)
+        .map_err(|_| "Engine lock poisoned".to_string())?
+        .original_preview()
 }
 
 #[frb(sync)]
