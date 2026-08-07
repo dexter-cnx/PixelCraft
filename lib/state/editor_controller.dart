@@ -77,6 +77,8 @@ class EditorState {
   final bool canRedo;
   final String? error;
 
+  bool get hasUnappliedEdits => cursor > 0;
+
   Uint8List? get visiblePreview =>
       showOriginal ? originalPreviewBytes ?? previewBytes : previewBytes;
 
@@ -152,8 +154,11 @@ class EditorController extends StateNotifier<EditorState> {
         previewBytes: preview,
         histogram: _engine.getHistogram(preview),
         filterPreviews: const {},
+        selectedFilter: 'brightness',
         selectedCreativeFilter: '',
+        value: 1,
         creativeFilterValue: 1,
+        straightenDegrees: 0,
         isBusy: false,
         isGeneratingFilterPreviews: false,
         operationCount: session.operationCount,
@@ -280,6 +285,42 @@ class EditorController extends StateNotifier<EditorState> {
         result,
         value: value,
         clearCreativeSelection: true,
+      );
+    } catch (error) {
+      state = state.copyWith(isBusy: false, error: '$error');
+    }
+  }
+
+  /// Promotes the current edited result to the new base image.
+  /// This deliberately creates an Undo/Redo boundary and resets tool selections.
+  Future<void> applyEdits() async {
+    if (state.isBusy || !state.hasUnappliedEdits) return;
+    final generation = ++_filterPreviewGeneration;
+    state = state.copyWith(isBusy: true, error: null);
+    try {
+      final result = await _engine.applyEditsInBackground();
+      state = state.copyWith(
+        originalPreviewBytes: result.bytes,
+        previewBytes: result.bytes,
+        histogram: result.histogram,
+        filterPreviews: const {},
+        selectedFilter: 'brightness',
+        selectedCreativeFilter: '',
+        value: 1,
+        creativeFilterValue: 1,
+        straightenDegrees: 0,
+        processingMs: result.elapsedMicros.toDouble() / 1000.0,
+        isBusy: false,
+        isGeneratingFilterPreviews: false,
+        isAdjusting: false,
+        operationCount: result.session.operationCount,
+        cursor: result.session.cursor,
+        canUndo: result.session.canUndo,
+        canRedo: result.session.canRedo,
+        error: null,
+      );
+      unawaited(
+        _generateFilterPreviews(result.bytes, generation: generation),
       );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
