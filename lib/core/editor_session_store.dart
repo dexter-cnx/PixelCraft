@@ -29,6 +29,11 @@ class EditorSessionStore {
 
   Future<bool> exists() async {
     try {
+      // Reads must not observe the brief replacement window between a temp
+      // file being committed and the previous file being removed/renamed.
+      // Waiting for the serialized write tail gives callers a consistent
+      // session snapshot instead of a transient missing recipe/source.
+      await _writeTail;
       final directory = await _directory();
       return File('${directory.path}/source.bin').existsSync() &&
           File('${directory.path}/recipe.json').existsSync();
@@ -39,6 +44,11 @@ class EditorSessionStore {
 
   Future<StoredEditorSession?> load() async {
     try {
+      // Keep recovery reads ordered after pending saves for the same store.
+      // Without this, a read can land after recipe.json is deleted but before
+      // its temp replacement is renamed into place and incorrectly return
+      // null even though the save succeeds a moment later.
+      await _writeTail;
       final directory = await _directory();
       final source = File('${directory.path}/source.bin');
       final recipe = File('${directory.path}/recipe.json');
