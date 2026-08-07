@@ -15,37 +15,38 @@ void main() {
     addTearDown(() {
       if (directory.existsSync()) directory.deleteSync(recursive: true);
     });
-    final file = File('${directory.path}/capture.png');
-    await file.writeAsBytes(testPngBytes, flush: true);
 
     final engine = FakeImageEngine();
     final sessionStore = EditorSessionStore(rootDirectory: directory);
+    var requestedPath = '';
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           imageEngineProvider.overrideWithValue(engine),
           editorSessionStoreProvider.overrideWithValue(sessionStore),
+          imageFileLoaderProvider.overrideWithValue((path) async {
+            requestedPath = path;
+            return testPngBytes;
+          }),
         ],
-        child: MaterialApp(home: EditorScreen(imagePath: file.path)),
+        child: const MaterialApp(
+          home: EditorScreen(imagePath: '/camera/capture.png'),
+        ),
       ),
     );
 
     expect(find.text('Preparing photo…'), findsOneWidget);
 
-    // Do not use pumpAndSettle while the preparing UI contains an indeterminate
-    // CircularProgressIndicator. It continuously schedules animation frames and
-    // can keep pumpAndSettle alive for minutes even though file I/O and editor
-    // initialization have already completed. Poll the actual completion state
-    // with a bounded timeout instead.
-    final deadline = DateTime.now().add(const Duration(seconds: 2));
-    while (find.text('Preparing photo…').evaluate().isNotEmpty) {
-      if (DateTime.now().isAfter(deadline)) {
-        fail('Captured file did not finish loading within 2 seconds');
-      }
+    // Advance only the frames needed by the async widget initialization. The
+    // real File I/O is intentionally injected above so this widget test stays
+    // deterministic and does not block on dart:io inside FakeAsync.
+    for (var attempt = 0; attempt < 20; attempt++) {
       await tester.pump(const Duration(milliseconds: 16));
-      await Future<void>.delayed(const Duration(milliseconds: 1));
+      if (find.text('Preparing photo…').evaluate().isEmpty) break;
     }
 
+    expect(requestedPath, '/camera/capture.png');
     expect(engine.backgroundLoadCalls, 1);
     expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
     expect(find.text('Preparing photo…'), findsNothing);
