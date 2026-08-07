@@ -273,7 +273,10 @@ impl EngineState {
         let recipe: SessionRecipe = serde_json::from_str(json)
             .map_err(|error| format!("Unable to deserialize session recipe: {error}"))?;
         if recipe.version != 1 {
-            return Err(format!("Unsupported session recipe version: {}", recipe.version));
+            return Err(format!(
+                "Unsupported session recipe version: {}",
+                recipe.version
+            ));
         }
         if recipe.checkpoint_cursor > recipe.cursor || recipe.cursor > recipe.operations.len() {
             return Err("Invalid session recipe cursor bounds".to_string());
@@ -371,9 +374,7 @@ fn apply_operation_to_image(
 ) -> Result<DynamicImage, String> {
     Ok(match operation {
         EditOperation::Filter { name, value } => filters::apply(image, name, *value)?,
-        EditOperation::FilmProfile { id, strength } => {
-            film_profiles::apply(image, id, *strength)?
-        }
+        EditOperation::FilmProfile { id, strength } => film_profiles::apply(image, id, *strength)?,
         EditOperation::Crop {
             x,
             y,

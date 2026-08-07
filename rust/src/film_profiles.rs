@@ -31,7 +31,8 @@ pub const PROFILES: &[FilmProfileSpec] = &[
     FilmProfileSpec {
         id: "e100_inspired",
         name: "E100 Inspired",
-        description: "Neutral transparency-film look with moderate saturation and clean highlights.",
+        description:
+            "Neutral transparency-film look with moderate saturation and clean highlights.",
         contrast: 1.04,
         saturation: 1.06,
         red_gain: 1.01,
@@ -43,7 +44,8 @@ pub const PROFILES: &[FilmProfileSpec] = &[
     FilmProfileSpec {
         id: "ektar_inspired",
         name: "Ektar Inspired",
-        description: "Vivid color-negative look with stronger reds, contrast and landscape saturation.",
+        description:
+            "Vivid color-negative look with stronger reds, contrast and landscape saturation.",
         contrast: 1.12,
         saturation: 1.22,
         red_gain: 1.06,
@@ -55,7 +57,8 @@ pub const PROFILES: &[FilmProfileSpec] = &[
     FilmProfileSpec {
         id: "chrome64_inspired",
         name: "Chrome 64 Inspired",
-        description: "Warm nostalgic chrome rendering with restrained saturation and gently lifted blacks.",
+        description:
+            "Warm nostalgic chrome rendering with restrained saturation and gently lifted blacks.",
         contrast: 1.08,
         saturation: 1.04,
         red_gain: 1.04,
@@ -98,27 +101,21 @@ pub fn apply(image: DynamicImage, id: &str, strength: f32) -> Result<DynamicImag
             *channel = ((*channel - 0.5) * profile.contrast + 0.5).clamp(0.0, 1.0);
         }
 
-        let luminance = transformed[0] * 0.2126
-            + transformed[1] * 0.7152
-            + transformed[2] * 0.0722;
+        let luminance = transformed[0] * 0.2126 + transformed[1] * 0.7152 + transformed[2] * 0.0722;
         for channel in &mut transformed {
-            *channel = (luminance + (*channel - luminance) * profile.saturation)
-                .clamp(0.0, 1.0);
+            *channel = (luminance + (*channel - luminance) * profile.saturation).clamp(0.0, 1.0);
             if profile.fade > 0.0 {
                 *channel = profile.fade + *channel * (1.0 - profile.fade);
             }
         }
 
-        pixel[0] = ((original[0] + (transformed[0] - original[0]) * strength)
-            .clamp(0.0, 1.0)
+        pixel[0] = ((original[0] + (transformed[0] - original[0]) * strength).clamp(0.0, 1.0)
             * 255.0)
             .round() as u8;
-        pixel[1] = ((original[1] + (transformed[1] - original[1]) * strength)
-            .clamp(0.0, 1.0)
+        pixel[1] = ((original[1] + (transformed[1] - original[1]) * strength).clamp(0.0, 1.0)
             * 255.0)
             .round() as u8;
-        pixel[2] = ((original[2] + (transformed[2] - original[2]) * strength)
-            .clamp(0.0, 1.0)
+        pixel[2] = ((original[2] + (transformed[2] - original[2]) * strength).clamp(0.0, 1.0)
             * 255.0)
             .round() as u8;
     });
@@ -143,22 +140,16 @@ mod tests {
 
     #[test]
     fn zero_strength_preserves_pixels() {
-        let source = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-            2,
-            2,
-            Rgba([80, 120, 160, 255]),
-        ));
+        let source =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(2, 2, Rgba([80, 120, 160, 255])));
         let output = apply(source.clone(), "provia_inspired", 0.0).unwrap();
         assert_eq!(source.to_rgba8(), output.to_rgba8());
     }
 
     #[test]
     fn full_strength_changes_color_without_changing_dimensions() {
-        let source = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-            3,
-            2,
-            Rgba([80, 120, 160, 255]),
-        ));
+        let source =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(3, 2, Rgba([80, 120, 160, 255])));
         let output = apply(source.clone(), "ektar_inspired", 1.0).unwrap();
         assert_eq!(output.width(), 3);
         assert_eq!(output.height(), 2);
