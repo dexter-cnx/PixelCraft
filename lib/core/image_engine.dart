@@ -59,6 +59,7 @@ abstract interface class ImageEngine {
   Future<EngineCommitResult> commitFilterValue(String filter, double value);
   Future<EngineCommitResult> replaceFilterValue(String filter, double value);
   Future<EngineCommitResult> applyEditsInBackground();
+  Future<EngineCommitResult> discardEditsInBackground();
   Future<EngineCommitResult> applyCropInBackground({
     required double x,
     required double y,
@@ -194,6 +195,23 @@ class RustImageEngine implements ImageEngine {
   Future<EngineCommitResult> applyEditsInBackground() =>
       _runCommittedRustTask(() {
         final watch = Stopwatch()..start();
+        final bytes = rust.applyEdits();
+        watch.stop();
+        return (
+          bytes: bytes,
+          elapsedMicros: BigInt.from(watch.elapsedMicroseconds),
+        );
+      });
+
+  @override
+  Future<EngineCommitResult> discardEditsInBackground() =>
+      _runCommittedRustTask(() {
+        final watch = Stopwatch()..start();
+        final session = rust.sessionInfo();
+        for (var index = 0; index < session.cursor; index++) {
+          rust.undo();
+        }
+        // Bake the unchanged checkpoint to clear the redo branch as well.
         final bytes = rust.applyEdits();
         watch.stop();
         return (
