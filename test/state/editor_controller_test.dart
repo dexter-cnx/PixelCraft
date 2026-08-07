@@ -32,12 +32,23 @@ void main() {
       fail('Preview queue did not settle');
     }
 
+    Future<void> settleThumbnails(EditorController controller) async {
+      for (var attempt = 0; attempt < 100; attempt++) {
+        if (!controller.state.isGeneratingFilterPreviews &&
+            !controller.state.isGeneratingFilmPreviews) {
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      fail('Thumbnail prewarm did not settle');
+    }
+
     test('loads image and prewarms filter and film thumbnails', () async {
       final engine = FakeImageEngine();
       final controller = controllerFor(engine);
 
       await controller.load(Uint8List.fromList([1, 2, 3]));
-      await Future<void>.delayed(Duration.zero);
+      await settleThumbnails(controller);
 
       expect(engine.loadCalls, 1);
       expect(controller.state.previewBytes, testPngBytes);
@@ -97,7 +108,7 @@ void main() {
       final engine = FakeImageEngine();
       final controller = controllerFor(engine);
       await controller.load(Uint8List.fromList([1]));
-      await Future<void>.delayed(Duration.zero);
+      await settleThumbnails(controller);
 
       expect(engine.filterPreviewGenerationCalls, 1);
       await controller.selectTool(EditorTool.filters);
@@ -110,6 +121,7 @@ void main() {
       final engine = FakeImageEngine();
       final controller = controllerFor(engine);
       await controller.load(Uint8List.fromList([1]));
+      await settleThumbnails(controller);
 
       controller.applyCreativeFilter('vintage');
       await settlePreview(controller);
@@ -128,6 +140,7 @@ void main() {
       final engine = FakeImageEngine();
       final controller = controllerFor(engine);
       await controller.load(Uint8List.fromList([1]));
+      await settleThumbnails(controller);
 
       controller.selectFilmProfile('provia_inspired');
       await settlePreview(controller);
@@ -148,6 +161,7 @@ void main() {
         ..previewDelay = const Duration(milliseconds: 8);
       final controller = controllerFor(engine);
       await controller.load(Uint8List.fromList([1]));
+      await settleThumbnails(controller);
 
       controller.selectFilmProfile('provia_inspired');
       controller.updateFilmProfileStrength(0.8);
@@ -164,14 +178,14 @@ void main() {
       final engine = FakeImageEngine();
       final controller = controllerFor(engine);
       await controller.load(Uint8List.fromList([1]));
-      await Future<void>.delayed(Duration.zero);
+      await settleThumbnails(controller);
       final filtersBefore = engine.filterPreviewGenerationCalls;
       final filmBefore = engine.filmPreviewGenerationCalls;
 
       controller.selectFilmProfile('provia_inspired');
       await settlePreview(controller);
       await controller.applyEdits();
-      await Future<void>.delayed(Duration.zero);
+      await settleThumbnails(controller);
 
       expect(engine.applyEditsCalls, 1);
       expect(controller.state.cursor, 0);
@@ -186,7 +200,7 @@ void main() {
       final engine = FakeImageEngine();
       final controller = controllerFor(engine);
       await controller.load(Uint8List.fromList([1]));
-      await Future<void>.delayed(Duration.zero);
+      await settleThumbnails(controller);
       final filterCalls = engine.filterPreviewGenerationCalls;
       final filmCalls = engine.filmPreviewGenerationCalls;
 
