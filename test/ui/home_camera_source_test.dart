@@ -17,7 +17,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Take a photo'), findsOneWidget);
-    expect(find.text('Capture with the device camera'), findsOneWidget);
+    expect(find.text('Fast capture, optimized for editing'), findsOneWidget);
     expect(find.text('Choose from gallery'), findsOneWidget);
     expect(find.text('Open an existing image on this device'), findsOneWidget);
   });
