@@ -46,6 +46,7 @@ void main() {
     expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
     expect(find.text('brightness'), findsOneWidget);
     expect(find.text('Adjust'), findsOneWidget);
+    expect(find.text('Film'), findsOneWidget);
 
     await commitContrastAdjustment(tester, engine);
 
@@ -94,6 +95,28 @@ void main() {
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });
 
+  testWidgets('film profiles use thumbnails and strength slider', (tester) async {
+    final engine = FakeImageEngine();
+    await pumpEditor(tester, engine);
+
+    expect(engine.filmPreviewGenerationCalls, 1);
+    await tester.tap(find.text('Film'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Provia Inspired'), findsOneWidget);
+    expect(find.text('E100 Inspired'), findsOneWidget);
+    expect(find.byType(Slider), findsNothing);
+
+    await tester.tap(find.text('Provia Inspired'));
+    await tester.pumpAndSettle();
+
+    expect(engine.applyFilmProfileCalls, 1);
+    expect(engine.activeFilmProfile, 'provia_inspired');
+    expect(find.text('Provia Inspired strength'), findsOneWidget);
+    expect(find.byType(Slider), findsOneWidget);
+    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+  });
+
   testWidgets('creative filter intensity processes only when slider is released', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
@@ -115,12 +138,12 @@ void main() {
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });
 
-  testWidgets('Apply promotes current draft and resets creative filter selection', (tester) async {
+  testWidgets('Apply promotes current draft and resets film selection', (tester) async {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
-    await tester.tap(find.text('Filters'));
+    await tester.tap(find.text('Film'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('vintage'));
+    await tester.tap(find.text('Provia Inspired'));
     await tester.pumpAndSettle();
 
     final applyButton = find.byKey(const ValueKey('apply_edits_button'));
@@ -131,7 +154,7 @@ void main() {
 
     expect(engine.applyEditsCalls, 1);
     expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
-    expect(find.text('vintage intensity'), findsNothing);
+    expect(find.text('Provia Inspired strength'), findsNothing);
   });
 
   testWidgets('Cancel discards current draft and returns to checkpoint', (tester) async {
