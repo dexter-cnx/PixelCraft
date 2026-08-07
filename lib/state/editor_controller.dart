@@ -208,14 +208,12 @@ class EditorController extends StateNotifier<EditorState> {
     if (state.isBusy || state.isGeneratingFilterPreviews) return;
     state = state.copyWith(
       selectedCreativeFilter: filter,
-      selectedFilter: filter,
-      value: 1,
       isBusy: true,
       error: null,
     );
     try {
       final result = await _engine.commitFilterValue(filter, 1);
-      _applyBackgroundResult(result, value: 1);
+      _applyBackgroundResult(result);
       if (state.selectedTool == EditorTool.filters) {
         unawaited(refreshFilterPreviews());
       }
