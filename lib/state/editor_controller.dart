@@ -77,6 +77,7 @@ class EditorState {
   final bool canRedo;
   final String? error;
 
+  /// Operations after the last Apply checkpoint are drafts until promoted.
   bool get hasUnappliedEdits => cursor > 0;
 
   Uint8List? get visiblePreview =>
@@ -139,9 +140,11 @@ class EditorController extends StateNotifier<EditorState> {
 
   final ImageEngine _engine;
   int _filterPreviewGeneration = 0;
+  bool _hasPendingFilterOperation = false;
 
   Future<void> load(Uint8List bytes) async {
     final generation = ++_filterPreviewGeneration;
+    _hasPendingFilterOperation = false;
     state = state.copyWith(isBusy: true, error: null);
     try {
       _engine.loadImage(bytes);
@@ -167,6 +170,7 @@ class EditorController extends StateNotifier<EditorState> {
         canRedo: session.canRedo,
       );
 
+      // Prewarm tiny thumbnails while the user is still looking at the editor.
       unawaited(
         _generateFilterPreviews(originalPreview, generation: generation),
       );
@@ -189,7 +193,9 @@ class EditorController extends StateNotifier<EditorState> {
     if (state.isBusy) return;
     state = state.copyWith(
       selectedFilter: filter,
+      selectedCreativeFilter: '',
       value: filter == 'gaussian_blur' ? 0 : 1,
+      creativeFilterValue: 1,
       isAdjusting: false,
       error: null,
     );
@@ -233,9 +239,10 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
+  /// Selects a creative filter as a draft. Choosing another filter or changing
+  /// intensity replaces the same pending filter operation instead of stacking.
   Future<void> applyCreativeFilter(String filter) async {
     if (state.isBusy || state.isGeneratingFilterPreviews) return;
-    final replacing = state.selectedCreativeFilter.isNotEmpty;
     state = state.copyWith(
       selectedCreativeFilter: filter,
       creativeFilterValue: 1,
@@ -243,9 +250,10 @@ class EditorController extends StateNotifier<EditorState> {
       error: null,
     );
     try {
-      final result = replacing
+      final result = _hasPendingFilterOperation
           ? await _engine.replaceFilterValue(filter, 1)
           : await _engine.commitFilterValue(filter, 1);
+      _hasPendingFilterOperation = true;
       _applyBackgroundResult(result, clearCreativeSelection: false);
       state = state.copyWith(
         selectedCreativeFilter: filter,
@@ -265,7 +273,10 @@ class EditorController extends StateNotifier<EditorState> {
       error: null,
     );
     try {
-      final result = await _engine.replaceFilterValue(filter, value);
+      final result = _hasPendingFilterOperation
+          ? await _engine.replaceFilterValue(filter, value)
+          : await _engine.commitFilterValue(filter, value);
+      _hasPendingFilterOperation = true;
       _applyBackgroundResult(result, clearCreativeSelection: false);
       state = state.copyWith(
         selectedCreativeFilter: filter,
@@ -276,11 +287,16 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
+  /// Adjust sliders also create a draft operation. Releasing the slider again
+  /// replaces that operation until Apply is pressed.
   Future<void> commitFilterValue(double value) async {
     if (state.isBusy || state.previewBytes == null) return;
     state = state.copyWith(isBusy: true, isAdjusting: false, error: null);
     try {
-      final result = await _engine.commitFilterValue(state.selectedFilter, value);
+      final result = _hasPendingFilterOperation
+          ? await _engine.replaceFilterValue(state.selectedFilter, value)
+          : await _engine.commitFilterValue(state.selectedFilter, value);
+      _hasPendingFilterOperation = true;
       _applyBackgroundResult(
         result,
         value: value,
@@ -291,14 +307,15 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  /// Promotes the current edited result to the new base image.
-  /// This deliberately creates an Undo/Redo boundary and resets tool selections.
+  /// Promotes the current draft result to a new base image. Rust bakes the
+  /// active operations into a lossless PNG checkpoint and clears draft history.
   Future<void> applyEdits() async {
     if (state.isBusy || !state.hasUnappliedEdits) return;
     final generation = ++_filterPreviewGeneration;
     state = state.copyWith(isBusy: true, error: null);
     try {
       final result = await _engine.applyEditsInBackground();
+      _hasPendingFilterOperation = false;
       state = state.copyWith(
         originalPreviewBytes: result.bytes,
         previewBytes: result.bytes,
@@ -319,8 +336,40 @@ class EditorController extends StateNotifier<EditorState> {
         canRedo: result.session.canRedo,
         error: null,
       );
+      // The checkpoint changed, so prewarm thumbnails for the new base once.
       unawaited(
         _generateFilterPreviews(result.bytes, generation: generation),
+      );
+    } catch (error) {
+      state = state.copyWith(isBusy: false, error: '$error');
+    }
+  }
+
+  /// Discards every operation since the last Apply checkpoint and returns to
+  /// that base image. Cached filter thumbnails remain valid because the base
+  /// image itself did not change.
+  Future<void> cancelEdits() async {
+    if (state.isBusy || !state.hasUnappliedEdits) return;
+    state = state.copyWith(isBusy: true, error: null);
+    try {
+      final result = await _engine.discardEditsInBackground();
+      _hasPendingFilterOperation = false;
+      state = state.copyWith(
+        previewBytes: result.bytes,
+        histogram: result.histogram,
+        selectedFilter: 'brightness',
+        selectedCreativeFilter: '',
+        value: 1,
+        creativeFilterValue: 1,
+        straightenDegrees: 0,
+        processingMs: result.elapsedMicros.toDouble() / 1000.0,
+        isBusy: false,
+        isAdjusting: false,
+        operationCount: result.session.operationCount,
+        cursor: result.session.cursor,
+        canUndo: result.session.canUndo,
+        canRedo: result.session.canRedo,
+        error: null,
       );
     } catch (error) {
       state = state.copyWith(isBusy: false, error: '$error');
@@ -336,6 +385,7 @@ class EditorController extends StateNotifier<EditorState> {
     } else {
       width = aspectRatio;
     }
+    _hasPendingFilterOperation = false;
     await _applyBackgroundTransform(
       () => _engine.applyCropInBackground(
         x: (1 - width) / 2,
@@ -346,20 +396,33 @@ class EditorController extends StateNotifier<EditorState> {
     );
   }
 
-  Future<void> rotateLeft() =>
-      _applyBackgroundTransform(() => _engine.rotateQuarterTurnsInBackground(3));
+  Future<void> rotateLeft() {
+    _hasPendingFilterOperation = false;
+    return _applyBackgroundTransform(
+      () => _engine.rotateQuarterTurnsInBackground(3),
+    );
+  }
 
-  Future<void> rotateRight() =>
-      _applyBackgroundTransform(() => _engine.rotateQuarterTurnsInBackground(1));
+  Future<void> rotateRight() {
+    _hasPendingFilterOperation = false;
+    return _applyBackgroundTransform(
+      () => _engine.rotateQuarterTurnsInBackground(1),
+    );
+  }
 
-  Future<void> flipHorizontal() =>
-      _applyBackgroundTransform(_engine.flipHorizontalInBackground);
+  Future<void> flipHorizontal() {
+    _hasPendingFilterOperation = false;
+    return _applyBackgroundTransform(_engine.flipHorizontalInBackground);
+  }
 
-  Future<void> flipVertical() =>
-      _applyBackgroundTransform(_engine.flipVerticalInBackground);
+  Future<void> flipVertical() {
+    _hasPendingFilterOperation = false;
+    return _applyBackgroundTransform(_engine.flipVerticalInBackground);
+  }
 
   Future<void> commitStraighten(double degrees) async {
     if (degrees.abs() < 0.01 || state.isBusy) return;
+    _hasPendingFilterOperation = false;
     await _applyBackgroundTransform(
       () => _engine.straightenInBackground(degrees),
     );
@@ -404,11 +467,13 @@ class EditorController extends StateNotifier<EditorState> {
 
   Future<void> undo() async {
     if (!state.canUndo || state.isBusy) return;
+    _hasPendingFilterOperation = false;
     await _applyBackgroundTransform(_engine.undoInBackground);
   }
 
   Future<void> redo() async {
     if (!state.canRedo || state.isBusy) return;
+    _hasPendingFilterOperation = false;
     await _applyBackgroundTransform(_engine.redoInBackground);
   }
 
