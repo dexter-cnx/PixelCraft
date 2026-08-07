@@ -19,6 +19,7 @@ void main() {
       expect(controller.state.histogram.length, 768);
       expect(controller.state.cursor, 0);
       expect(controller.state.canUndo, isFalse);
+      expect(controller.state.selectedCreativeFilter, isEmpty);
       expect(controller.state.error, isNull);
       expect(controller.state.isBusy, isFalse);
     });
@@ -54,6 +55,35 @@ void main() {
       expect(controller.state.isBusy, isFalse);
     });
 
+    test('filters tool generates image previews without selecting a default', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+
+      await controller.selectTool(EditorTool.filters);
+
+      expect(engine.filterPreviewGenerationCalls, 1);
+      expect(controller.state.filterPreviews.keys, containsAll(creativeFilters));
+      expect(controller.state.selectedCreativeFilter, isEmpty);
+      expect(controller.state.isGeneratingFilterPreviews, isFalse);
+    });
+
+    test('tapping creative filter applies it immediately at full strength', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await controller.selectTool(EditorTool.filters);
+
+      await controller.applyCreativeFilter('vintage');
+
+      expect(engine.activeFilter, 'vintage');
+      expect(engine.lastValue, 1);
+      expect(engine.commitCalls, 1);
+      expect(controller.state.selectedCreativeFilter, 'vintage');
+      expect(controller.state.operationCount, 1);
+      expect(controller.state.cursor, 1);
+    });
+
     test('crop rotate flip and straighten are committed operations', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
@@ -72,9 +102,9 @@ void main() {
       expect(controller.state.straightenDegrees, 0);
     });
 
-    test('tool selection is reflected in state', () {
+    test('tool selection is reflected in state', () async {
       final controller = EditorController(FakeImageEngine());
-      controller.selectTool(EditorTool.rotate);
+      await controller.selectTool(EditorTool.rotate);
       expect(controller.state.selectedTool, EditorTool.rotate);
     });
 
