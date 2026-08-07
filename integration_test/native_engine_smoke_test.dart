@@ -9,11 +9,9 @@ import 'package:pixelcraft/src/rust/api.dart' as rust;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('native Rust engine loads, filters and builds histogram', (tester) async {
+  testWidgets('native Rust engine loads filters film and restores recipe', (tester) async {
     await initializeRustBridge();
 
-    // Valid 1x1 PNG fixture. Keep this self-contained so the native smoke test
-    // does not depend on Flutter asset loading or test helper imports.
     final bytes = Uint8List.fromList(base64Decode(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     ));
@@ -35,5 +33,26 @@ void main() {
     );
     expect(filtered.bytes, isNotEmpty);
     expect(filtered.elapsedMicros, greaterThanOrEqualTo(BigInt.zero));
+
+    final profiles = rust.filmProfiles();
+    expect(profiles, isNotEmpty);
+    expect(profiles.any((profile) => profile.id == 'provia_inspired'), isTrue);
+
+    final profiled = rust.applyFilmProfile(
+      id: 'provia_inspired',
+      strength: 0.75,
+    );
+    expect(profiled, isNotEmpty);
+    expect(rust.sessionInfo().cursor, 1);
+
+    final recipe = rust.exportSessionRecipe();
+    expect(recipe, contains('provia_inspired'));
+
+    final restored = rust.restoreSession(bytes: bytes, recipeJson: recipe);
+    expect(restored, isNotEmpty);
+    expect(rust.sessionInfo().cursor, 1);
+
+    final exported = rust.exportImage(format: 'png', quality: 100);
+    expect(exported, isNotEmpty);
   });
 }
