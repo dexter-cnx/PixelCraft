@@ -7,11 +7,12 @@ import '../helpers/fake_image_engine.dart';
 
 void main() {
   group('EditorController', () {
-    test('loads image, original preview and histogram', () async {
+    test('loads image, original preview and prewarms filter thumbnails', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
 
       await controller.load(Uint8List.fromList([1, 2, 3]));
+      await Future<void>.delayed(Duration.zero);
 
       expect(engine.loadCalls, 1);
       expect(controller.state.previewBytes, testPngBytes);
@@ -20,6 +21,8 @@ void main() {
       expect(controller.state.cursor, 0);
       expect(controller.state.canUndo, isFalse);
       expect(controller.state.selectedCreativeFilter, isEmpty);
+      expect(engine.filterPreviewGenerationCalls, 1);
+      expect(controller.state.filterPreviews.keys, containsAll(creativeFilters));
       expect(controller.state.error, isNull);
       expect(controller.state.isBusy, isFalse);
     });
@@ -35,7 +38,7 @@ void main() {
       expect(controller.state.isBusy, isFalse);
     });
 
-    test('one released slider value creates one committed operation', () async {
+    test('one released adjust slider value creates one committed operation', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
@@ -55,33 +58,57 @@ void main() {
       expect(controller.state.isBusy, isFalse);
     });
 
-    test('filters tool generates image previews without selecting a default', () async {
+    test('opening filters reuses thumbnails prewarmed at image load', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
 
+      expect(engine.filterPreviewGenerationCalls, 1);
       await controller.selectTool(EditorTool.filters);
 
       expect(engine.filterPreviewGenerationCalls, 1);
       expect(controller.state.filterPreviews.keys, containsAll(creativeFilters));
       expect(controller.state.selectedCreativeFilter, isEmpty);
-      expect(controller.state.isGeneratingFilterPreviews, isFalse);
     });
 
-    test('tapping creative filter applies it immediately at full strength', () async {
+    test('changing creative filters replaces the same history operation', () async {
       final engine = FakeImageEngine();
       final controller = EditorController(engine);
       await controller.load(Uint8List.fromList([1]));
-      await controller.selectTool(EditorTool.filters);
+      await Future<void>.delayed(Duration.zero);
 
       await controller.applyCreativeFilter('vintage');
-
-      expect(engine.activeFilter, 'vintage');
-      expect(engine.lastValue, 1);
-      expect(engine.commitCalls, 1);
+      expect(controller.state.operationCount, 1);
       expect(controller.state.selectedCreativeFilter, 'vintage');
+      expect(controller.state.creativeFilterValue, 1);
+
+      await controller.applyCreativeFilter('oceanic');
+
+      expect(engine.replaceFilterCalls, 1);
+      expect(engine.activeFilter, 'oceanic');
+      expect(engine.lastValue, 1);
       expect(controller.state.operationCount, 1);
       expect(controller.state.cursor, 1);
+      expect(controller.state.selectedCreativeFilter, 'oceanic');
+      expect(engine.filterPreviewGenerationCalls, 1);
+    });
+
+    test('creative intensity slider replaces filter instead of stacking', () async {
+      final engine = FakeImageEngine();
+      final controller = EditorController(engine);
+      await controller.load(Uint8List.fromList([1]));
+      await Future<void>.delayed(Duration.zero);
+      await controller.applyCreativeFilter('vintage');
+
+      await controller.updateCreativeFilterValue(0.45);
+
+      expect(engine.replaceFilterCalls, 1);
+      expect(engine.activeFilter, 'vintage');
+      expect(engine.lastValue, 0.45);
+      expect(controller.state.operationCount, 1);
+      expect(controller.state.creativeFilterValue, 0.45);
+      expect(engine.filterPreviewGenerationCalls, 1);
     });
 
     test('crop rotate flip and straighten are committed operations', () async {
