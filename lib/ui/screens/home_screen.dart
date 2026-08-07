@@ -17,7 +17,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
   bool _isRecovering = false;
-  bool _isRecoveringLostPickerData = false;
+  bool _isRecoveringLostPickerData = true;
+  bool _lostPickerRecoveryStarted = false;
   StoredEditorSession? _recoverableSession;
 
   @override
@@ -26,11 +27,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _refreshRecovery();
 
     // Android may destroy the Flutter activity/process while the external
-    // camera app is open. In that case the Future returned by pickImage() is
-    // lost and Android recreates Pixel Craft at Home after the user accepts
-    // the capture. image_picker stores that pending result for retrieval on
-    // the next app instance, so consume it after the first frame and continue
-    // directly into the editor.
+    // camera app is open. Keep Home hidden until image_picker has had a chance
+    // to restore that accepted capture, so the user sees a short handoff
+    // screen instead of Home flashing before Editor opens.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _recoverLostPickerData();
     });
@@ -43,11 +42,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _recoverLostPickerData() async {
-    if (_isRecoveringLostPickerData) return;
-    _isRecoveringLostPickerData = true;
+    if (_lostPickerRecoveryStarted) return;
+    _lostPickerRecoveryStarted = true;
+
     try {
       final response = await _picker.retrieveLostData();
-      if (!mounted || response.isEmpty) return;
+      if (!mounted) return;
 
       final files = response.files;
       if (files != null && files.isNotEmpty) {
@@ -67,7 +67,9 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text('Camera recovery failed: $error')),
       );
     } finally {
-      _isRecoveringLostPickerData = false;
+      if (mounted) {
+        setState(() => _isRecoveringLostPickerData = false);
+      }
     }
   }
 
@@ -129,11 +131,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final picked = await _picker.pickImage(
         source: source,
         preferredCameraDevice: CameraDevice.rear,
-        // Modern phones can return 50 MP+ captures. The editor only renders a
-        // 1024 px working preview, so decoding the full sensor image first can
-        // cost tens of seconds and hundreds of MB on mid-range devices. Cap
-        // camera captures to a still-high 2560 px source before they enter the
-        // Rust pipeline. Gallery imports remain untouched/full-resolution.
         maxWidth: isCamera ? _cameraMaxDimension : null,
         maxHeight: isCamera ? _cameraMaxDimension : null,
         imageQuality: isCamera ? 90 : null,
@@ -186,6 +183,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isRecoveringLostPickerData) {
+      return const Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox.square(
+                  dimension: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                SizedBox(height: 16),
+                Text('Opening captured photo…'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     const samples = [
       'sample_1.png',
       'sample_2.png',
