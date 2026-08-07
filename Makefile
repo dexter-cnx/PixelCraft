@@ -14,12 +14,12 @@ RUST_BUILDER_DIR ?= rust_builder
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
-        setup repair patch-cargokit run run-release clean clean-all analyze test test-unit test-widget \
+        setup repair patch-cargokit app-icon run run-release clean clean-all analyze test test-unit test-widget \
         golden-test golden-update native-test test-full rust-fmt rust-clippy rust-test check \
         build-apk build-apk-release verify-native adb-abi
 
-help:
-	@printf "PixelCraft development commands\n\n"
+help: ## Show available commands
+	@printf "Pixel Craft development commands\n\n"
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 doctor: ## Check Flutter, Rust and Android tooling
@@ -36,7 +36,7 @@ frb-info: ## Show FRB executable and version
 
 install-frb: doctor ## Install pinned FRB codegen
 	@current=""; if [ -x "$(FRB_CODEGEN)" ]; then current="$$($(FRB_CODEGEN) --version 2>/dev/null || true)"; fi; \
-	case "$$current" in *"$(FRB_VERSION)"*) echo "[PixelCraft] Using $$current" ;; \
+	case "$$current" in *"$(FRB_VERSION)"*) echo "[Pixel Craft] Using $$current" ;; \
 	*) $(CARGO) install flutter_rust_bridge_codegen --version "$(FRB_VERSION)" --locked --force ;; esac
 	@"$(FRB_CODEGEN)" --version
 
@@ -67,9 +67,13 @@ codegen: install-frb ## Regenerate Dart/Rust bridge
 codegen-watch: install-frb ## Watch and regenerate bridge
 	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml --watch
 
-setup: integrate codegen clean-all pub-get ensure-rust-plugin ## First-time setup
+app-icon: pub-get ## Generate Pixel Craft launcher icons for Android and iOS
+	$(FLUTTER) test tool/generate_app_icon_test.dart
+	$(FLUTTER) pub run flutter_launcher_icons
 
-repair: doctor install-frb platforms integrate codegen clean-all pub-get ensure-rust-plugin ## Repair integration
+setup: integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## First-time setup
+
+repair: doctor install-frb platforms integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## Repair integration
 
 run: ensure-rust-plugin ## Run debug app; DEVICE=<id>
 	$(FLUTTER) run $(DEVICE_FLAG)
