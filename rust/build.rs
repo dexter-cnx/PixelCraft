@@ -101,7 +101,11 @@ fn validate_look(id: &str, look: &LookDefinition) {
     if !(0.65..=1.5).contains(&look.saturation) {
         panic!("{id}: saturation is outside the supported authoring range");
     }
-    if look.channel_gamma.iter().any(|value| !(0.75..=1.3).contains(value)) {
+    if look
+        .channel_gamma
+        .iter()
+        .any(|value| !(0.75..=1.3).contains(value))
+    {
         panic!("{id}: channelGamma is outside the supported authoring range");
     }
     for adjustment in &look.selective {
@@ -171,12 +175,12 @@ fn apply_look(rgb: [f32; 3], look: &LookDefinition) -> [f32; 3] {
     let luminance = luma(color);
     let shadow_weight = (1.0 - luminance).powi(2);
     let highlight_weight = luminance.powi(2);
-    for channel in 0..3 {
-        color[channel] += look.shadow_tint[channel] * shadow_weight;
-        color[channel] += look.highlight_tint[channel] * highlight_weight;
-        color[channel] = clamp01(color[channel]);
-        color[channel] = color[channel].powf(look.channel_gamma[channel]);
-        color[channel] = filmic_tone(color[channel], look);
+    for (channel, component) in color.iter_mut().enumerate() {
+        *component += look.shadow_tint[channel] * shadow_weight;
+        *component += look.highlight_tint[channel] * highlight_weight;
+        *component = clamp01(*component);
+        *component = component.powf(look.channel_gamma[channel]);
+        *component = filmic_tone(*component, look);
     }
     color.map(clamp01)
 }
@@ -189,12 +193,12 @@ fn filmic_tone(value: f32, look: &LookDefinition) -> f32 {
     if look.toe > 0.0 {
         let toe_weight = (1.0 - value).powi(2);
         let darkened = value.powf(1.0 + look.toe);
-        value = value + (darkened - value) * toe_weight;
+        value += (darkened - value) * toe_weight;
     }
     if look.shoulder > 0.0 {
         let highlight_weight = value.powi(2);
         let compressed = 1.0 - (1.0 - value).powf(1.0 / (1.0 + look.shoulder));
-        value = value + (compressed - value) * highlight_weight;
+        value += (compressed - value) * highlight_weight;
     }
     clamp01(value)
 }
@@ -233,7 +237,15 @@ fn rgb_to_hsv(rgb: [f32; 3]) -> [f32; 3] {
     } else {
         60.0 * (((rgb[0] - rgb[1]) / delta) + 4.0)
     };
-    [wrap_hue(hue), if max <= f32::EPSILON { 0.0 } else { delta / max }, max]
+    [
+        wrap_hue(hue),
+        if max <= f32::EPSILON {
+            0.0
+        } else {
+            delta / max
+        },
+        max,
+    ]
 }
 
 fn hsv_to_rgb(hsv: [f32; 3]) -> [f32; 3] {
