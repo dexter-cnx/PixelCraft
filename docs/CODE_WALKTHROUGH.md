@@ -200,16 +200,7 @@ Flutter UI isolate
 
 ## 8. Creative Filters
 
-Creative filters ได้แก่:
-
-- grayscale
-- invert
-- vintage
-- oceanic
-- lofi
-- dramatic
-- golden
-- pastel pink
+Creative filters ได้แก่ grayscale, invert, vintage, oceanic, lofi, dramatic, golden และ pastel pink
 
 ### ไม่มี default filter
 
@@ -219,12 +210,9 @@ Creative filters ได้แก่:
 
 หลัง `load()` รูปเสร็จ Controller จะเริ่ม generate filter thumbnails ล่วงหน้าแบบ fire-and-forget โดยไม่ต้องรอให้ผู้ใช้เปิด Filters
 
-Source ของ thumbnail คือ `originalPreviewBytes` ที่ได้จากรูปก่อน creative filter selection
+Source ของ thumbnail คือ `originalPreviewBytes` ที่ได้จากรูปก่อน creative filter selection ดังนั้น thumbnails มีหน้าที่เป็น style reference ที่คงที่ ไม่ใช่ exact preview ของ operation chain ล่าสุด
 
-จึงมีคุณสมบัติสำคัญสองข้อ:
-
-1. เปิด Filters แล้วโดยปกติ thumbnails พร้อมใช้งานแล้ว
-2. thumbnails ไม่ถูก regenerate ทุกครั้งที่ผู้ใช้ลอง filter ใหม่
+ผลคือเปิด Filters แล้วโดยปกติ thumbnails พร้อมใช้งาน และ thumbnails ไม่ถูก regenerate ทุกครั้งที่ผู้ใช้ลอง filter ใหม่
 
 ### Fast Rust thumbnail generation
 
@@ -238,37 +226,30 @@ Source ของ thumbnail คือ `originalPreviewBytes` ที่ได้�
 
 วิธีนี้เร็วกว่า implementation เดิมที่ decode + filter รูป preview ขนาดใหญ่ซ้ำทีละ filter
 
-Thumbnail มีหน้าที่เป็น style preview จึงไม่จำเป็นต้องใช้ editor preview ขนาด 1280 px
-
 ### Filter selection ไม่ stack ต่อกัน
 
-เมื่อผู้ใช้เลือก creative filter ตัวแรก ระบบ append Filter operation หนึ่งรายการ
+คำว่า base ในส่วนนี้หมายถึง image state ก่อน active creative-filter operation ไม่จำเป็นต้องเป็น raw original image หากก่อนหน้านั้นมี Adjust/Crop/Rotate อยู่แล้ว
 
-หากผู้ใช้กด filter ตัวอื่นต่อ ระบบใช้ `replaceFilterValue()`:
+เมื่อเลือก creative filter ตัวแรก ระบบ append Filter operation หนึ่งรายการ
+
+ถ้ากด filter ตัวอื่น ระบบใช้ `replaceFilterValue()` ซึ่ง undo active creative filter ก่อน แล้ว commit filter ใหม่จาก base เดิม
+
+ดังนั้นหาก base ปัจจุบันคือ `Adjusted + Cropped`:
 
 ```text
-undo active creative filter
--> begin new filter from image base ก่อน creative filter
--> render final value
--> commit
+Adjusted + Cropped -> Vintage
 ```
 
-ดังนั้น:
+แล้วเปลี่ยนเป็น Oceanic จะเป็น:
 
 ```text
-Original/base -> Vintage
-```
-
-แล้วเปลี่ยนเป็น Oceanic จะกลายเป็น:
-
-```text
-Original/base -> Oceanic
+Adjusted + Cropped -> Oceanic
 ```
 
 ไม่ใช่:
 
 ```text
-Original/base -> Vintage -> Oceanic
+Adjusted + Cropped -> Vintage -> Oceanic
 ```
 
 operation count จึงไม่เพิ่มทุกครั้งที่ลอง filter ใหม่
@@ -277,23 +258,9 @@ operation count จึงไม่เพิ่มทุกครั้งที�
 
 หลังเลือก filter แล้ว UI จะแสดง intensity slider ช่วง `0.0..1.0`
 
-เช่น:
+ระหว่างลากเปลี่ยนเฉพาะ thumb/value เมื่อปล่อยจึงเรียก `updateCreativeFilterValue()` และ replace active creative-filter operation เดิม
 
-```text
-Vintage 1.00
-```
-
-ระหว่างลาก slider จะเปลี่ยนเฉพาะ thumb/value เช่นเดียวกับ Adjust
-
-เมื่อปล่อย slider จึงเรียก `updateCreativeFilterValue()` ซึ่ง replace operation เดิมแทนการ stack operation ใหม่
-
-ตัวอย่าง:
-
-```text
-Vintage 1.00 -> Vintage 0.45
-```
-
-ยังคงเป็น Filter operation เดียว
+ตัวอย่าง `Vintage 1.00 -> Vintage 0.45` ยังคงเป็น Filter operation เดียว
 
 ---
 
@@ -301,31 +268,11 @@ Vintage 1.00 -> Vintage 0.45
 
 Transform tools เป็น replayable operations ทั้งหมด
 
-### Crop
+Crop มี centered presets 1:1, 4:3, 3:4, 16:9 และ 9:16 โดยส่ง normalized coordinates ไป Rust
 
-ปัจจุบันมี centered aspect presets:
+Rotate รองรับ quarter-turn ซ้าย/ขวา และ Flip รองรับ horizontal/vertical
 
-- 1:1
-- 4:3
-- 3:4
-- 16:9
-- 9:16
-
-ค่าที่ส่ง Rust เป็น normalized coordinates
-
-### Rotate
-
-รองรับ quarter-turn ซ้าย/ขวา
-
-### Flip
-
-รองรับ horizontal และ vertical
-
-### Straighten
-
-Slider ช่วง -15°..15°
-
-ขณะลากเปลี่ยนเฉพาะ Flutter state และ commit ตอนปล่อย slider เพื่อหลีกเลี่ยง expensive rotation ทุก pointer update
+Straighten ใช้ช่วง -15°..15° โดยระหว่างลากเปลี่ยนเฉพาะ Flutter state และ commit ตอนปล่อย slider
 
 ---
 
@@ -343,11 +290,7 @@ Editor ใช้ long-press gesture เพื่อแสดง original ชั�
 
 Export ไม่ upscale preview แต่เรียก Rust ให้ replay active operations จาก original resolution
 
-รองรับ:
-
-- PNG
-- JPEG พร้อม quality
-- WebP
+รองรับ PNG, JPEG พร้อม quality และ WebP
 
 `ExportFileService` บันทึกไฟล์ลง app documents และเปิด system share sheet ได้
 
@@ -357,101 +300,39 @@ Export ไม่ upscale preview แต่เรียก Rust ให้ replay 
 
 ## 12. Responsive Editor UI
 
-### `lib/ui/screens/editor_screen.dart`
+`EditorScreen` ใช้ `LayoutBuilder`: compact width วาง canvas ด้านบนและ controls ด้านล่าง ส่วน width >= 900 px ใช้ canvas ซ้าย + side tool panel ขวา
 
-หน้าจอใช้ `LayoutBuilder`
+`EditorToolPanel` มี Adjust, Filters, Crop, Rotate และ Details
 
-- compact width: canvas ด้านบน + tool controls ด้านล่าง
-- width >= 900 px: canvas ซ้าย + side tool panel ขวา
-
-### `EditorToolPanel`
-
-Tools หลัก:
-
-- Adjust
-- Filters
-- Crop
-- Rotate
-- Details
-
-Tool navigation เลื่อนได้แนวนอนบนหน้าจอแคบ
-
-ระหว่าง heavy committed operation จะ disable controls และ Editor แสดง processing overlay
+Tool navigation เลื่อนได้แนวนอนบนหน้าจอแคบ และระหว่าง heavy committed operation จะ disable controls พร้อม processing overlay
 
 ---
 
 ## 13. Histogram
 
-Rust คำนวณ RGB histogram 768 bins:
-
-- 0..255 = Red
-- 256..511 = Green
-- 512..767 = Blue
-
-การ aggregate pixels ใช้ Rayon เพื่อลดเวลาประมวลผลบนภาพ preview
-
-Flutter มีหน้าที่วาดผลลัพธ์เท่านั้น
+Rust คำนวณ RGB histogram 768 bins: Red 0..255, Green 256..511 และ Blue 512..767 โดยใช้ Rayon aggregate pixels
 
 ---
 
 ## 14. flutter_rust_bridge code generation
 
-เมื่อ Rust public API เปลี่ยน ต้อง regenerate Dart/Rust bridge files:
+เมื่อ Rust public API เปลี่ยน ต้อง regenerate bridge files:
 
 ```bash
 make codegen
 ```
 
-หรือ workflow integration ที่ project กำหนดไว้
-
-การเพิ่ม `generate_filter_previews()` เปลี่ยน FRB API ดังนั้น branch นี้ต้อง commit generated bridge files หลังรัน codegen
+การเพิ่ม `generate_filter_previews()` เปลี่ยน FRB API ดังนั้นต้อง commit generated bridge files หลังรัน codegen
 
 ---
 
 ## 15. Testing strategy
 
-### Rust unit tests
+Rust unit tests ครอบคลุม filters, operation replay, undo/redo, redo-tail truncation และ transforms
 
-ครอบคลุม:
+Controller/widget tests ครอบคลุม commit-only Adjust slider, prewarmed creative thumbnails, no default filter, filter replacement, creative intensity replacement, transforms, undo/redo และ export
 
-- filters
-- operation replay
-- undo/redo
-- truncate redo tail
-- transform operations
-
-### Controller tests
-
-ครอบคลุม:
-
-- load state
-- commit-only Adjust slider
-- prewarm creative filter thumbnails
-- no default creative filter
-- filter replacement โดย operation count ไม่เพิ่ม
-- creative intensity replacement
-- transforms
-- undo/redo
-- export
-
-### Widget tests
-
-ครอบคลุม:
-
-- Adjust slider ไม่ process ระหว่างลาก
-- creative preview cards
-- slider ปรากฏหลังเลือก creative filter
-- เปลี่ยน creative filter แล้ว operation count คงเดิม
-- creative intensity process ตอนปล่อย slider
-- Undo/Redo buttons
-
-### Golden tests
-
-เมื่อ layout/Filters UI เปลี่ยน ต้อง regenerate baseline และ review รูปก่อน commit
-
-### Native smoke test
-
-ยืนยันว่า native Rust library โหลดและเรียก FRB ได้บน device จริง
+เมื่อ Filters UI เปลี่ยนต้อง regenerate Golden baseline และ review รูปก่อน commit
 
 ---
 
@@ -479,19 +360,17 @@ make native-test DEVICE=RF8Y909V0LV
 ## 17. ข้อจำกัดที่ยังเหลือ
 
 - interactive crop frame ยังไม่มี
-- crop gesture/pan/zoom ยังไม่มี
 - direct save เข้า system photo library ยังไม่มี
 - native operation cancellation ยังไม่มี
 - full-resolution export ยังอาจใช้เวลาหลายวินาทีสำหรับไฟล์ขนาดใหญ่มาก
-- creative thumbnails เป็น style preview จาก original preview จึงไม่ regenerate ตาม transform/adjust ล่าสุด เพื่อแลกกับการเปิด Filters ที่รวดเร็วและ behavior ที่คงที่
+- creative thumbnails เป็น style reference จาก original preview จึงไม่เปลี่ยนตาม Adjust/Transform ล่าสุด เพื่อแลกกับความเร็วและความคงที่ของตัวเลือก
 
 ---
 
 ## สรุป architecture
 
 ```text
-Flutter
-  UI / local slider interaction
+Flutter UI / local slider state
         |
         v
 EditorController / Riverpod
