@@ -9,6 +9,22 @@ class EngineResult {
   final BigInt elapsedMicros;
 }
 
+class EngineSessionInfo {
+  const EngineSessionInfo({
+    required this.version,
+    required this.operationCount,
+    required this.cursor,
+    required this.canUndo,
+    required this.canRedo,
+  });
+
+  final int version;
+  final int operationCount;
+  final int cursor;
+  final bool canUndo;
+  final bool canRedo;
+}
+
 abstract interface class ImageEngine {
   void loadImage(Uint8List bytes);
   Uint8List preparePreview(Uint8List bytes, {required int maxEdge});
@@ -20,6 +36,9 @@ abstract interface class ImageEngine {
   EngineResult applyFilterTimed(Uint8List bytes, String filter, double value);
   Uint8List undo();
   Uint8List redo();
+  EngineSessionInfo sessionInfo();
+  Uint8List exportImage({required String format, required int quality});
+  Uint8List originalPreview();
 }
 
 class RustImageEngine implements ImageEngine {
@@ -76,4 +95,23 @@ class RustImageEngine implements ImageEngine {
 
   @override
   Uint8List redo() => rust.redo();
+
+  @override
+  EngineSessionInfo sessionInfo() {
+    final info = rust.sessionInfo();
+    return EngineSessionInfo(
+      version: info.version,
+      operationCount: info.operationCount,
+      cursor: info.cursor,
+      canUndo: info.canUndo,
+      canRedo: info.canRedo,
+    );
+  }
+
+  @override
+  Uint8List exportImage({required String format, required int quality}) =>
+      rust.exportImage(format: format, quality: quality);
+
+  @override
+  Uint8List originalPreview() => rust.originalPreview();
 }
