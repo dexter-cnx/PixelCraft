@@ -14,7 +14,7 @@ RUST_BUILDER_DIR ?= rust_builder
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
-        setup repair patch-cargokit app-icon run run-release clean clean-all analyze test test-unit test-widget \
+        setup repair patch-cargokit app-icon film-luts run run-release clean clean-all analyze test test-unit test-widget \
         golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check \
         build-apk build-apk-release verify-native adb-abi
 
@@ -70,6 +70,17 @@ codegen-watch: install-frb ## Watch and regenerate bridge
 app-icon: pub-get ## Generate Pixel Craft launcher icons for Android and iOS
 	$(FLUTTER) test tool/generate_app_icon_test.dart
 	$(FLUTTER) pub run flutter_launcher_icons
+
+film-luts: ## Materialize Film Profile Pack v2 as inspectable 33^3 .cube files
+	PIXELCRAFT_EXPORT_LUT_DIR="$(CURDIR)/$(RUST_CRATE_DIR)/film_profiles" \
+		$(CARGO) check --manifest-path $(RUST_CRATE_DIR)/Cargo.toml
+	@for profile in provia_inspired velvia_inspired astia_inspired e100_inspired ektar_inspired chrome64_inspired; do \
+		file="$(RUST_CRATE_DIR)/film_profiles/$$profile/lut.cube"; \
+		test -f "$$file"; \
+		grep -q '^LUT_3D_SIZE 33$$' "$$file"; \
+		test "$$(grep -E '^[0-9.-]+[[:space:]]+[0-9.-]+[[:space:]]+[0-9.-]+$$' "$$file" | wc -l | tr -d ' ')" = "35937"; \
+	done
+	@echo "[Pixel Craft] Film Profile Pack v2 materialized: 6 x 33^3 LUTs"
 
 setup: integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## First-time setup
 
