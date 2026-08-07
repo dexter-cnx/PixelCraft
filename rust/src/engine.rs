@@ -49,6 +49,9 @@ pub struct EngineState {
     /// Number of active operations. Operations after the cursor are redo items.
     pub cursor: usize,
     pub preview_max_edge: u32,
+    /// Cached bounded preview for the current Apply checkpoint. This avoids
+    /// decoding/resizing/encoding the same original twice during editor load.
+    pub original_preview_cache: Option<Vec<u8>>,
     pub preview_base: Option<DynamicImage>,
     pub pending_operation: Option<EditOperation>,
     pub pending_preview: Option<Vec<u8>>,
@@ -62,6 +65,7 @@ impl Default for EngineState {
             operations: Vec::new(),
             cursor: 0,
             preview_max_edge: DEFAULT_PREVIEW_MAX_EDGE,
+            original_preview_cache: None,
             preview_base: None,
             pending_operation: None,
             pending_preview: None,
@@ -76,11 +80,16 @@ impl EngineState {
         self.operations.clear();
         self.cursor = 0;
         self.preview_max_edge = DEFAULT_PREVIEW_MAX_EDGE;
+        self.original_preview_cache = None;
         self.clear_transaction();
     }
 
     pub fn set_preview_max_edge(&mut self, max_edge: u32) {
-        self.preview_max_edge = max_edge.max(1);
+        let max_edge = max_edge.max(1);
+        if self.preview_max_edge != max_edge {
+            self.preview_max_edge = max_edge;
+            self.original_preview_cache = None;
+        }
     }
 
     pub fn begin_filter(&mut self, filter: String) -> Result<(), String> {
@@ -187,7 +196,9 @@ impl EngineState {
         let scale = self.preview_max_edge as f64 / max_edge as f64;
         let target_width = ((width as f64 * scale).round() as u32).max(1);
         let target_height = ((height as f64 * scale).round() as u32).max(1);
-        Ok(full.resize_exact(target_width, target_height, imageops::FilterType::Lanczos3))
+        // Triangle is substantially faster than Lanczos for an interactive UI
+        // preview while full-resolution export still uses the original pixels.
+        Ok(full.resize_exact(target_width, target_height, imageops::FilterType::Triangle))
     }
 
     fn clear_transaction(&mut self) {
