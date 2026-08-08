@@ -6,10 +6,11 @@ import 'package:flutter/material.dart';
 
 import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
-import '../../gpu/android_gpu_camera_bridge.dart';
 import '../../gpu/android_gpu_camera_preview.dart';
 import '../../gpu/gpu_preview_capability.dart';
 import '../../gpu/gpu_preview_renderer.dart';
+import '../../gpu/ios_gpu_camera_preview.dart';
+import '../../gpu/native_gpu_camera_bridge.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
 
 class CameraFilmPreviewScreen extends StatefulWidget {
@@ -25,7 +26,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   static const _gpuPolicy = GpuPreviewCapabilityPolicy();
 
   final _gpuBridge = const NativeGpuPreviewBridge();
-  final _androidCameraBridge = const AndroidGpuCameraBridge();
+  final _nativeCameraBridge = const NativeGpuCameraBridge();
 
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];
@@ -41,18 +42,22 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   bool _isCapturing = false;
   String? _error;
 
+  bool get _supportsNativeGpuCamera => !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _androidCameraBridge.setRuntimeFailureHandler(_handleNativeRuntimeFailure);
+    _nativeCameraBridge.setRuntimeFailureHandler(_handleNativeRuntimeFailure);
     unawaited(_discoverAndInitialize());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _androidCameraBridge.setRuntimeFailureHandler(null);
+    _nativeCameraBridge.setRuntimeFailureHandler(null);
     final rendererId = _gpuRendererId;
     _gpuRendererId = null;
     if (rendererId != null) {
@@ -93,7 +98,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   Future<bool> _tryInitializeNativeGpu() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    if (!_supportsNativeGpuCamera) return false;
 
     String? rendererId;
     try {
@@ -102,7 +107,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       if (!decision.useNativeGpu) return false;
 
       final permissionGranted =
-          await _androidCameraBridge.requestCameraPermission();
+          await _nativeCameraBridge.requestCameraPermission();
       if (!permissionGranted) {
         if (!mounted) return true;
         setState(() {
@@ -112,7 +117,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         return true;
       }
 
-      final lenses = await _androidCameraBridge.availableLenses();
+      final lenses = await _nativeCameraBridge.availableLenses();
       rendererId = await _gpuBridge.createRenderer();
       await _gpuBridge.setEnabled(rendererId, false);
 
@@ -270,7 +275,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       try {
-        await _androidCameraBridge.switchCamera(rendererId);
+        await _nativeCameraBridge.switchCamera(rendererId);
       } catch (error) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -306,7 +311,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   Future<void> _captureNative(String rendererId) async {
-    final path = await _androidCameraBridge.capturePhoto(rendererId);
+    final path = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
     await _gpuBridge.pause(rendererId);
     if (!mounted) return;
@@ -430,6 +435,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        return IosGpuCameraPreview(rendererId: rendererId);
+      }
       return AndroidGpuCameraPreview(rendererId: rendererId);
     }
 
