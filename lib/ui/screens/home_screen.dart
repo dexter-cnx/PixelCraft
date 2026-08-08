@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/editor_session_store.dart';
 import 'camera_film_preview_screen.dart';
 import 'editor_screen.dart';
+import 'gpu_diagnostics_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -98,6 +100,13 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const CameraFilmPreviewScreen()),
     );
     await _refreshRecovery();
+  }
+
+  Future<void> _openGpuDiagnostics() async {
+    if (!kDebugMode || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GpuDiagnosticsScreen()),
+    );
   }
 
   Future<void> _openBytes(Future<List<int>> bytesFuture) async {
@@ -238,7 +247,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final blocked = _isRecovering;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Pixel Craft')),
+      appBar: AppBar(
+        title: const Text('Pixel Craft'),
+        actions: [
+          if (kDebugMode)
+            IconButton(
+              tooltip: 'GPU Diagnostics',
+              onPressed: blocked ? null : _openGpuDiagnostics,
+              icon: const Icon(Icons.developer_mode_rounded),
+            ),
+        ],
+      ),
       body: Stack(
         children: [
           CustomScrollView(
