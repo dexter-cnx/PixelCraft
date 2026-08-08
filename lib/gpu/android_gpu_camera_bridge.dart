@@ -2,6 +2,11 @@ import 'package:flutter/services.dart';
 
 import 'native_gpu_preview_bridge.dart';
 
+typedef AndroidGpuRuntimeFailureHandler = Future<void> Function(
+  String rendererId,
+  String message,
+);
+
 /// Android-only Camera2 controls layered on the versioned GPU preview channel.
 ///
 /// Only permission state, lens identifiers and captured file paths cross this
@@ -11,6 +16,22 @@ class AndroidGpuCameraBridge {
       : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
 
   final MethodChannel _channel;
+
+  void setRuntimeFailureHandler(AndroidGpuRuntimeFailureHandler? handler) {
+    _channel.setMethodCallHandler(
+      handler == null
+          ? null
+          : (call) async {
+              if (call.method != 'runtimeFailure') return;
+              final arguments = call.arguments;
+              if (arguments is! Map) return;
+              final rendererId = arguments['rendererId'] as String? ?? '';
+              final message = arguments['message'] as String? ??
+                  'Native GPU camera renderer failed';
+              await handler(rendererId, message);
+            },
+    );
+  }
 
   Future<bool> requestCameraPermission() async {
     return await _channel.invokeMethod<bool>(
