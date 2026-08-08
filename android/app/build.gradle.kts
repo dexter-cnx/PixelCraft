@@ -60,8 +60,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://flutter.dev/to/review-gradle-config).
-        applicationId = "dev.pixelcraft.pixelcraft"
+        applicationId = "dev.cnxdev.pixelcraft"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
