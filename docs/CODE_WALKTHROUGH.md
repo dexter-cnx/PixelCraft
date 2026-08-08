@@ -1,6 +1,6 @@
 # PixelCraft Code Walkthrough
 
-เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft ตั้งแต่เปิดแอป เลือกรูป ส่งงานผ่าน `flutter_rust_bridge` ไปยัง Rust, operation history, full-resolution export, transform tools, responsive editor, workflow ของ Adjust/Creative Filters และ Camera Film Preview / GPU Preview foundation จนถึง G0.3
+เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft ตั้งแต่เปิดแอป เลือกรูป ส่งงานผ่าน `flutter_rust_bridge` ไปยัง Rust, operation history, full-resolution export, transform tools, responsive editor, Film Profiles, Camera Film Preview, GPU Preview foundation จนถึง **G1 Android Camera2 + OpenGL ES/OES bring-up**
 
 > หลักการสำคัญคือ Flutter รับผิดชอบ UI และ state projection ส่วนงาน decode, filter, histogram, transform, operation replay และ export อยู่ใน Rust โดยงานหนักที่เรียกผ่าน synchronous FRB API ถูก dispatch ผ่าน background Dart isolate เพื่อลดการ block UI isolate
 >
@@ -35,140 +35,266 @@ Export
   -> encode requested PNG/JPEG/WebP
 ```
 
-Camera Film Preview currently follows a separate non-destructive preview flow:
+Android Camera Film Preview now has two runtime paths:
 
 ```text
-Camera source
-  -> current CameraPreview
-  -> Film Profile matrix approximation (safe fallback)
+Android + GPU eligible
+  -> Camera2
+  -> renderer-owned SurfaceTexture / GL_TEXTURE_EXTERNAL_OES
+  -> OpenGL ES Film LUT shader
+  -> native TextureView inside AndroidView
 
-Capture
-  -> keep original capture clean
-  -> transfer selected Film Profile state to Editor
-  -> Rust applies authoritative 33^3 Film LUT for final rendering
+Android unsupported / GPU failure / iOS
+  -> Flutter camera plugin
+  -> CameraPreview
+  -> ColorFilter.matrix approximation
 ```
 
-The matrix camera preview is deliberately treated as an approximation, not as the Film Profile reference renderer. G0.3 prepares the native GPU path that will replace this approximation in G1 without changing capture semantics.
+Capture remains non-destructive in both paths:
+
+```text
+Native GPU preview path
+  -> Camera2 JPEG ImageReader
+  -> clean JPEG file
+
+Fallback path
+  -> CameraController.takePicture()
+  -> clean JPEG file
+
+Both
+  -> selected Film Profile state
+  -> Editor
+  -> Rust authoritative 33^3 Film LUT
+```
+
+The matrix camera preview remains a safe fallback and is not the Film Profile reference renderer.
+
+---
+
+# Editor architecture
 
 ## Reduced-preview editing architecture
 
 PixelCraft deliberately separates **interactive editing resolution** from **export resolution**.
 
-`rust/src/engine.rs` keeps the untouched full-resolution compressed source bytes plus the complete `Vec<EditOperation>`. The editor also keeps a cached `checkpoint_preview` whose maximum edge is currently 1024 pixels. Interactive filters and transforms replay only the operations after the latest Apply checkpoint against this reduced image.
+`rust/src/engine.rs` keeps the untouched full-resolution compressed source bytes plus the complete `Vec<EditOperation>`. The editor also keeps a cached `checkpoint_preview` whose maximum edge is currently 1024 pixels. Interactive filters and transforms replay only operations after the latest Apply checkpoint against this reduced image.
 
-This removes the previous hot path where every preview operation could decode/replay the original full-resolution image and then resize it for display. It also makes Apply inexpensive because Apply no longer needs to render and re-encode the full-resolution image.
+This removes the hot path where every preview operation could decode/replay the original full-resolution image and resize it again for display. Apply also stays inexpensive because it does not render the full-resolution source.
 
-Supported operations include Filter, Crop, Rotate90, RotateDegrees/Straighten, FlipHorizontal, FlipVertical, and Resize.
+Supported operations include:
+
+- Filter
+- Crop
+- Rotate90
+- RotateDegrees / Straighten
+- FlipHorizontal
+- FlipVertical
+- Resize
 
 ## Apply checkpoints and operation recipe
 
-The engine uses two cursor concepts internally:
+The engine uses two cursor concepts:
 
 - `cursor` — absolute position in the complete operation recipe
-- `checkpoint_cursor` — boundary marking operations already accepted by the most recent Apply
+- `checkpoint_cursor` — boundary marking operations accepted by the latest Apply
 
-The UI session reports only draft operations after `checkpoint_cursor`, so after Apply the editor returns to `0/0 edits` even though earlier operations are still preserved internally for export.
-
-Pressing Apply now performs this lightweight flow:
+The UI reports only draft operations after `checkpoint_cursor`. After Apply the editor can return to `0/0 edits` while the complete operation recipe is still retained for export.
 
 ```text
 current reduced preview
   -> encode/cache as checkpoint preview
   -> checkpoint_cursor = cursor
   -> retain operations[0..cursor]
-  -> UI draft count resets to 0
+  -> reset UI draft count
 ```
 
-No full-resolution source decode, filter replay, resize, or bake happens during Apply.
-
-Undo is bounded by the Apply checkpoint, so it cannot cross into already-applied edits. A new operation after Undo still truncates the redo tail inside the current draft branch.
+Undo is bounded by the latest Apply checkpoint. A new edit after Undo truncates only the current draft redo tail.
 
 ## Full-resolution export
 
-Export is intentionally the expensive path. `export_image()` decodes the untouched original source and replays all active operations from the beginning at full resolution, then encodes the selected PNG/JPEG/WebP result.
-
-This means editing can stay responsive while export preserves full image quality:
+`export_image()` is intentionally the expensive path:
 
 ```text
-Editor:  original -> 1024px checkpoint preview -> fast draft operations
-Export:  original full resolution -> replay complete operation recipe -> output
+untouched full-resolution source
+  -> decode once
+  -> replay complete active operation recipe
+  -> encode PNG/JPEG/WebP
 ```
 
-Applied checkpoints therefore do not degrade image quality by repeatedly baking resized intermediates.
+Applied checkpoints therefore do not degrade output quality by repeatedly baking reduced intermediate images.
 
 ## Flutter state and background processing
 
-`lib/state/editor_controller.dart` projects the Rust engine state into Flutter. It tracks preview bytes, checkpoint preview, histogram, Adjust filter selection, creative filter selection/intensity, thumbnail cache, current tool, busy state, and draft cursor values.
+`lib/state/editor_controller.dart` projects Rust engine state into Flutter. It tracks:
 
-Initial image preparation now uses `ImageEngine.loadImageInBackground()` so decode, reduced-preview generation, histogram construction, and Rust session initialization execute outside the UI isolate. The editor working preview uses `editorPreviewMaxEdge = 1024`.
+- preview bytes
+- checkpoint preview
+- histogram
+- Adjust selection
+- creative filter selection/intensity
+- thumbnail cache
+- active tool
+- busy state
+- draft cursor values
 
-`lib/core/image_engine.dart` wraps synchronous FRB calls using `Isolate.run()`. Heavy filter, transform, Apply, Cancel, Undo/Redo, preview generation, image preparation, and full-resolution export work therefore execute away from the UI isolate.
+`lib/core/image_engine.dart` wraps heavy synchronous FRB calls with `Isolate.run()`. Decode, preview preparation, filters, transforms, Apply, Cancel, Undo/Redo, histogram work and full-resolution export therefore stay away from the UI isolate.
 
 ## Adjust controls
 
-`FilterSlider` changes only its local thumb/value while the user drags. Rust is called once on `onChangeEnd`. Processing is performed against the reduced working preview rather than the original full-resolution image.
+`FilterSlider` changes its local thumb/value while dragging and sends processing work on release. Processing occurs against the reduced working preview.
 
-The first release creates one draft filter operation. Releasing the same Adjust slider again before Apply replaces that draft operation instead of stacking a second copy.
+Repeated adjustment of the same draft parameter replaces the active draft operation rather than stacking multiple equivalent operations before Apply.
 
-## Creative filter previews
+## Creative filters
 
-Creative filters currently include grayscale, invert, vintage, oceanic, lofi, dramatic, golden, and pastel pink. There is no default selected creative filter.
+Creative filters include grayscale, invert, vintage, oceanic, lofi, dramatic, golden and pastel pink.
 
-Thumbnail generation starts automatically after the reduced checkpoint preview is available. `generate_filter_previews()` decodes that already-small checkpoint source once, resizes once to about 180 px max edge, runs variants in parallel with Rayon, and caches the resulting thumbnails.
+`generate_filter_previews()` decodes the already-small checkpoint source once, reduces it for thumbnails, runs variants in parallel with Rayon and caches the result.
 
-Trying Vintage and then Oceanic does not regenerate thumbnails and does not make Oceanic depend on the Vintage draft. After Apply changes the checkpoint, PixelCraft prewarms one new thumbnail set from the new reduced checkpoint.
-
-## Creative filter replacement and intensity
-
-The first creative-filter tap creates one Filter draft at intensity `1.0` and shows a `0.0..1.0` intensity slider.
-
-Selecting another filter or changing intensity replaces the same active filter draft rather than stacking another Filter operation. The source remains the same reduced checkpoint until Apply.
+Changing creative filter or intensity replaces the same draft Filter operation. After Apply changes the checkpoint, PixelCraft prewarms a new thumbnail set from the new checkpoint.
 
 ## Shared Apply / Cancel workflow
 
-`EditorToolPanel` exposes shared Cancel and Apply controls for Adjust, Filters, Crop, and Rotate workflows.
+`EditorToolPanel` exposes shared Cancel and Apply controls for Adjust, Filters, Crop and Rotate workflows.
 
-Apply promotes the current reduced preview to a checkpoint while retaining the full operation recipe. Cancel restores the previous reduced checkpoint and removes the current draft branch. Filter/tool selections reset after either action.
+Apply promotes the reduced preview checkpoint while retaining the semantic recipe. Cancel restores the previous checkpoint and removes the active draft branch.
 
 ## Transform tools
 
-Crop uses normalized centered presets (1:1, 4:3, 3:4, 16:9, 9:16). Rotate supports quarter turns. Flip supports horizontal and vertical. Straighten uses -15°..15° and processes only after slider release.
+Crop uses normalized centered presets such as 1:1, 4:3, 3:4, 16:9 and 9:16. Rotate supports quarter turns. Flip supports horizontal/vertical. Straighten is constrained to -15°..15°.
 
-All transform previews are computed at reduced editor resolution. Their normalized/semantic operations are retained so export can replay equivalent edits at full source resolution.
+Preview processing stays at reduced editor resolution while semantic operations are retained for full-resolution replay.
 
 ## Before / After
 
-`original_preview()` returns the cached reduced preview for the latest Apply checkpoint. Long press temporarily compares the current draft against that checkpoint rather than decoding the full-resolution source again.
+`original_preview()` returns the cached reduced preview for the latest Apply checkpoint. Long press compares the current draft against that checkpoint rather than decoding the original full-resolution image again.
 
 ## Import / export storage
 
-Gallery import shows progress while the selected asset is read and image preparation continues in the editor. Export saves an app-private backup and publishes a copy to the device photo gallery. Android public exports use `Pictures/PixelCraft`.
+Gallery/camera input enters Editor as a source path or byte buffer. Export writes an app-private backup and publishes to the device photo gallery. Android public exports use `Pictures/PixelCraft`.
 
 ## Responsive UI
 
-`EditorScreen` uses a compact vertical layout on phones and a side tool panel from 900 px upward. Editing controls are temporarily disabled while a background operation is running.
+`EditorScreen` uses a compact vertical layout on phones and a side tool panel from 900 px upward. Editing controls are temporarily disabled while background processing is active.
 
-## Camera Film Preview
+---
 
-Camera Film Preview keeps the capture source non-destructive. The selected Film Profile affects what the user sees in preview and is carried forward as edit state, but it is not baked into the JPEG produced by the camera plugin.
+# Camera Film Preview
 
-The current Camera path still uses a `ColorFilter.matrix`-style approximation as the fallback preview. This remains intentionally available while the real Android GPU LUT renderer is brought up in G1.
+## Non-destructive Film Camera rule
 
-The architectural rule is:
+Camera Film Preview affects what the user sees, not the source capture.
+
+The invariant is:
 
 ```text
-preview failure
-  -> fall back to matrix approximation
-  -> never mutate/bake the captured source
+preview effect != captured source mutation
 ```
 
-When the user captures a photo, the original camera output remains clean. The selected Film Profile is transferred into the normal Editor flow, and Rust remains responsible for authoritative LUT rendering during final processing/export.
+If GPU rendering is available, Android uses the canonical LUT atlas for live preview. If GPU rendering is unavailable or fails, PixelCraft switches to the existing matrix approximation.
+
+Neither path bakes Film preview pixels into the captured source. Film state is handed to Editor and Rust remains responsible for authoritative rendering.
+
+## Flutter Camera screen runtime selection
+
+Canonical implementation:
+
+`lib/ui/screens/camera_film_preview_screen_g1.dart`
+
+Compatibility entrypoint:
+
+`lib/ui/screens/camera_film_preview_screen.dart`
+
+The compatibility file exports the G1 screen so existing imports do not need to change.
+
+Startup flow:
+
+```text
+CameraFilmPreviewScreen.initState()
+  -> NativeGpuPreviewBridge.probe()
+  -> GpuPreviewCapabilityPolicy.evaluate()
+
+eligible Android
+  -> request CAMERA permission
+  -> query native camera lenses
+  -> createRenderer()
+  -> render AndroidGpuCameraPreview(rendererId)
+
+not eligible / non-Android
+  -> availableCameras()
+  -> CameraController.initialize()
+  -> ColorFilter.matrix fallback preview
+```
+
+The fallback path remains fully usable while G1 is being validated.
+
+## Film selection on native GPU path
+
+Film chips still use the same `CameraFilmPreset` IDs.
+
+For native Android GPU preview:
+
+```text
+select Film Profile
+  -> setFilm(profileId, strength)
+  -> native renderer uploads/selects canonical LUT atlas
+  -> setEnabled(true)
+```
+
+Selecting Original uses:
+
+```text
+setEnabled(false)
+```
+
+Strength slider changes use:
+
+```text
+setStrength(rendererId, value)
+```
+
+The renderer stores strength independently and the shader reads it through `uStrength`. Strength-only changes do **not** intentionally parse or upload the LUT again.
+
+## Clean capture handoff
+
+Native Android capture:
+
+```text
+shutter
+  -> AndroidGpuCameraBridge.capturePhoto(rendererId)
+  -> Camera2 TEMPLATE_STILL_CAPTURE
+  -> JPEG ImageReader Surface
+  -> cache/pixelcraft-camera/capture-<timestamp>.jpg
+  -> Dart receives file path only
+  -> CameraFilmEditorHandoff
+```
+
+Fallback capture:
+
+```text
+shutter
+  -> CameraController.takePicture()
+  -> XFile.path
+  -> CameraFilmEditorHandoff
+```
+
+Both paths pass:
+
+- clean source image path
+- selected Film Profile ID
+- Film strength
+
+The Editor/Rust path remains unchanged.
+
+---
+
+# Shared Edit Graph and GPU architecture
 
 ## Versioned Edit Graph
 
-`lib/core/edit_graph.dart` defines the shared versioned edit contract. The current schema version is `3`.
+`lib/core/edit_graph.dart` defines the shared versioned edit contract. Current schema version: `3`.
 
-The long-term architecture is:
+Long-term renderer model:
 
 ```text
 Input / Camera
@@ -184,27 +310,31 @@ interactive / low latency                    authoritative / full-res
 Camera + Editor                              Export + Batch + Resume
 ```
 
-The Edit Graph is intended to become the common semantic state for Film Profiles, adjustments, masks, overlays, presets and later Editor GPU Preview. GPU code must not invent a second effect-state model with different parameter meanings.
+GPU code must not invent a second semantic effect-state model. Film Profiles, adjustments, masks, overlays and future presets should converge on the same Edit Graph semantics.
 
 ## GPU preview renderer abstraction
 
-`lib/gpu/gpu_preview_renderer.dart` contains the renderer-neutral Dart contract and capability types.
+`lib/gpu/gpu_preview_renderer.dart` defines renderer-neutral Dart capability/state types.
 
-Backend kinds are currently:
+Backends:
 
 - `fallback`
 - `androidOpenGl`
 - `iosMetal`
 
-`FallbackGpuPreviewRenderer` explicitly reports that it does not support a real 33^3 LUT. That distinction allows callers to know whether they are looking at a parity-capable GPU renderer or only the current approximation.
+`FallbackGpuPreviewRenderer` intentionally reports no real LUT33 support so callers can distinguish approximation from parity-capable GPU rendering.
 
-Dart does not own live frame buffers in this design. Renderer state changes should consist only of small values such as Film Profile ID, strength, viewport, enabled state and Edit Graph metadata.
+Dart owns state/control messages only, never live preview pixels.
 
-## G0.3 capability and fallback policy
+---
 
-`lib/gpu/gpu_preview_capability.dart` centralizes the production decision about whether native GPU preview is eligible.
+# G0.3 capability and lifecycle foundation
 
-The decision flow is:
+## Capability and fallback policy
+
+`lib/gpu/gpu_preview_capability.dart`
+
+Decision flow:
 
 ```text
 Native probe
@@ -220,7 +350,7 @@ Native probe
 native GPU eligible
 ```
 
-Runtime failures are represented separately from probe failures. The policy distinguishes at least:
+Fallback reasons include:
 
 - `protocolMismatch`
 - `backendUnavailable`
@@ -231,13 +361,11 @@ Runtime failures are represented separately from probe failures. The policy dist
 - `runtimeRenderFailure`
 - `blacklisted`
 
-This is important because a renderer that failed during initialization should invalidate the previously cached capability result rather than continually retry a backend that is no longer trustworthy for the current session.
-
-The fallback capability continues to use the existing Camera matrix preview until G1 has proven stable.
+Renderer initialization/runtime failure invalidates cached capability data before later retry.
 
 ## Native GPU control protocol
 
-`lib/gpu/native_gpu_preview_bridge.dart` is the Flutter side of the versioned native control protocol.
+`lib/gpu/native_gpu_preview_bridge.dart`
 
 Channel:
 
@@ -251,9 +379,7 @@ Protocol version:
 1
 ```
 
-Normal production capability negotiation calls `probe`. The G0.2 parity harness methods remain available for validation but are deliberately separated from normal Camera startup.
-
-The bridge now exposes the production lifecycle control messages:
+Core renderer controls:
 
 ```text
 probe
@@ -268,21 +394,17 @@ resume
 destroyRenderer
 ```
 
-The Android channel also exposes capability-cache invalidation internally so renderer initialization failures can force a fresh capability decision later.
-
-No JPEG, PNG, raw camera plane, RGBA frame or other image buffer is passed through this MethodChannel.
+No encoded image or raw frame buffer crosses this channel during live preview.
 
 ## Renderer/session lifecycle
 
-`lib/gpu/gpu_preview_session.dart` defines the Dart-side renderer/session state contract, while `NativeGpuPreviewSession` in `lib/gpu/native_gpu_preview_bridge.dart` implements that contract over the native channel.
-
-The lifecycle separates renderer existence from surface ownership:
+`lib/gpu/gpu_preview_session.dart` defines the Dart-side lifecycle contract.
 
 ```text
 idle
   -> createRenderer
 created
-  -> configureSurface
+  -> surface available
 surfaceConfigured
   -> pause
 paused
@@ -292,125 +414,210 @@ surfaceConfigured / created
 destroyed
 ```
 
-A renderer can therefore survive normal state updates without rebuilding the camera session. Film Profile changes and strength changes become renderer state/uniform changes rather than camera restarts.
+The native renderer can therefore survive normal state changes without rebuilding Camera2 simply because the user changes Film strength.
 
-This contract is designed to handle future route changes, app pause/resume, front/rear camera switching, surface recreation and GPU context loss without leaving stale native objects behind.
+## Background capability probing
 
-## Android background capability probing
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuPreviewChannel.kt`
 
-`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuPreviewChannel.kt` no longer performs EGL/shader capability work synchronously inside the MethodChannel handler.
+Capability EGL/shader validation executes on a dedicated single-thread executor rather than synchronously inside the Android MethodChannel/UI-thread handler.
 
-Heavy GPU validation is serialized onto a dedicated single-thread executor. Results are posted back to Flutter on Android's main looper only after the background work completes.
+Explicit G0.2 harness calls use the same background execution rule.
 
-This keeps operations such as:
+## Capability cache and native assets
+
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuCapabilityProbe.kt`
+
+The production probe verifies generated LUT assets and caches capability results against app/device identity including app version/build, `Build.FINGERPRINT` and SDK level.
+
+`GpuPreviewBlacklist` provides an evidence-based device/renderer exclusion hook.
+
+---
+
+# G1 Android Camera2 + OES renderer
+
+For the detailed G1 code-by-code walkthrough, also see:
+
+`docs/walkthrough/14_g1_android_camera_oes.md`
+
+## Android PlatformView boundary
+
+Flutter host:
+
+`lib/gpu/android_gpu_camera_preview.dart`
+
+Native host:
+
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuCameraPreviewPlatformView.kt`
+
+View type:
 
 ```text
-EGL display/context creation
-shader compile/link
-LUT texture upload
-reference draw/readback
+dev.pixelcraft/gpu_camera_preview_v1
 ```
 
-away from the Android platform/UI thread.
+Flutter sends only `rendererId` when creating the AndroidView.
 
-The explicit G0.2 harness methods (`runReferenceHarness` and `runFilmProfileHarness`) also use the background executor.
-
-## Android capability cache and native assets
-
-`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuCapabilityProbe.kt` owns the production Android probe.
-
-Before running the shader self-test it verifies that the generated LUT package is present, including the manifest, parity fixture and all Film Profile atlas assets.
-
-The result is cached against an identity containing:
+The native PlatformView uses `TextureView`. Its `SurfaceTexture` is wrapped in an Android `Surface` and attached directly to the native renderer registry.
 
 ```text
-cache schema
-+ app version name
-+ app version code
-+ Android Build.FINGERPRINT
-+ SDK level
+Flutter AndroidView
+  -> native TextureView
+  -> output Surface
+  -> renderer registry
+  -> EGL window surface
 ```
 
-Normal startup therefore uses a cheap cached result instead of recreating an EGL context every time the Camera opens.
+The actual Android `Surface` never crosses MethodChannel.
 
-A forced self-test can bypass the cache when validation is explicitly required. Renderer initialization failure invalidates the cache so the next decision is not based on a stale successful probe.
+## Native renderer session registry
 
-`GpuPreviewBlacklist` is the explicit extension point for narrow, evidence-based device or renderer exclusions. The blacklist is currently empty; its presence allows a known-bad GPU/driver combination to fail distinctly from a generic backend error.
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuPreviewRendererSession.kt`
 
-## Android native renderer session registry
+Each renderer ID now owns one concrete `AndroidGpuCameraOesRenderer`.
 
-`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuPreviewRendererSession.kt` stores the native renderer/session state independently of Flutter widgets.
+The registry coordinates:
 
-Each renderer receives a stable renderer ID. The registry owns configuration such as:
-
-- surface configuration
-- Film Profile ID
+- output Surface attach/detach
+- Film Profile
 - Film strength
-- viewport
-- enabled state
-- pause/resume state
+- enabled/original state
+- pause/resume
+- clean JPEG capture
+- front/rear switching
+- destruction
 
-This G0.3 implementation is intentionally a lifecycle/state foundation, not yet a live camera renderer. It provides the resource boundary that G1 will fill with actual EGL/OES objects.
+## Camera2/OES renderer
 
-Destroying a renderer removes its session from the registry, preventing later control messages from silently updating stale native state.
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/AndroidGpuCameraOesRenderer.kt`
 
-## Android Camera OES boundary for G1
-
-`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuCameraOesRenderer.kt` defines the native interface that G1 should implement.
-
-Target G1 frame path:
+The renderer creates two dedicated threads:
 
 ```text
-Camera frame
-  -> SurfaceTexture / GL_TEXTURE_EXTERNAL_OES
-  -> OpenGL ES fragment shader
+PixelCraft-GpuCamera-Camera2
+PixelCraft-GpuCamera-GL
+```
+
+Live frame path:
+
+```text
+Camera2 repeating preview request
+  -> renderer-owned Surface
+  -> SurfaceTexture
+  -> GL_TEXTURE_EXTERNAL_OES
+  -> SurfaceTexture.updateTexImage()
+  -> OES fragment shader
   -> canonical 33^3 Film LUT atlas
-  -> output Surface / Flutter texture/native view
+  -> EGL window surface
+  -> native TextureView
 ```
 
-The interface separates renderer lifecycle, input camera surface, output surface and effect state so Camera2/CameraX ownership does not become entangled with Flutter's control protocol.
+No per-frame Dart callback occurs.
 
-G0.3 deliberately does **not** attach the current camera feed to this interface yet. That prevents lifecycle/surface design from being debugged at the same time as frame rendering.
+## Canonical LUT shader
 
-The following approaches are explicitly excluded:
-
-```text
-Camera frame -> JPEG/PNG every frame
-Camera ImageStream -> Dart -> GPU
-Camera frame -> Flutter Rust Bridge -> Rust -> Flutter every frame
-```
-
-## Canonical Film LUT path
-
-The Film Profile authoring source remains the Rust Film Profile Pack:
-
-```text
-rust/film_profiles/*/look.json
-        -> rust/build.rs
-        -> canonical 33^3 lut.cube
-             -> Rust final renderer
-             -> GPU atlas generator
-```
-
-The Android GPU atlas is therefore not a separately authored approximation. It is generated from the same canonical LUT that Rust uses.
-
-Atlas v1 uses:
+The live Camera shader uses the same atlas structure already validated by G0.2:
 
 - 33^3 LUT
-- 6 x 6 tile grid
+- 6 x 6 tiles
 - 33 x 33 texels per tile
 - 198 x 198 RGBA8 atlas
-- bilinear R/G interpolation
+- manual bilinear R/G interpolation
 - linear interpolation between adjacent B slices
-- no mipmaps
 
-The physical-device harness validates shader sampling/addressing against canonical reference fixtures within the agreed tolerance.
+Assets come from:
 
-## Color-space contract
+```text
+assets/gpu_luts/<profileId>.rgba8
+```
 
-`docs/G0_3_GPU_PREVIEW_CONTRACTS.md` documents the color-pipeline boundary that must be resolved before Camera preview can be described as visually equivalent to Rust final output.
+These atlases are generated from the canonical Rust Film LUT output, not from the fallback matrices.
 
-The contract distinguishes:
+## Camera orientation / crop state
+
+The OES shader receives:
+
+```text
+uSurfaceTextureMatrix
+uCropScale
+uRotationSteps
+uMirrorX
+```
+
+The renderer combines Camera sensor orientation, Android display rotation, front-camera mirroring and center-crop behavior.
+
+This code is implemented but exact portrait/front/rear behavior remains a **physical-device validation item** before G1 can be called complete.
+
+## Android Camera permission
+
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/MainActivity.kt`
+
+Because eligible Android devices bypass `CameraController.initialize()`, the native GPU path cannot rely on the Flutter camera plugin to request permission.
+
+`MainActivity` therefore owns the CAMERA runtime permission request and returns only the boolean result through the existing GPU control channel.
+
+## Android Camera2 control bridge
+
+`lib/gpu/android_gpu_camera_bridge.dart`
+
+G1-specific control messages:
+
+```text
+requestCameraPermission
+availableCameraLenses
+capturePhoto
+switchCamera
+runtimeFailure    // native -> Dart
+```
+
+Only permission state, lens identifiers, renderer IDs, error strings and clean capture file paths cross this bridge.
+
+## Runtime GPU failure -> matrix fallback
+
+Fatal renderer/camera failures call the registry runtime failure listener.
+
+```text
+AndroidGpuCameraOesRenderer
+  -> GpuPreviewRendererSessionRegistry.runtimeFailureListener
+  -> GpuPreviewChannel
+  -> invalidate capability cache
+  -> runtimeFailure(rendererId, message)
+  -> CameraFilmPreviewScreen
+  -> remove Android GPU path
+  -> destroy renderer
+  -> initialize Flutter camera fallback
+```
+
+The selected Film state remains intact, so the user can continue with the matrix approximation and still get authoritative Rust rendering after capture.
+
+## App lifecycle and route lifecycle
+
+App pause/inactive:
+
+```text
+CameraFilmPreviewScreen
+  -> pause(rendererId)
+  -> close Camera2 session/device
+```
+
+App resume:
+
+```text
+resume(rendererId)
+  -> ensure output EGL state
+  -> reopen Camera2
+  -> restart repeating preview
+```
+
+Before navigating into Editor after native capture, the camera renderer is paused. After returning, the same renderer session resumes.
+
+Destroying the Camera route destroys the renderer and releases Camera2/EGL/OES resources.
+
+---
+
+# Color-space contract
+
+`docs/G0_3_GPU_PREVIEW_CONTRACTS.md` defines the color-pipeline boundary:
 
 ```text
 camera source transfer / color space
@@ -421,62 +628,24 @@ camera source transfer / color space
   -> export color space
 ```
 
-The existing G0.2 parity harness proves **LUT atlas sampling math and addressing**, because both its input values and expected values are deterministic RGB fixture values.
+G0.2 proves LUT atlas sampling/addressing for deterministic RGB fixture values.
 
-It does not yet prove full visual parity for:
+G1 adds real camera frames, but full visual parity still requires validation of:
 
-- camera YUV -> RGB conversion
-- transfer function / gamma handling
-- camera color primaries
-- wide-gamut / HDR inputs
-- display/output color management
-- Rust image decode vs camera-preview conversion
+- Camera YUV -> RGB conversion
+- transfer/gamma assumptions
+- camera primaries
+- HDR/wide-gamut behavior
+- Android display color management
+- Rust decoded JPEG vs live camera preview conversion
 
-Those boundaries must be fixed and validated during G1 before claiming Camera GPU Preview matches the final Rust render.
+Do not claim full camera-to-Rust visual parity until those boundaries are measured.
 
-## G0.3 -> G1 handoff
+---
 
-At the end of G0.3 the architecture is intentionally in this state:
+# Tests and validation
 
-```text
-Camera
-  -> current matrix fallback ---------------------> visible preview
-
-Dart
-  -> capability/fallback policy
-  -> renderer lifecycle/state only
-                 |
-                 v
-Android native GPU foundation
-  -> cached background capability probe
-  -> renderer session registry
-  -> Camera OES renderer interface
-  -> no live frames attached yet
-```
-
-G1 can now implement the actual OpenGL ES/OES renderer without changing the public lifecycle semantics.
-
-The key G1 validation targets remain:
-
-- profile changes update live preview without rebuilding camera session
-- strength changes update shader state/uniforms only
-- at least 30 fps on the reference Android device
-- captured source remains clean
-- Film state still reaches Editor/Rust final rendering
-- front/rear camera switching works
-- orientation/crop remains correct
-- pause/resume and route changes release/recreate resources safely
-- GPU failure falls back automatically to matrix preview
-
-## FRB code generation
-
-The reduced-preview architecture changes engine internals but keeps the existing FRB function signatures for `prepare_preview`, `apply_edits`, and `export_image`. Generated bridge files only need regeneration when public Rust API signatures change.
-
-The G0.3 Camera GPU control path is independent of FRB: it uses the native MethodChannel only for small renderer state/control messages. Rust final rendering remains unchanged by the addition of the native preview lifecycle.
-
-## Testing / validation
-
-Host/editor checks:
+## Host/editor checks
 
 ```bash
 flutter pub get
@@ -489,7 +658,7 @@ flutter test test/state
 flutter test test/ui --exclude-tags=golden
 ```
 
-GPU foundation checks:
+## GPU foundation checks
 
 ```bash
 flutter test test/gpu/gpu_preview_capability_test.dart
@@ -498,15 +667,53 @@ make gpu-luts
 make gpu-native-test DEVICE=RF8Y909V0LV
 ```
 
-Existing native/editor validation remains available:
+## G1 Android build/device checks
 
 ```bash
-make golden-update
-make golden-test
-make verify-native
-make native-test DEVICE=RF8Y909V0LV
+flutter build apk --debug
+flutter run -d RF8Y909V0LV
 ```
 
-For editor architecture, the most important device checks are large-image import latency, filter/transform latency, Apply latency, and full-resolution export correctness after several Apply checkpoints.
+Manual G1 validation:
 
-For G0.3/G1 GPU work, additionally check capability cache behavior, forced self-test, fallback selection, renderer create/destroy cycles, app pause/resume, surface recreation and absence of UI-thread stalls during GPU probing.
+1. Camera screen shows `GPU FILM PREVIEW` on an eligible Android device.
+2. Original preview has no Film LUT applied.
+3. All six Film Profiles update live without rebuilding Camera2.
+4. Strength slider remains responsive and does not reload the LUT per tick.
+5. Capture opens Editor with a clean source and the selected Film state.
+6. Front/rear switching works.
+7. Portrait orientation, crop and front-camera mirroring are correct.
+8. App pause/resume recovers the camera preview.
+9. Camera -> Editor -> Camera route round-trip does not leak resources.
+10. Forced renderer failure automatically selects matrix fallback.
+11. Sustained preview reaches the G1 target of >= 30 fps on the reference device.
+
+## Current G1 status
+
+Implemented in code:
+
+- Camera2 native ownership
+- renderer-owned external OES texture
+- OpenGL ES LUT shader
+- canonical generated LUT atlas usage
+- TextureView PlatformView output
+- native CAMERA permission flow
+- Film Profile state updates
+- strength-only state update hook
+- clean JPEG ImageReader capture
+- front/rear switching
+- pause/resume/destroy lifecycle
+- runtime failure fallback signaling
+- Dart control-plane tests
+
+Still requiring Android/device proof:
+
+- Kotlin/Android compilation on the project toolchain
+- first live OES frame on RF8Y909V0LV
+- portrait/front/rear orientation and crop
+- capture EXIF/orientation correctness
+- >= 30 fps measurement
+- repeated route/lifecycle/context-loss stress tests
+- end-to-end visual parity against Rust under the documented color-space contract
+
+Until those checks pass, the matrix approximation remains the production safety fallback.
