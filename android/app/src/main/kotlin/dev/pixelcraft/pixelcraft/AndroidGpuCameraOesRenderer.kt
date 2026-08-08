@@ -1,8 +1,10 @@
 package dev.pixelcraft.pixelcraft
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -213,8 +215,10 @@ internal class AndroidGpuCameraOesRenderer(
     }
 
     override fun setFilm(profileId: String, strength: Float) {
+        val changed = this.profileId != profileId
         this.profileId = profileId
         this.strength = strength.coerceIn(0f, 1f)
+        if (!changed) return
         glHandler.post {
             try {
                 uploadFilmLut(profileId)
@@ -222,6 +226,10 @@ internal class AndroidGpuCameraOesRenderer(
                 fail("Unable to load Film LUT: $profileId", error)
             }
         }
+    }
+
+    override fun setStrength(strength: Float) {
+        this.strength = strength.coerceIn(0f, 1f)
     }
 
     override fun setEnabled(enabled: Boolean) {
@@ -302,11 +310,6 @@ internal class AndroidGpuCameraOesRenderer(
         }
     }
 
-    fun availableLenses(): List<String> = buildList {
-        if (cameraIdForLens(CameraCharacteristics.LENS_FACING_BACK) != null) add("back")
-        if (cameraIdForLens(CameraCharacteristics.LENS_FACING_FRONT) != null) add("front")
-    }
-
     override fun release() {
         if (released) return
         released = true
@@ -321,6 +324,7 @@ internal class AndroidGpuCameraOesRenderer(
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun openCamera() {
         if (released || paused || cameraDevice != null || outputSurface == null) return
         if (appContext.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -338,7 +342,7 @@ internal class AndroidGpuCameraOesRenderer(
             ?: throw IllegalStateException("Camera stream configuration is unavailable")
         val previews = map.getOutputSizes(SurfaceTexture::class.java).orEmpty()
         previewSize = choosePreviewSize(previews)
-        val pictureSize = choosePictureSize(map.getOutputSizes(ImageReader::class.java).orEmpty())
+        val pictureSize = choosePictureSize(map.getOutputSizes(ImageFormat.JPEG).orEmpty())
         val selectedPreview = previewSize ?: throw IllegalStateException("No preview size available")
         texture.setDefaultBufferSize(selectedPreview.width, selectedPreview.height)
 
@@ -346,7 +350,7 @@ internal class AndroidGpuCameraOesRenderer(
         imageReader = ImageReader.newInstance(
             pictureSize.width,
             pictureSize.height,
-            android.graphics.ImageFormat.JPEG,
+            ImageFormat.JPEG,
             2,
         ).apply {
             setOnImageAvailableListener({ reader ->
@@ -420,7 +424,10 @@ internal class AndroidGpuCameraOesRenderer(
                 }
 
                 override fun onConfigureFailed(session: CameraCaptureSession) {
-                    fail("Unable to configure Camera2 capture session", IllegalStateException("configure failed"))
+                    fail(
+                        "Unable to configure Camera2 capture session",
+                        IllegalStateException("configure failed"),
+                    )
                 }
             },
             cameraHandler,
@@ -526,7 +533,11 @@ internal class AndroidGpuCameraOesRenderer(
                 0,
             )
             val crop = cropScale()
-            GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uCropScale"), crop.first, crop.second)
+            GLES20.glUniform2f(
+                GLES20.glGetUniformLocation(program, "uCropScale"),
+                crop.first,
+                crop.second,
+            )
             GLES20.glUniform1i(
                 GLES20.glGetUniformLocation(program, "uRotationSteps"),
                 relativeRotationDegrees() / 90,
@@ -553,9 +564,9 @@ internal class AndroidGpuCameraOesRenderer(
     }
 
     private fun uploadFilmLut(id: String) {
-        if (eglDisplay == EGL14.EGL_NO_DISPLAY) return
+        if (id.isEmpty() || eglDisplay == EGL14.EGL_NO_DISPLAY) return
         makeCurrentIfPossible()
-        if (id.isEmpty()) return
+        if (eglSurface == EGL14.EGL_NO_SURFACE) return
         val bytes = appContext.assets.open("gpu_luts/$id.rgba8").use { it.readBytes() }
         check(bytes.size == LUT_ATLAS_SIZE * LUT_ATLAS_SIZE * 4) {
             "Unexpected LUT atlas size for $id: ${bytes.size}"
@@ -734,14 +745,17 @@ internal class AndroidGpuCameraOesRenderer(
     }
 
     private fun releaseGl() {
+        if (eglSurface != EGL14.EGL_NO_SURFACE) {
+            makeCurrent()
+            if (lutTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(lutTexture), 0)
+            if (oesTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(oesTexture), 0)
+            if (program != 0) GLES20.glDeleteProgram(program)
+        }
         destroyWindowSurface()
         inputSurface?.release()
         inputSurface = null
         inputSurfaceTexture?.release()
         inputSurfaceTexture = null
-        if (lutTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(lutTexture), 0)
-        if (oesTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(oesTexture), 0)
-        if (program != 0) GLES20.glDeleteProgram(program)
         if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
             if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(eglDisplay, eglContext)
             EGL14.eglTerminate(eglDisplay)
