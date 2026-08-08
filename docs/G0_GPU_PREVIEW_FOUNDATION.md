@@ -1,6 +1,6 @@
 # G0 — GPU Preview Foundation
 
-Status: In progress
+Status: In progress — G0.3 Android contracts implemented
 Branch: `feature/camera-film-preview`
 
 G0 prepares Pixel Craft for real-time GPU preview without changing Rust's role as the authoritative final renderer.
@@ -53,11 +53,23 @@ Protocol version: `1`
 
 The protocol is control-plane only. It transports capability negotiation and tiny state messages; camera/image pixel buffers are explicitly excluded.
 
-Current methods:
+Diagnostic methods:
 
 - `probe`
 - `runReferenceHarness`
 - `runFilmProfileHarness`
+
+G0.3 renderer lifecycle methods:
+
+- `createRenderer`
+- `configureSurface`
+- `setFilm`
+- `setStrength`
+- `setViewport`
+- `setEnabled`
+- `pause`
+- `resume`
+- `destroyRenderer`
 
 Android registers the protocol from `MainActivity` through `GpuPreviewChannel`.
 
@@ -142,6 +154,93 @@ These fixed RGB vectors are shared test input for the Python reference sampler a
 
 The atlas generator additionally checks 1024 deterministic pseudo-random colors per Film Profile. RGBA8 atlas parity tolerance against the floating-point canonical cube is currently `2 / 255` per channel.
 
+## G0.3 delivered — production selection and lifecycle foundation
+
+### Capability and fallback policy
+
+Dart policy:
+
+```text
+lib/gpu/gpu_preview_capability.dart
+```
+
+Native Android capability probe:
+
+```text
+android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuCapabilityProbe.kt
+```
+
+The production capability model distinguishes:
+
+- protocol mismatch
+- backend unavailable
+- LUT33 unsupported
+- shader self-test failed
+- generated native LUT assets unavailable
+- renderer initialization failure
+- runtime render failure
+- explicit device/GPU blacklist
+
+Native GPU is eligible only if protocol, backend, assets, shader self-test, LUT33 support and blacklist checks all pass. Camera continues to use the matrix approximation as the fallback until G1 is stable. Fallback never modifies captured source pixels.
+
+### Background probe and cache
+
+`GpuPreviewChannel` no longer runs the EGL/shader harness synchronously on the Android platform/UI thread.
+
+- EGL/self-test work is serialized on a dedicated background executor.
+- normal `probe` uses a cached result keyed by app version + Android build fingerprint + SDK.
+- generated LUT assets are checked before eligibility.
+- `forceSelfTest` bypasses the cache for diagnostics.
+- renderer initialization failure invalidates capability cache.
+
+The explicit blacklist extension point is currently empty and should only contain evidence-backed device/GPU exclusions.
+
+### Renderer/session lifecycle
+
+Dart lifecycle contract:
+
+```text
+lib/gpu/gpu_preview_session.dart
+```
+
+Android state registry:
+
+```text
+android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuPreviewRendererSession.kt
+```
+
+The control plane supports renderer creation, surface recreation, Film/strength updates, viewport/enabled state, pause/resume and destruction without sending frame pixels through Dart.
+
+### Android Camera OES interface preparation
+
+Native G1 boundary:
+
+```text
+android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuCameraOesRenderer.kt
+```
+
+Target G1 path remains:
+
+```text
+Camera frame
+-> SurfaceTexture / external OES texture
+-> OpenGL ES fragment shader
+-> canonical Film LUT atlas
+-> native output Surface / Flutter texture/native view
+```
+
+G0.3 defines ownership/lifecycle only. It does not attach live Camera frames yet.
+
+### Color-space contract
+
+Detailed contract:
+
+```text
+docs/G0_3_GPU_PREVIEW_CONTRACTS.md
+```
+
+The G0.2 atlas parity harness is explicitly not treated as proof of full Camera-to-export color parity. G1 must verify Camera source metadata/conversion, GPU LUT input domain, SDR preview output and Rust final-render assumptions before claiming visual parity.
+
 ## Commands
 
 Generate inspectable canonical cubes, GPU atlases and native expectations:
@@ -166,12 +265,11 @@ G0 host parity is included in `make test-full` and the Ubuntu CI validation job.
 
 ## Remaining G0 work
 
-1. Add GPU capability/fallback policy for unsupported, unstable or blacklisted devices.
-2. Implement the iOS Metal/Core Image protocol peer and reference harness.
-3. Define Edit Graph <-> current Rust recipe migration and backwards-compatible session versioning.
-4. Define color-space contract (camera input, LUT domain, preview output, final export) before visual parity is considered complete.
-5. Move native harness execution off the platform UI thread before it is used by production capability probing.
-6. Expose a production native texture/surface renderer lifecycle contract for G1 Camera integration.
+1. Implement the iOS Metal/Core Image protocol peer and reference harness under the same capability/lifecycle semantics.
+2. Define Edit Graph <-> current Rust recipe migration and backwards-compatible session versioning.
+3. Add/finish cross-platform renderer lifecycle tests as the iOS peer is introduced.
+
+Android Camera frame attachment is intentionally G1, not remaining G0.3 work.
 
 ## G0 exit criteria
 
@@ -182,5 +280,6 @@ G0 is complete when:
 - all six Film Profile Pack v2 LUT atlases are generated from canonical Rust LUT output.
 - atlas reference parity passes deterministically in CI.
 - Android and iOS shader harnesses can sample the same parity fixtures within the agreed tolerance.
+- capability/fallback and renderer lifecycle semantics are shared across platforms.
 - current matrix preview remains a safe fallback and is no longer treated as the reference Film rendering path.
 - no camera frame pixel buffers are routed through Dart or Flutter Rust Bridge.
