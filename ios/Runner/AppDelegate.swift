@@ -21,5 +21,6 @@ import UIKit
       return
     }
     gpuPreviewPlugin = GpuPreviewPlugin(registrar: registrar)
+    GpuFramePacingDiagnostics.shared.register(messenger: registrar.messenger())
   }
 }
