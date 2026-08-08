@@ -57,6 +57,7 @@ Current methods:
 
 - `probe`
 - `runReferenceHarness`
+- `runFilmProfileHarness`
 
 Android registers the protocol from `MainActivity` through `GpuPreviewChannel`.
 
@@ -64,9 +65,14 @@ Android registers the protocol from `MainActivity` through `GpuPreviewChannel`.
 
 `android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuLutShaderHarness.kt`
 
-G0.2 now has a real device-side shader harness. It creates a 1x1 offscreen EGL pbuffer, compiles the LUT shader, uploads an identity 33³ atlas and renders deterministic RGB fixtures through OpenGL ES. The result is read back with `glReadPixels` and compared against the input color with a `2 / 255` per-channel tolerance.
+G0.2 has a real device-side shader harness. It creates a 1x1 offscreen EGL pbuffer, compiles the LUT shader, uploads an RGBA8 33³ atlas and renders deterministic RGB fixtures through OpenGL ES. The result is read back with `glReadPixels` and compared with a `2 / 255` per-channel tolerance.
 
-This harness validates:
+The harness now has two levels:
+
+1. Identity LUT sanity check for EGL/shader/interpolation mechanics.
+2. Canonical Film Profile parity for all six Film Profile Pack v2 atlases.
+
+This validates:
 
 - EGL context creation
 - GLSL compilation/linking
@@ -74,7 +80,8 @@ This harness validates:
 - 6x6 / 33-slice atlas addressing
 - manual bilinear R/G interpolation
 - linear interpolation between adjacent B slices
-- GPU readback parity on a real Android device
+- packaged Android asset loading
+- canonical Film LUT parity on a real Android GPU
 
 It is intentionally not connected to Camera frames yet.
 
@@ -107,17 +114,37 @@ Atlas v1:
 
 Generated output defaults to `build/gpu_luts` and includes `manifest.json` with dimensions, interpolation contract and SHA-256 per profile.
 
+### Generated Android Film LUT assets
+
+`android/app/build.gradle.kts` registers `generateGpuLutAssets` as a `preBuild` dependency. The task invokes the canonical `make gpu-luts` pipeline and adds the generated directory as an Android assets source set.
+
+No hand-maintained Film LUT binary copy is committed to Android resources. A normal Android build generates:
+
+```text
+android/app/build/generated/gpu_lut_assets/gpu_luts/
+  manifest.json
+  native_parity.json
+  provia_inspired.rgba8
+  velvia_inspired.rgba8
+  astia_inspired.rgba8
+  e100_inspired.rgba8
+  ektar_inspired.rgba8
+  chrome64_inspired.rgba8
+```
+
+`tool/generate_gpu_native_parity_fixture.py` derives the native expected values from the same canonical `.cube` LUTs. Native Android tests therefore compare GPU output against Rust-authoritative LUT semantics rather than against hand-authored constants.
+
 ### Preview parity fixtures
 
 `tool/gpu_lut_parity_fixtures.json`
 
-These fixed RGB vectors are shared test input for the Python reference sampler and future Android/iOS native backend tests.
+These fixed RGB vectors are shared test input for the Python reference sampler and Android native backend tests.
 
-The generator additionally checks 1024 deterministic pseudo-random colors per Film Profile. RGBA8 atlas parity tolerance against the floating-point canonical cube is currently `2 / 255` per channel.
+The atlas generator additionally checks 1024 deterministic pseudo-random colors per Film Profile. RGBA8 atlas parity tolerance against the floating-point canonical cube is currently `2 / 255` per channel.
 
 ## Commands
 
-Generate inspectable canonical cubes and GPU atlases:
+Generate inspectable canonical cubes, GPU atlases and native expectations:
 
 ```bash
 make gpu-luts
@@ -129,7 +156,7 @@ Verify cube -> atlas sampling parity without writing atlases:
 make gpu-lut-verify
 ```
 
-Run the Android OpenGL shader harness on a physical device:
+Run identity plus all six canonical Film LUTs through the Android OpenGL shader on a physical device:
 
 ```bash
 make gpu-native-test DEVICE=<device-id>
@@ -139,13 +166,12 @@ G0 host parity is included in `make test-full` and the Ubuntu CI validation job.
 
 ## Remaining G0 work
 
-1. Package generated LUT atlas data for Android and iOS builds without committing hand-maintained binary copies.
-2. Replace the harness identity LUT with canonical Film Profile atlas fixtures and verify native sampling against shared fixture expectations.
-3. Add GPU capability/fallback policy for unsupported, unstable or blacklisted devices.
-4. Implement the iOS Metal/Core Image protocol peer and reference harness.
-5. Define Edit Graph <-> current Rust recipe migration and backwards-compatible session versioning.
-6. Define color-space contract (camera input, LUT domain, preview output, final export) before visual parity is considered complete.
-7. Move native harness execution off the platform UI thread before it is used by production capability probing.
+1. Add GPU capability/fallback policy for unsupported, unstable or blacklisted devices.
+2. Implement the iOS Metal/Core Image protocol peer and reference harness.
+3. Define Edit Graph <-> current Rust recipe migration and backwards-compatible session versioning.
+4. Define color-space contract (camera input, LUT domain, preview output, final export) before visual parity is considered complete.
+5. Move native harness execution off the platform UI thread before it is used by production capability probing.
+6. Expose a production native texture/surface renderer lifecycle contract for G1 Camera integration.
 
 ## G0 exit criteria
 
