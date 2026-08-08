@@ -100,13 +100,15 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
     }
   }
 
+  Iterable<MapEntry<String, String>> get _harnessErrors =>
+      _errors.entries.where((entry) => entry.key != 'probe');
+
   bool get _hasCompleteRun =>
-      _results.length + _errors.where((key, _) => key != 'probe').length ==
-      _profiles.length + 1;
+      _results.length + _harnessErrors.length == _profiles.length + 1;
 
   bool get _overallPassed =>
       _hasCompleteRun &&
-      _errors.where((key, _) => key != 'probe').isEmpty &&
+      _harnessErrors.isEmpty &&
       _results.length == _profiles.length + 1 &&
       _results.values.every(
         (result) => result.passed && result.maxChannelError <= _tolerance,
@@ -134,16 +136,48 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
                   ),
                   const SizedBox(height: 12),
                   _MetricRow('Backend', _backendLabel(probe?.backend)),
-                  _MetricRow('Renderer', probe?.renderer.isNotEmpty == true ? probe!.renderer : '—'),
-                  _MetricRow('Version', probe?.version.isNotEmpty == true ? probe!.version : '—'),
-                  _MetricRow('LUT size', probe == null ? '—' : '${probe.maxLutSize}³'),
-                  _MetricRow('LUT33', probe == null ? '—' : (probe.supportsLut33 ? 'Supported' : 'Unsupported')),
-                  _MetricRow('Self-test', probe == null ? '—' : (probe.selfTestPassed ? 'PASS' : 'FAIL')),
-                  _MetricRow('Assets', probe == null ? '—' : (probe.assetsLoaded ? 'Loaded' : 'Missing')),
-                  _MetricRow('Tolerance', '${_tolerance.toStringAsFixed(8)} (2/255)'),
+                  _MetricRow(
+                    'Renderer',
+                    probe?.renderer.isNotEmpty == true ? probe!.renderer : '—',
+                  ),
+                  _MetricRow(
+                    'Version',
+                    probe?.version.isNotEmpty == true ? probe!.version : '—',
+                  ),
+                  _MetricRow(
+                    'LUT size',
+                    probe == null ? '—' : '${probe.maxLutSize}³',
+                  ),
+                  _MetricRow(
+                    'LUT33',
+                    probe == null
+                        ? '—'
+                        : (probe.supportsLut33 ? 'Supported' : 'Unsupported'),
+                  ),
+                  _MetricRow(
+                    'Self-test',
+                    probe == null
+                        ? '—'
+                        : (probe.selfTestPassed ? 'PASS' : 'FAIL'),
+                  ),
+                  _MetricRow(
+                    'Assets',
+                    probe == null
+                        ? '—'
+                        : (probe.assetsLoaded ? 'Loaded' : 'Missing'),
+                  ),
+                  _MetricRow(
+                    'Tolerance',
+                    '${_tolerance.toStringAsFixed(8)} (2/255)',
+                  ),
                   if (_errors['probe'] case final error?) ...[
                     const SizedBox(height: 8),
-                    Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    Text(
+                      error,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -172,11 +206,17 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
                   : Theme.of(context).colorScheme.errorContainer,
               child: ListTile(
                 leading: Icon(
-                  _overallPassed ? Icons.check_circle_rounded : Icons.error_rounded,
-                  color: _overallPassed ? Colors.green : Theme.of(context).colorScheme.error,
+                  _overallPassed
+                      ? Icons.check_circle_rounded
+                      : Icons.error_rounded,
+                  color: _overallPassed
+                      ? Colors.green
+                      : Theme.of(context).colorScheme.error,
                 ),
                 title: Text(_overallPassed ? 'Overall PASS' : 'Overall FAIL'),
-                subtitle: const Text('All native LUT samples must remain within 2/255 per channel.'),
+                subtitle: const Text(
+                  'All native LUT samples must remain within 2/255 per channel.',
+                ),
               ),
             ),
           if (_hasCompleteRun) const SizedBox(height: 12),
@@ -233,7 +273,9 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
                 passed ? 'PASS' : 'FAIL',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: passed ? Colors.green : Theme.of(context).colorScheme.error,
+                  color: passed
+                      ? Colors.green
+                      : Theme.of(context).colorScheme.error,
                 ),
               ),
       ),
