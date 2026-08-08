@@ -4,6 +4,29 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val gpuLutAssetRoot = layout.buildDirectory.dir("generated/gpu_lut_assets")
+val gpuLutAssetDir = gpuLutAssetRoot.map { it.dir("gpu_luts") }
+
+val generateGpuLutAssets by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Generate canonical Film Profile GPU LUT atlases for Android assets"
+
+    val repoRoot = rootProject.projectDir.parentFile
+    workingDir = repoRoot
+    commandLine(
+        "make",
+        "gpu-luts",
+        "GPU_LUT_DIR=${gpuLutAssetDir.get().asFile.absolutePath}",
+    )
+
+    inputs.file(repoRoot.resolve("rust/build.rs"))
+    inputs.dir(repoRoot.resolve("rust/film_profiles"))
+    inputs.file(repoRoot.resolve("tool/generate_gpu_lut_atlas.py"))
+    inputs.file(repoRoot.resolve("tool/generate_gpu_native_parity_fixture.py"))
+    inputs.file(repoRoot.resolve("tool/gpu_lut_parity_fixtures.json"))
+    outputs.dir(gpuLutAssetRoot)
+}
+
 android {
     namespace = "dev.pixelcraft.pixelcraft"
     compileSdk = flutter.compileSdkVersion
@@ -25,6 +48,10 @@ android {
         versionName = flutter.versionName
     }
 
+    sourceSets {
+        getByName("main").assets.srcDir(gpuLutAssetRoot)
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -32,6 +59,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generateGpuLutAssets)
 }
 
 kotlin {
