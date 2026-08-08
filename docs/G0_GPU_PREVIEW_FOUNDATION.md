@@ -43,6 +43,41 @@ Backend kinds:
 
 The fallback backend explicitly reports `supportsLut33 == false`; current Camera `ColorFilter.matrix` preview remains an approximation until G1 replaces it.
 
+### Native GPU protocol v1
+
+`lib/gpu/native_gpu_preview_bridge.dart`
+
+Channel: `dev.pixelcraft/gpu_preview_v1`
+
+Protocol version: `1`
+
+The protocol is control-plane only. It transports capability negotiation and tiny state messages; camera/image pixel buffers are explicitly excluded.
+
+Current methods:
+
+- `probe`
+- `runReferenceHarness`
+
+Android registers the protocol from `MainActivity` through `GpuPreviewChannel`.
+
+### Android OpenGL ES reference shader harness
+
+`android/app/src/main/kotlin/dev/pixelcraft/pixelcraft/GpuLutShaderHarness.kt`
+
+G0.2 now has a real device-side shader harness. It creates a 1x1 offscreen EGL pbuffer, compiles the LUT shader, uploads an identity 33³ atlas and renders deterministic RGB fixtures through OpenGL ES. The result is read back with `glReadPixels` and compared against the input color with a `2 / 255` per-channel tolerance.
+
+This harness validates:
+
+- EGL context creation
+- GLSL compilation/linking
+- RGBA8 198x198 atlas upload
+- 6x6 / 33-slice atlas addressing
+- manual bilinear R/G interpolation
+- linear interpolation between adjacent B slices
+- GPU readback parity on a real Android device
+
+It is intentionally not connected to Camera frames yet.
+
 ### Canonical GPU LUT atlas generator
 
 `tool/generate_gpu_lut_atlas.py`
@@ -94,17 +129,23 @@ Verify cube -> atlas sampling parity without writing atlases:
 make gpu-lut-verify
 ```
 
-G0 parity is also included in `make test-full` and the Ubuntu CI validation job.
+Run the Android OpenGL shader harness on a physical device:
+
+```bash
+make gpu-native-test DEVICE=<device-id>
+```
+
+G0 host parity is included in `make test-full` and the Ubuntu CI validation job. The native shader harness remains a device test because GitHub host CI does not provide the same Android GPU path as a physical device.
 
 ## Remaining G0 work
 
-1. Add native renderer message/channel contract with explicit protocol version.
-2. Package generated LUT atlas data for Android and iOS builds without committing hand-maintained binary copies.
-3. Implement a tiny native reference shader harness before attaching it to Camera frames.
-4. Add native parity tests using `gpu_lut_parity_fixtures.json`.
-5. Add GPU capability negotiation and fallback rules for unsupported/unstable devices.
-6. Define Edit Graph <-> current Rust recipe migration and backwards-compatible session versioning.
-7. Define color-space contract (camera input, LUT domain, preview output, final export) before visual parity is considered complete.
+1. Package generated LUT atlas data for Android and iOS builds without committing hand-maintained binary copies.
+2. Replace the harness identity LUT with canonical Film Profile atlas fixtures and verify native sampling against shared fixture expectations.
+3. Add GPU capability/fallback policy for unsupported, unstable or blacklisted devices.
+4. Implement the iOS Metal/Core Image protocol peer and reference harness.
+5. Define Edit Graph <-> current Rust recipe migration and backwards-compatible session versioning.
+6. Define color-space contract (camera input, LUT domain, preview output, final export) before visual parity is considered complete.
+7. Move native harness execution off the platform UI thread before it is used by production capability probing.
 
 ## G0 exit criteria
 
