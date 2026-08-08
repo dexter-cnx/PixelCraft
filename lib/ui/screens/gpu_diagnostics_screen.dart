@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../gpu/gpu_preview_renderer.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
+import 'gpu_frame_pacing_screen.dart';
 
 class GpuDiagnosticsScreen extends StatefulWidget {
   const GpuDiagnosticsScreen({super.key});
@@ -118,6 +119,10 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
   Widget build(BuildContext context) {
     assert(kDebugMode, 'GpuDiagnosticsScreen is intended for debug builds only.');
     final probe = _probe;
+    final canMeasureMetal = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        probe?.backend == GpuPreviewBackendKind.iosMetal &&
+        probe?.available == true;
 
     return Scaffold(
       appBar: AppBar(title: const Text('GPU Diagnostics')),
@@ -198,6 +203,18 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
                   : 'Run LUT Parity',
             ),
           ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: canMeasureMetal
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const GpuFramePacingScreen(),
+                      ),
+                    )
+                : null,
+            icon: const Icon(Icons.speed_rounded),
+            label: const Text('Measure iOS Metal FPS / Frame Pacing'),
+          ),
           const SizedBox(height: 16),
           if (_hasCompleteRun)
             Card(
@@ -223,7 +240,7 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
           ...['identity', ..._profiles].map(_buildResultCard),
           const SizedBox(height: 24),
           Text(
-            'This diagnostic runs deterministic offscreen GPU fixtures. It does not capture or send live camera frames through Dart.',
+            'LUT parity uses deterministic offscreen fixtures. Frame pacing uses a live native Metal camera preview and timestamps MTKView draw cadence; no live camera pixels cross Dart.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
