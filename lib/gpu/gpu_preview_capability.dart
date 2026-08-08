@@ -80,22 +80,16 @@ class GpuPreviewCapabilityPolicy {
         detail: probe.failureDetail,
       );
     }
-    if (!probe.available) {
+    if (!probe.assetsLoaded) {
       return GpuPreviewCapabilityDecision.fallback(
-        reason: GpuPreviewFallbackReason.backendUnavailable,
+        reason: GpuPreviewFallbackReason.nativeAssetsUnavailable,
         capabilities: _fallbackCapabilities,
         detail: probe.failureDetail,
       );
     }
-    if (!probe.supportsLut33 || probe.maxLutSize < 33) {
-      return const GpuPreviewCapabilityDecision.fallback(
-        reason: GpuPreviewFallbackReason.lut33Unsupported,
-        capabilities: _fallbackCapabilities,
-      );
-    }
-    if (!probe.assetsLoaded) {
+    if (!probe.available) {
       return GpuPreviewCapabilityDecision.fallback(
-        reason: GpuPreviewFallbackReason.nativeAssetsUnavailable,
+        reason: GpuPreviewFallbackReason.backendUnavailable,
         capabilities: _fallbackCapabilities,
         detail: probe.failureDetail,
       );
@@ -105,6 +99,12 @@ class GpuPreviewCapabilityPolicy {
         reason: GpuPreviewFallbackReason.shaderSelfTestFailed,
         capabilities: _fallbackCapabilities,
         detail: probe.failureDetail,
+      );
+    }
+    if (!probe.supportsLut33 || probe.maxLutSize < 33) {
+      return const GpuPreviewCapabilityDecision.fallback(
+        reason: GpuPreviewFallbackReason.lut33Unsupported,
+        capabilities: _fallbackCapabilities,
       );
     }
 
