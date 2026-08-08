@@ -41,9 +41,9 @@ internal class NativeGpuRendererSession(
 /**
  * G1 native renderer/session registry.
  *
- * The registry remains a control-plane object, but each session now owns a
- * concrete Camera2/OES renderer. Actual output Surfaces arrive directly from
- * the Android PlatformView; no Surface or frame payload crosses MethodChannel.
+ * Each session owns one Camera2/OES renderer. Actual output Surfaces arrive
+ * directly from the Android PlatformView; no Surface or frame payload crosses
+ * MethodChannel.
  */
 internal class GpuPreviewRendererSessionRegistry(context: Context) {
     private val appContext = context.applicationContext
@@ -89,6 +89,13 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     ) {
         require(width > 0 && height > 0) { "Output surface dimensions must be positive" }
         session(id).apply {
+            this.surface = NativeGpuSurfaceConfig(
+                kind = "nativeSurface",
+                width = width,
+                height = height,
+                devicePixelRatio = 1.0,
+                surfaceId = null,
+            )
             renderer.configureOutputSurface(surface, width, height, displayRotation)
             state = NativeGpuSessionState.SURFACE_CONFIGURED
         }
@@ -96,7 +103,13 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
 
     @Synchronized
     fun clearOutputSurface(id: String) {
-        sessions[id]?.renderer?.clearOutputSurface()
+        sessions[id]?.apply {
+            renderer.clearOutputSurface()
+            surface = null
+            if (state != NativeGpuSessionState.DESTROYED) {
+                state = NativeGpuSessionState.CREATED
+            }
+        }
     }
 
     @Synchronized
@@ -113,9 +126,7 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     fun setStrength(id: String, strength: Double) {
         session(id).apply {
             this.strength = strength.coerceIn(0.0, 1.0)
-            if (profileId.isNotEmpty()) {
-                renderer.setFilm(profileId, this.strength.toFloat())
-            }
+            renderer.setStrength(this.strength.toFloat())
         }
     }
 
