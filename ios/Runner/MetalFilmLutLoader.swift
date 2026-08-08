@@ -122,6 +122,7 @@ final class MetalFilmLutLoader {
       texture.replace(
         region: MTLRegionMake3D(0, 0, 0, Self.lutSize, Self.lutSize, Self.lutSize),
         mipmapLevel: 0,
+        slice: 0,
         withBytes: base,
         bytesPerRow: Self.lutSize * 4,
         bytesPerImage: Self.lutSize * Self.lutSize * 4
