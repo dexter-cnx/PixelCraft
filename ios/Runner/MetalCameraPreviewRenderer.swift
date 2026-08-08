@@ -89,7 +89,10 @@ final class MetalCameraPreviewRenderer: NSObject {
   private let videoOutput = AVCaptureVideoDataOutput()
   private let photoOutput = AVCapturePhotoOutput()
   private let sessionQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.session")
+  private let captureQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.frames", qos: .userInteractive)
   private let renderQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.metal", qos: .userInteractive)
+  private let frameLock = NSLock()
+  private var latestPixelBuffer: CVPixelBuffer?
   private var textureCache: CVMetalTextureCache?
 
   private weak var outputView: MTKView?
@@ -153,7 +156,9 @@ final class MetalCameraPreviewRenderer: NSObject {
     view.device = device
     view.colorPixelFormat = .bgra8Unorm
     view.framebufferOnly = true
-    view.isPaused = true
+    view.delegate = self
+    view.preferredFramesPerSecond = 60
+    view.isPaused = false
     view.enableSetNeedsDisplay = false
     sessionQueue.async { [weak self] in
       self?.configureAndStartIfNeeded()
@@ -162,6 +167,7 @@ final class MetalCameraPreviewRenderer: NSObject {
 
   func detach(view: MTKView) {
     if outputView === view {
+      view.delegate = nil
       outputView = nil
     }
   }
@@ -195,6 +201,9 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   func pause() {
+    DispatchQueue.main.async { [weak self] in
+      self?.outputView?.isPaused = true
+    }
     sessionQueue.async { [weak self] in
       guard let self, self.session.isRunning else { return }
       self.session.stopRunning()
@@ -202,6 +211,9 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   func resume() {
+    DispatchQueue.main.async { [weak self] in
+      self?.outputView?.isPaused = false
+    }
     sessionQueue.async { [weak self] in
       self?.configureAndStartIfNeeded()
     }
@@ -264,8 +276,15 @@ final class MetalCameraPreviewRenderer: NSObject {
 
   func releaseRenderer() {
     released = true
+    if let view = outputView {
+      view.delegate = nil
+      view.isPaused = true
+    }
     outputView = nil
     videoOutput.setSampleBufferDelegate(nil, queue: nil)
+    frameLock.lock()
+    latestPixelBuffer = nil
+    frameLock.unlock()
     sessionQueue.async { [weak self] in
       guard let self else { return }
       if self.session.isRunning { self.session.stopRunning() }
@@ -316,7 +335,7 @@ final class MetalCameraPreviewRenderer: NSObject {
     videoOutput.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
     ]
-    videoOutput.setSampleBufferDelegate(self, queue: renderQueue)
+    videoOutput.setSampleBufferDelegate(self, queue: captureQueue)
     guard session.canAddOutput(videoOutput) else {
       throw Self.error("Unable to add video output")
     }
@@ -348,13 +367,18 @@ final class MetalCameraPreviewRenderer: NSObject {
     }
   }
 
-  private func render(pixelBuffer: CVPixelBuffer) {
-    guard
-      !released,
-      let view = outputView,
-      let drawable = view.currentDrawable,
-      let cache = textureCache
-    else { return }
+  private func latestFrame() -> CVPixelBuffer? {
+    frameLock.lock()
+    defer { frameLock.unlock() }
+    return latestPixelBuffer
+  }
+
+  private func render(
+    pixelBuffer: CVPixelBuffer,
+    drawable: CAMetalDrawable,
+    drawableSize: CGSize
+  ) {
+    guard !released, let cache = textureCache else { return }
 
     let width = CVPixelBufferGetWidth(pixelBuffer)
     let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -387,8 +411,8 @@ final class MetalCameraPreviewRenderer: NSObject {
     let crop = cropScale(
       sourceWidth: Float(width),
       sourceHeight: Float(height),
-      outputWidth: Float(max(view.drawableSize.width, 1)),
-      outputHeight: Float(max(view.drawableSize.height, 1))
+      outputWidth: Float(max(drawableSize.width, 1)),
+      outputHeight: Float(max(drawableSize.height, 1))
     )
     var uniforms = PreviewUniforms(
       cropScale: crop,
@@ -466,7 +490,31 @@ extension MetalCameraPreviewRenderer: AVCaptureVideoDataOutputSampleBufferDelega
     from connection: AVCaptureConnection
   ) {
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-    render(pixelBuffer: pixelBuffer)
+    frameLock.lock()
+    latestPixelBuffer = pixelBuffer
+    frameLock.unlock()
+  }
+}
+
+extension MetalCameraPreviewRenderer: MTKViewDelegate {
+  func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+
+  func draw(in view: MTKView) {
+    guard
+      !released,
+      outputView === view,
+      let pixelBuffer = latestFrame(),
+      let drawable = view.currentDrawable
+    else { return }
+
+    let drawableSize = view.drawableSize
+    renderQueue.async { [weak self] in
+      self?.render(
+        pixelBuffer: pixelBuffer,
+        drawable: drawable,
+        drawableSize: drawableSize
+      )
+    }
   }
 }
 
