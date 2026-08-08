@@ -630,7 +630,7 @@ internal class AndroidGpuCameraOesRenderer(
 
     private fun jpegOrientation(): Int = relativeRotationDegrees()
 
-    private fun choosePreviewSize(sizes: Array<Size>): Size {
+    private fun choosePreviewSize(sizes: Array<out Size>): Size {
         require(sizes.isNotEmpty()) { "No Camera2 preview sizes" }
         val bounded = sizes.filter { it.width.toLong() * it.height <= MAX_PREVIEW_AREA }
         val candidates = if (bounded.isNotEmpty()) bounded else sizes.toList()
@@ -646,7 +646,7 @@ internal class AndroidGpuCameraOesRenderer(
         ) ?: candidates.first()
     }
 
-    private fun choosePictureSize(sizes: Array<Size>): Size {
+    private fun choosePictureSize(sizes: Array<out Size>): Size {
         require(sizes.isNotEmpty()) { "No Camera2 JPEG sizes" }
         return sizes.maxByOrNull { it.width.toLong() * it.height } ?: sizes.first()
     }
