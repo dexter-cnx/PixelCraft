@@ -1,5 +1,9 @@
 package dev.pixelcraft.pixelcraft
 
+import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.view.Surface
 import java.util.UUID
 
 internal enum class NativeGpuSessionState {
@@ -23,8 +27,9 @@ internal data class NativeGpuViewport(
     val devicePixelRatio: Double,
 )
 
-internal data class NativeGpuRendererSession(
+internal class NativeGpuRendererSession(
     val id: String,
+    val renderer: AndroidGpuCameraOesRenderer,
     var state: NativeGpuSessionState = NativeGpuSessionState.CREATED,
     var surface: NativeGpuSurfaceConfig? = null,
     var profileId: String = "",
@@ -34,19 +39,29 @@ internal data class NativeGpuRendererSession(
 )
 
 /**
- * G0.3 control-plane session registry.
+ * G1 native renderer/session registry.
  *
- * This deliberately owns no Camera frame buffers. G1 can replace the stored
- * surface metadata with a concrete [GpuCameraOesRenderer] while preserving the
- * same MethodChannel lifecycle semantics.
+ * The registry remains a control-plane object, but each session now owns a
+ * concrete Camera2/OES renderer. Actual output Surfaces arrive directly from
+ * the Android PlatformView; no Surface or frame payload crosses MethodChannel.
  */
-internal class GpuPreviewRendererSessionRegistry {
+internal class GpuPreviewRendererSessionRegistry(context: Context) {
+    private val appContext = context.applicationContext
+    private val cameraManager =
+        appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val sessions = mutableMapOf<String, NativeGpuRendererSession>()
+
+    @Volatile
+    var runtimeFailureListener: ((rendererId: String, message: String) -> Unit)? = null
 
     @Synchronized
     fun create(): NativeGpuRendererSession {
-        val session = NativeGpuRendererSession(id = UUID.randomUUID().toString())
-        sessions[session.id] = session
+        val id = UUID.randomUUID().toString()
+        val renderer = AndroidGpuCameraOesRenderer(appContext) { message ->
+            runtimeFailureListener?.invoke(id, message)
+        }
+        val session = NativeGpuRendererSession(id = id, renderer = renderer)
+        sessions[id] = session
         return session
     }
 
@@ -65,17 +80,43 @@ internal class GpuPreviewRendererSessionRegistry {
     }
 
     @Synchronized
+    fun attachOutputSurface(
+        id: String,
+        surface: Surface,
+        width: Int,
+        height: Int,
+        displayRotation: Int,
+    ) {
+        require(width > 0 && height > 0) { "Output surface dimensions must be positive" }
+        session(id).apply {
+            renderer.configureOutputSurface(surface, width, height, displayRotation)
+            state = NativeGpuSessionState.SURFACE_CONFIGURED
+        }
+    }
+
+    @Synchronized
+    fun clearOutputSurface(id: String) {
+        sessions[id]?.renderer?.clearOutputSurface()
+    }
+
+    @Synchronized
     fun setFilm(id: String, profileId: String, strength: Double) {
         require(profileId.isNotBlank()) { "profileId is required" }
         session(id).apply {
             this.profileId = profileId
             this.strength = strength.coerceIn(0.0, 1.0)
+            renderer.setFilm(profileId, this.strength.toFloat())
         }
     }
 
     @Synchronized
     fun setStrength(id: String, strength: Double) {
-        session(id).strength = strength.coerceIn(0.0, 1.0)
+        session(id).apply {
+            this.strength = strength.coerceIn(0.0, 1.0)
+            if (profileId.isNotEmpty()) {
+                renderer.setFilm(profileId, this.strength.toFloat())
+            }
+        }
     }
 
     @Synchronized
@@ -89,17 +130,24 @@ internal class GpuPreviewRendererSessionRegistry {
 
     @Synchronized
     fun setEnabled(id: String, enabled: Boolean) {
-        session(id).enabled = enabled
+        session(id).apply {
+            this.enabled = enabled
+            renderer.setEnabled(enabled)
+        }
     }
 
     @Synchronized
     fun pause(id: String) {
-        session(id).state = NativeGpuSessionState.PAUSED
+        session(id).apply {
+            renderer.pause()
+            state = NativeGpuSessionState.PAUSED
+        }
     }
 
     @Synchronized
     fun resume(id: String) {
         val target = session(id)
+        target.renderer.resume()
         target.state = if (target.surface != null) {
             NativeGpuSessionState.SURFACE_CONFIGURED
         } else {
@@ -107,12 +155,34 @@ internal class GpuPreviewRendererSessionRegistry {
         }
     }
 
+    fun capturePhoto(id: String, callback: (Result<String>) -> Unit) {
+        val renderer = synchronized(this) { session(id).renderer }
+        renderer.capturePhoto(callback)
+    }
+
+    fun switchCamera(id: String, callback: (Result<String>) -> Unit) {
+        val renderer = synchronized(this) { session(id).renderer }
+        renderer.switchCamera(callback)
+    }
+
+    fun availableLenses(): List<String> = buildList {
+        if (hasLens(CameraCharacteristics.LENS_FACING_BACK)) add("back")
+        if (hasLens(CameraCharacteristics.LENS_FACING_FRONT)) add("front")
+    }
+
     @Synchronized
     fun destroy(id: String) {
-        sessions.remove(id)?.state = NativeGpuSessionState.DESTROYED
+        sessions.remove(id)?.apply {
+            state = NativeGpuSessionState.DESTROYED
+            renderer.release()
+        }
     }
 
     @Synchronized
     private fun session(id: String): NativeGpuRendererSession =
         sessions[id] ?: throw IllegalStateException("Unknown GPU renderer session: $id")
+
+    private fun hasLens(facing: Int): Boolean = cameraManager.cameraIdList.any { id ->
+        cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == facing
+    }
 }
