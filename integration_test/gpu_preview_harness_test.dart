@@ -8,14 +8,17 @@ import 'package:pixelcraft/gpu/native_gpu_preview_bridge.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Android GPU LUT reference harness passes', (tester) async {
-    if (!Platform.isAndroid) return;
+  testWidgets('native GPU identity LUT reference harness passes', (tester) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
 
     const bridge = NativeGpuPreviewBridge();
     final probe = await bridge.probe();
+    final expectedBackend = Platform.isAndroid
+        ? GpuPreviewBackendKind.androidOpenGl
+        : GpuPreviewBackendKind.iosMetal;
 
     expect(probe.protocolVersion, gpuPreviewProtocolVersion);
-    expect(probe.backend, GpuPreviewBackendKind.androidOpenGl);
+    expect(probe.backend, expectedBackend);
     expect(probe.available, isTrue);
     expect(probe.supportsLut33, isTrue);
     expect(probe.maxLutSize, 33);
@@ -27,9 +30,9 @@ void main() {
     expect(harness.maxChannelError, lessThanOrEqualTo(2 / 255));
   });
 
-  testWidgets('Android GPU samples all Film Profile Pack v2 atlases',
+  testWidgets('native GPU samples all Film Profile Pack v2 LUTs',
       (tester) async {
-    if (!Platform.isAndroid) return;
+    if (!Platform.isAndroid && !Platform.isIOS) return;
 
     const bridge = NativeGpuPreviewBridge();
     const profiles = <String>[
