@@ -65,7 +65,16 @@ final class MetalCameraPreviewRenderer: NSObject {
     float2 uv = (in.uv - float2(0.5)) * uniforms.cropScale + float2(0.5);
     uv.x = mix(uv.x, 1.0 - uv.x, uniforms.mirrorX);
     float3 source = camera.sample(cameraSampler, uv).rgb;
-    float3 film = lut.sample(lutSampler, clamp(source, 0.0, 1.0)).rgb;
+
+    // The canonical LUT is a 33-point grid whose domain endpoints are grid
+    // samples. Metal normalized texture coordinates address texel edges, so
+    // map the canonical 0...32 grid to 3D texture texel centers before using
+    // hardware trilinear interpolation.
+    const float lutSize = 33.0;
+    float3 grid = clamp(source, 0.0, 1.0) * (lutSize - 1.0);
+    float3 lutUv = (grid + 0.5) / lutSize;
+    float3 film = lut.sample(lutSampler, lutUv).rgb;
+
     float amount = clamp(uniforms.useLut * uniforms.strength, 0.0, 1.0);
     return float4(mix(source, film, amount), 1.0);
   }
@@ -209,6 +218,7 @@ final class MetalCameraPreviewRenderer: NSObject {
         completion(.failure(Self.error("Requested camera lens is unavailable")))
         return
       }
+
       do {
         let input = try AVCaptureDeviceInput(device: device)
         self.session.beginConfiguration()
@@ -230,7 +240,6 @@ final class MetalCameraPreviewRenderer: NSObject {
         self.applyOrientation()
         completion(.success(desired == .front ? "front" : "back"))
       } catch {
-        self.session.commitConfiguration()
         completion(.failure(error))
       }
     }
