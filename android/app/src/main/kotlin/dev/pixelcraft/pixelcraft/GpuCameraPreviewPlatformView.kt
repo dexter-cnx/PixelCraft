@@ -1,8 +1,9 @@
 package dev.pixelcraft.pixelcraft
 
 import android.content.Context
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.graphics.SurfaceTexture
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
@@ -26,39 +27,59 @@ private class GpuCameraPreviewPlatformView(
     context: Context,
     private val rendererId: String,
     private val sessions: GpuPreviewRendererSessionRegistry,
-) : PlatformView, SurfaceHolder.Callback {
-    private val surfaceView = SurfaceView(context).apply {
-        holder.addCallback(this@GpuCameraPreviewPlatformView)
-        setZOrderMediaOverlay(false)
+) : PlatformView, TextureView.SurfaceTextureListener {
+    private val textureView = TextureView(context).apply {
+        surfaceTextureListener = this@GpuCameraPreviewPlatformView
+        isOpaque = true
     }
+    private var outputSurface: Surface? = null
 
-    override fun getView(): View = surfaceView
+    override fun getView(): View = textureView
 
-    override fun surfaceCreated(holder: SurfaceHolder) = Unit
-
-    override fun surfaceChanged(
-        holder: SurfaceHolder,
-        format: Int,
+    override fun onSurfaceTextureAvailable(
+        surfaceTexture: SurfaceTexture,
         width: Int,
         height: Int,
     ) {
+        attach(surfaceTexture, width, height)
+    }
+
+    override fun onSurfaceTextureSizeChanged(
+        surfaceTexture: SurfaceTexture,
+        width: Int,
+        height: Int,
+    ) {
+        attach(surfaceTexture, width, height)
+    }
+
+    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        sessions.clearOutputSurface(rendererId)
+        outputSurface?.release()
+        outputSurface = null
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+
+    override fun dispose() {
+        textureView.surfaceTextureListener = null
+        sessions.clearOutputSurface(rendererId)
+        outputSurface?.release()
+        outputSurface = null
+    }
+
+    private fun attach(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-        val rotation = surfaceView.display?.rotation ?: 0
+        outputSurface?.release()
+        val surface = Surface(surfaceTexture)
+        outputSurface = surface
+        val rotation = textureView.display?.rotation ?: Surface.ROTATION_0
         sessions.attachOutputSurface(
             rendererId,
-            holder.surface,
+            surface,
             width,
             height,
             rotation,
         )
-    }
-
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
-        sessions.clearOutputSurface(rendererId)
-    }
-
-    override fun dispose() {
-        surfaceView.holder.removeCallback(this)
-        sessions.clearOutputSurface(rendererId)
     }
 }
