@@ -289,15 +289,136 @@ Required G1 validation:
 
 Once Android G1 is stable, implement the iOS peer with AVFoundation + Metal/Core Image under the same protocol semantics.
 
-## Larger roadmap after GPU camera work
+## After G1 — G2 Editor GPU Preview
+
+G2 goal: move the normal Editor preview from repeated Rust preview-image round trips toward the same native GPU preview architecture used by Camera, while keeping Rust as the authoritative final renderer.
+
+The Editor must consume the same versioned Edit Graph used by final rendering. Do not create a second GPU-only effect state model.
+
+Target architecture:
+
+```text
+Decoded editor source image
+        |
+        v
+native GPU texture
+        |
+        v
+Edit Graph -> GPU-supported nodes
+        |
+        v
+interactive preview surface
+
+same Edit Graph
+        |
+        v
+Rust final renderer -> export/full-res
+```
+
+### G2.1 — Editor GPU surface and source texture
+
+Implement a production editor renderer instance that can:
+
+- create/destroy an Editor GPU session independently of Camera.
+- upload/decode the editor preview source once, rather than resend encoded JPEG/PNG for every slider change.
+- recreate textures/surfaces after lifecycle or GPU context loss.
+- preserve current Rust preview as a fallback for unsupported nodes/devices.
+- keep source image ownership/lifetime explicit to avoid duplicate large buffers.
+
+Do not route full-resolution editor frames through MethodChannel or Flutter Rust Bridge per interaction.
+
+### G2.2 — First GPU-supported Edit Graph nodes
+
+Bring up the lowest-risk nodes first:
+
+```text
+exposure / brightness
+contrast
+saturation
+temperature / tint
+Film Profile 33^3 LUT + strength
+```
+
+The exact operation ranges/order/color semantics must be shared with Rust. UI slider values should map to canonical Edit Graph parameters, not directly to arbitrary shader constants.
+
+When a supported parameter changes, update GPU uniforms/textures directly. Avoid triggering a Rust preview encode/decode round trip for every slider tick.
+
+### G2.3 — Mixed GPU/Rust fallback policy
+
+Not every existing editor operation needs GPU support on day one.
+
+Define deterministic behavior for graphs containing unsupported nodes. Initial acceptable strategies:
+
+- GPU renders a supported prefix and Rust supplies a checkpoint for the unsupported remainder, or
+- whole-preview Rust fallback when graph ordering makes partial rendering unsafe.
+
+Never silently skip an Edit Graph node just to preserve interactivity.
+
+The renderer/capability layer must expose which `EditNodeType` and parameter versions are supported.
+
+### G2.4 — Preview/final parity
+
+Add fixture tests comparing GPU preview output against Rust for supported editor nodes and representative combinations.
+
+Need tests for at least:
+
+- each basic adjustment independently.
+- Film LUT at strengths 0, 0.5 and 1.0.
+- adjustment + Film LUT ordering.
+- clamp/boundary values.
+- before/after enable-disable behavior.
+- Edit Graph serialization round trip.
+
+Use documented per-channel/image tolerances appropriate to the preview format. Do not claim visual parity only from LUT atlas tests.
+
+### G2.5 — Interactive performance target
+
+Target behavior on the reference Android device:
+
+- continuous sliders remain visually responsive.
+- no encoded preview image allocation per slider tick.
+- no repeated Film LUT parsing/upload when only strength changes.
+- no main/UI-thread blocking GPU setup.
+- renderer state updates are coalesced/latest-wins where appropriate.
+
+Instrument frame time and memory before removing the Rust preview path.
+
+### G2.6 — Prepare Masks / Selective / Overlays
+
+G2 should leave extension points for later nodes without implementing them prematurely:
+
+```text
+mask texture inputs
+selective-adjustment node + maskId
+overlay/text/sticker textures + transforms
+blend/z-order
+```
+
+Masks remain normalized/vector/stroke data in the Edit Graph. GPU rasterizes preview masks; Rust rerasterizes the same source instructions at final resolution.
+
+### G2 exit criteria
+
+G2 is complete when:
+
+- Editor has a native GPU preview surface/session on supported devices.
+- Film LUT and agreed basic adjustments update interactively without Rust image round trips.
+- supported Edit Graph node semantics are shared with Rust and covered by parity tests.
+- unsupported nodes fall back deterministically without being skipped.
+- source image is not destructively modified by preview rendering.
+- export remains Rust full-resolution rendering.
+- lifecycle/context-loss recovery does not leave stale textures/renderers.
+- matrix approximation is not reused as the Editor reference rendering path.
+
+## Larger roadmap after GPU camera/editor work
 
 Do not implement these as isolated state systems. They should build on the Edit Graph and GPU/Rust dual-renderer architecture.
 
 Recommended sequence:
 
 ```text
-G0/G1 GPU core + camera
--> Editor GPU preview
+G0 GPU foundation/contracts
+-> G1 real Camera GPU LUT preview
+-> G2 Editor GPU preview
 -> Masks infrastructure
 -> Selective adjustments
 -> Text/Stickers overlays
@@ -378,3 +499,5 @@ Start by reading this file and `docs/G0_GPU_PREVIEW_FOUNDATION.md`, then inspect
 The immediate task is:
 
 > Continue with G0.3: implement GPU capability/fallback policy, production renderer lifecycle contract, background capability probing, color-space contract, and Android Camera OES renderer interface preparation. Do not connect live camera frames until those contracts are stable.
+
+After G1 Camera GPU preview is stable, continue with G2 Editor GPU Preview using the same Edit Graph and renderer semantics; start with Film LUT plus basic adjustments, preserve deterministic Rust fallback, and keep Rust as final full-resolution renderer.
