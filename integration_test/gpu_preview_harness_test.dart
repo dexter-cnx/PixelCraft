@@ -22,7 +22,35 @@ void main() {
 
     final harness = await bridge.runReferenceHarness();
     expect(harness.passed, isTrue);
+    expect(harness.profileId, 'identity');
     expect(harness.samples, greaterThanOrEqualTo(8));
     expect(harness.maxChannelError, lessThanOrEqualTo(2 / 255));
+  });
+
+  testWidgets('Android GPU samples all Film Profile Pack v2 atlases',
+      (tester) async {
+    if (!Platform.isAndroid) return;
+
+    const bridge = NativeGpuPreviewBridge();
+    const profiles = <String>[
+      'provia_inspired',
+      'velvia_inspired',
+      'astia_inspired',
+      'e100_inspired',
+      'ektar_inspired',
+      'chrome64_inspired',
+    ];
+
+    for (final profileId in profiles) {
+      final harness = await bridge.runFilmProfileHarness(profileId);
+      expect(harness.profileId, profileId);
+      expect(harness.passed, isTrue, reason: '$profileId GPU parity failed');
+      expect(harness.samples, 24);
+      expect(
+        harness.maxChannelError,
+        lessThanOrEqualTo(2 / 255),
+        reason: '$profileId exceeded native GPU parity tolerance',
+      );
+    }
   });
 }
