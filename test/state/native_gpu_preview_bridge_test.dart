@@ -64,6 +64,7 @@ void main() {
         'passed': true,
         'maxChannelError': 1 / 255,
         'samples': 8,
+        'profileId': 'identity',
       };
     });
 
@@ -72,6 +73,34 @@ void main() {
 
     expect(result.passed, isTrue);
     expect(result.samples, 8);
+    expect(result.profileId, 'identity');
     expect(result.maxChannelError, lessThanOrEqualTo(2 / 255));
+  });
+
+  test('Film harness sends only protocol and profile id', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'runFilmProfileHarness');
+      expect(
+        call.arguments,
+        <String, Object?>{
+          'protocolVersion': gpuPreviewProtocolVersion,
+          'profileId': 'velvia_inspired',
+        },
+      );
+      return <String, Object?>{
+        'passed': true,
+        'maxChannelError': 1 / 255,
+        'samples': 24,
+        'profileId': 'velvia_inspired',
+      };
+    });
+
+    final result = await const NativeGpuPreviewBridge()
+        .runFilmProfileHarness('velvia_inspired');
+
+    expect(result.passed, isTrue);
+    expect(result.samples, 24);
+    expect(result.profileId, 'velvia_inspired');
   });
 }
