@@ -2,6 +2,8 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
 
 plugins {
     id("com.android.application")
@@ -13,14 +15,17 @@ abstract class GenerateGpuLutAssetsTask : DefaultTask() {
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
+    @get:Inject
+    abstract val execOperations: ExecOperations
+
     @TaskAction
     fun generate() {
         val repoRoot = project.rootProject.projectDir.parentFile
         val outputRoot = outputDirectory.get().asFile
         val gpuLutDir = outputRoot.resolve("gpu_luts")
 
-        project.exec {
-            workingDir = repoRoot
+        execOperations.exec {
+            workingDir(repoRoot)
             commandLine(
                 "make",
                 "gpu-luts",
