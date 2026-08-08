@@ -156,6 +156,7 @@ internal class AndroidGpuCameraOesRenderer(
     @Volatile private var profileId = ""
     @Volatile private var strength = 0f
     @Volatile private var lensFacing = CameraCharacteristics.LENS_FACING_BACK
+    @Volatile private var lutUploadPending = false
 
     private var outputSurface: Surface? = null
     private var outputWidth = 0
@@ -219,9 +220,10 @@ internal class AndroidGpuCameraOesRenderer(
         this.profileId = profileId
         this.strength = strength.coerceIn(0f, 1f)
         if (!changed) return
+        lutUploadPending = profileId.isNotEmpty()
         glHandler.post {
             try {
-                uploadFilmLut(profileId)
+                uploadPendingFilmLut()
             } catch (error: Throwable) {
                 fail("Unable to load Film LUT: $profileId", error)
             }
@@ -459,6 +461,7 @@ internal class AndroidGpuCameraOesRenderer(
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "eglCreateWindowSurface failed" }
         makeCurrent()
         GLES20.glViewport(0, 0, outputWidth, outputHeight)
+        uploadPendingFilmLut()
     }
 
     private fun initializeGlContext() {
@@ -497,7 +500,7 @@ internal class AndroidGpuCameraOesRenderer(
             setOnFrameAvailableListener({ renderFrame() }, glHandler)
         }
         inputSurface = Surface(inputSurfaceTexture)
-        if (profileId.isNotEmpty()) uploadFilmLut(profileId)
+        lutUploadPending = profileId.isNotEmpty()
     }
 
     private fun renderFrame() {
@@ -561,6 +564,16 @@ internal class AndroidGpuCameraOesRenderer(
         } catch (error: Throwable) {
             fail("GPU camera frame rendering failed", error)
         }
+    }
+
+    private fun uploadPendingFilmLut() {
+        if (!lutUploadPending) return
+        val id = profileId
+        if (id.isEmpty() || eglDisplay == EGL14.EGL_NO_DISPLAY || eglSurface == EGL14.EGL_NO_SURFACE) {
+            return
+        }
+        uploadFilmLut(id)
+        lutUploadPending = false
     }
 
     private fun uploadFilmLut(id: String) {
@@ -766,6 +779,7 @@ internal class AndroidGpuCameraOesRenderer(
         program = 0
         oesTexture = 0
         lutTexture = 0
+        lutUploadPending = false
     }
 
     private fun fail(message: String, error: Throwable) {
