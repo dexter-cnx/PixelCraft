@@ -17,6 +17,10 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       expect(call.method, 'probe');
+      expect(call.arguments, <String, Object?>{
+        'protocolVersion': gpuPreviewProtocolVersion,
+        'forceSelfTest': false,
+      });
       return <String, Object?>{
         'protocolVersion': gpuPreviewProtocolVersion,
         'backend': 'androidOpenGl',
@@ -25,31 +29,45 @@ void main() {
         'maxLutSize': 33,
         'renderer': 'Test GPU',
         'version': 'OpenGL ES 3.2',
+        'selfTestPassed': true,
+        'assetsLoaded': true,
+        'blacklisted': false,
+        'cached': true,
       };
     });
 
     final probe = await const NativeGpuPreviewBridge().probe();
 
     expect(probe.protocolVersion, gpuPreviewProtocolVersion);
+    expect(probe.protocolCompatible, isTrue);
     expect(probe.backend, GpuPreviewBackendKind.androidOpenGl);
     expect(probe.available, isTrue);
     expect(probe.supportsLut33, isTrue);
     expect(probe.maxLutSize, 33);
+    expect(probe.selfTestPassed, isTrue);
+    expect(probe.assetsLoaded, isTrue);
+    expect(probe.cached, isTrue);
   });
 
-  test('probe rejects a native protocol mismatch', () async {
+  test('probe preserves protocol mismatch for fallback policy', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       return <String, Object?>{
         'protocolVersion': gpuPreviewProtocolVersion + 1,
         'backend': 'androidOpenGl',
+        'available': true,
+        'supportsLut33': true,
+        'maxLutSize': 33,
+        'selfTestPassed': true,
+        'assetsLoaded': true,
+        'blacklisted': false,
+        'cached': false,
       };
     });
 
-    expect(
-      const NativeGpuPreviewBridge().probe(),
-      throwsA(isA<StateError>()),
-    );
+    final probe = await const NativeGpuPreviewBridge().probe();
+    expect(probe.protocolCompatible, isFalse);
+    expect(probe.protocolVersion, gpuPreviewProtocolVersion + 1);
   });
 
   test('reference harness sends protocol version and parses result', () async {
