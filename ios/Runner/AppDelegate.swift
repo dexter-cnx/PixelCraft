@@ -14,7 +14,12 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PixelCraftGpuPreview")
+    guard let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "PixelCraftGpuPreview"
+    ) else {
+      assertionFailure("Unable to create Flutter registrar for PixelCraftGpuPreview")
+      return
+    }
     gpuPreviewPlugin = GpuPreviewPlugin(registrar: registrar)
   }
 }
