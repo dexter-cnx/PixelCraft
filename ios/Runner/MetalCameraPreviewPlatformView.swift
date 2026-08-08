@@ -1,5 +1,6 @@
 import Flutter
 import MetalKit
+import QuartzCore
 import UIKit
 
 final class MetalCameraPreviewViewFactory: NSObject, FlutterPlatformViewFactory {
