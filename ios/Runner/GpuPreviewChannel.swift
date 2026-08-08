@@ -12,6 +12,7 @@ final class GpuPreviewPlugin {
   private let registry = MetalRendererRegistry()
   private let capabilityProbe = GpuCapabilityProbe()
   private let probeQueue = DispatchQueue(label: "dev.pixelcraft.gpu.probe", qos: .utility)
+  private let harnessQueue = DispatchQueue(label: "dev.pixelcraft.gpu.parity", qos: .userInitiated)
 
   init(registrar: FlutterPluginRegistrar) {
     channel = FlutterMethodChannel(
@@ -61,6 +62,36 @@ final class GpuPreviewPlugin {
       requestCameraPermission(result: result)
     case "availableCameraLenses":
       result(MetalCameraPreviewRenderer.availableLenses())
+    case "runReferenceHarness":
+      harnessQueue.async { [weak self] in
+        guard self != nil else { return }
+        do {
+          let payload = try MetalLutParityHarness().runReferenceHarness().toChannelMap()
+          DispatchQueue.main.async { result(payload) }
+        } catch {
+          DispatchQueue.main.async {
+            result(self?.flutterError("gpu_harness_failed", error))
+          }
+        }
+      }
+    case "runFilmProfileHarness":
+      guard let profileId = arguments(call)["profileId"] as? String, !profileId.isEmpty else {
+        result(FlutterError(code: "gpu_invalid_profile", message: "profileId is required", details: nil))
+        return
+      }
+      harnessQueue.async { [weak self] in
+        guard self != nil else { return }
+        do {
+          let payload = try MetalLutParityHarness()
+            .runFilmProfileHarness(profileId: profileId)
+            .toChannelMap()
+          DispatchQueue.main.async { result(payload) }
+        } catch {
+          DispatchQueue.main.async {
+            result(self?.flutterError("gpu_film_harness_failed", error))
+          }
+        }
+      }
     case "createRenderer":
       do {
         let id = try registry.create()
