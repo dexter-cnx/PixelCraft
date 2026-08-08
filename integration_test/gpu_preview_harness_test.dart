@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:pixelcraft/gpu/gpu_preview_renderer.dart';
@@ -24,6 +25,10 @@ void main() {
     expect(probe.maxLutSize, 33);
 
     final harness = await bridge.runReferenceHarness();
+    debugPrint(
+      '[GPU parity] ${expectedBackend.name} identity '
+      'samples=${harness.samples} maxError=${harness.maxChannelError}',
+    );
     expect(harness.passed, isTrue);
     expect(harness.profileId, 'identity');
     expect(harness.samples, greaterThanOrEqualTo(8));
@@ -46,6 +51,10 @@ void main() {
 
     for (final profileId in profiles) {
       final harness = await bridge.runFilmProfileHarness(profileId);
+      debugPrint(
+        '[GPU parity] $profileId samples=${harness.samples} '
+        'maxError=${harness.maxChannelError}',
+      );
       expect(harness.profileId, profileId);
       expect(harness.passed, isTrue, reason: '$profileId GPU parity failed');
       expect(harness.samples, 24);
