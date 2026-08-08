@@ -114,6 +114,9 @@ class NativeGpuPreviewBridge {
     return NativeGpuProbe.fromMap(result);
   }
 
+  Future<void> invalidateCapabilityCache() =>
+      _channel.invokeMethod<void>('invalidateCapabilityCache');
+
   Future<String> createRenderer() async {
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'createRenderer',
@@ -231,6 +234,7 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
       : _bridge = bridge ?? const NativeGpuPreviewBridge();
 
   final NativeGpuPreviewBridge _bridge;
+  bool _hasSurface = false;
 
   @override
   String? rendererId;
@@ -252,13 +256,25 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
         state != GpuPreviewSessionState.destroyed) {
       throw StateError('Cannot create GPU renderer from state $state');
     }
-    rendererId = await _bridge.createRenderer();
-    state = GpuPreviewSessionState.created;
+    try {
+      rendererId = await _bridge.createRenderer();
+      _hasSurface = false;
+      state = GpuPreviewSessionState.created;
+    } catch (_) {
+      state = GpuPreviewSessionState.failed;
+      try {
+        await _bridge.invalidateCapabilityCache();
+      } catch (_) {
+        // Cache invalidation is best-effort; preserve the initialization error.
+      }
+      rethrow;
+    }
   }
 
   @override
   Future<void> configureSurface(GpuPreviewSurfaceConfiguration surface) async {
     await _bridge.configureSurface(_requiredRendererId, surface);
+    _hasSurface = true;
     state = GpuPreviewSessionState.surfaceConfigured;
   }
 
@@ -287,7 +303,9 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
   @override
   Future<void> resume() async {
     await _bridge.resume(_requiredRendererId);
-    state = GpuPreviewSessionState.surfaceConfigured;
+    state = _hasSurface
+        ? GpuPreviewSessionState.surfaceConfigured
+        : GpuPreviewSessionState.created;
   }
 
   @override
@@ -297,6 +315,7 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
       await _bridge.destroyRenderer(id);
     }
     rendererId = null;
+    _hasSurface = false;
     state = GpuPreviewSessionState.destroyed;
   }
 }
