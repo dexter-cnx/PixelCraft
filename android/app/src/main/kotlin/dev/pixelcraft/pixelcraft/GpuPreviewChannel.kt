@@ -1,11 +1,13 @@
 package dev.pixelcraft.pixelcraft
 
+import android.content.Context
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 internal class GpuPreviewChannel(
     flutterEngine: FlutterEngine,
+    private val context: Context,
 ) : MethodChannel.MethodCallHandler {
     companion object {
         const val PROTOCOL_VERSION = 1
@@ -26,6 +28,7 @@ internal class GpuPreviewChannel(
         when (call.method) {
             "probe" -> handleProbe(result)
             "runReferenceHarness" -> handleReferenceHarness(call, result)
+            "runFilmProfileHarness" -> handleFilmProfileHarness(call, result)
             else -> result.notImplemented()
         }
     }
@@ -64,27 +67,10 @@ internal class GpuPreviewChannel(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
-        val requestedVersion = call.argument<Int>("protocolVersion") ?: 0
-        if (requestedVersion != PROTOCOL_VERSION) {
-            result.error(
-                "gpu_protocol_mismatch",
-                "Native GPU protocol is $PROTOCOL_VERSION, requested $requestedVersion",
-                null,
-            )
-            return
-        }
+        if (!validateProtocol(call, result)) return
 
         try {
-            val harness = GpuLutShaderHarness.run()
-            result.success(
-                mapOf(
-                    "passed" to harness.passed,
-                    "maxChannelError" to harness.maxChannelError,
-                    "samples" to harness.samples,
-                    "renderer" to harness.renderer,
-                    "version" to harness.version,
-                ),
-            )
+            result.success(GpuLutShaderHarness.run().toChannelMap())
         } catch (error: Throwable) {
             result.error(
                 "gpu_harness_failed",
@@ -93,4 +79,59 @@ internal class GpuPreviewChannel(
             )
         }
     }
+
+    private fun handleFilmProfileHarness(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        if (!validateProtocol(call, result)) return
+        val profileId = call.argument<String>("profileId").orEmpty()
+        if (profileId.isBlank()) {
+            result.error("gpu_invalid_profile", "profileId is required", null)
+            return
+        }
+
+        try {
+            result.success(
+                GpuLutShaderHarness
+                    .runFilmProfile(context, profileId)
+                    .toChannelMap(),
+            )
+        } catch (error: IllegalArgumentException) {
+            result.error(
+                "gpu_invalid_profile",
+                error.message ?: "Invalid Film Profile",
+                null,
+            )
+        } catch (error: Throwable) {
+            result.error(
+                "gpu_film_harness_failed",
+                error.message ?: error.javaClass.simpleName,
+                null,
+            )
+        }
+    }
+
+    private fun validateProtocol(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ): Boolean {
+        val requestedVersion = call.argument<Int>("protocolVersion") ?: 0
+        if (requestedVersion == PROTOCOL_VERSION) return true
+        result.error(
+            "gpu_protocol_mismatch",
+            "Native GPU protocol is $PROTOCOL_VERSION, requested $requestedVersion",
+            null,
+        )
+        return false
+    }
+
+    private fun GpuHarnessResult.toChannelMap(): Map<String, Any> = mapOf(
+        "passed" to passed,
+        "maxChannelError" to maxChannelError,
+        "samples" to samples,
+        "renderer" to renderer,
+        "version" to version,
+        "profileId" to profileId,
+    )
 }
