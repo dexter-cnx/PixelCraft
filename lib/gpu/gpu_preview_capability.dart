@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/edit_graph.dart';
 import 'gpu_preview_renderer.dart';
 import 'native_gpu_preview_bridge.dart';
 
