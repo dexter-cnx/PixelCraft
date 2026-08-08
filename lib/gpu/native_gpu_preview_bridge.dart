@@ -60,17 +60,20 @@ class NativeGpuHarnessResult {
     required this.passed,
     required this.maxChannelError,
     required this.samples,
+    required this.profileId,
   });
 
   final bool passed;
   final double maxChannelError;
   final int samples;
+  final String profileId;
 
   factory NativeGpuHarnessResult.fromMap(Map<Object?, Object?> map) =>
       NativeGpuHarnessResult(
         passed: map['passed'] as bool? ?? false,
         maxChannelError: (map['maxChannelError'] as num? ?? 1).toDouble(),
         samples: map['samples'] as int? ?? 0,
+        profileId: map['profileId'] as String? ?? '',
       );
 }
 
@@ -92,10 +95,7 @@ class NativeGpuPreviewBridge {
     return NativeGpuProbe.fromMap(result);
   }
 
-  /// G0.2 device-only check. Android creates a tiny offscreen EGL surface,
-  /// uploads an identity 33³ atlas, runs the actual LUT shader and reads back
-  /// a few pixels. This validates shader/atlas/interpolation mechanics before
-  /// the renderer is connected to live camera frames.
+  /// G0.2 device-only identity-LUT check.
   Future<NativeGpuHarnessResult> runReferenceHarness() async {
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'runReferenceHarness',
@@ -103,6 +103,23 @@ class NativeGpuPreviewBridge {
     );
     if (result == null) {
       throw StateError('Native GPU harness returned no data');
+    }
+    return NativeGpuHarnessResult.fromMap(result);
+  }
+
+  /// Runs the same OpenGL LUT shader against a generated canonical Film LUT
+  /// atlas packaged in the Android app. Only the profile id crosses the
+  /// channel; atlas bytes and parity fixtures are loaded natively from assets.
+  Future<NativeGpuHarnessResult> runFilmProfileHarness(String profileId) async {
+    final result = await _channel.invokeMapMethod<Object?, Object?>(
+      'runFilmProfileHarness',
+      <String, Object?>{
+        'protocolVersion': gpuPreviewProtocolVersion,
+        'profileId': profileId,
+      },
+    );
+    if (result == null) {
+      throw StateError('Native Film GPU harness returned no data');
     }
     return NativeGpuHarnessResult.fromMap(result);
   }
