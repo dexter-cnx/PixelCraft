@@ -1,5 +1,6 @@
 package dev.pixelcraft.pixelcraft
 
+import android.content.Context
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -11,6 +12,7 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import org.json.JSONObject
 
 internal data class GpuHarnessResult(
     val passed: Boolean,
@@ -18,13 +20,23 @@ internal data class GpuHarnessResult(
     val samples: Int,
     val renderer: String,
     val version: String,
+    val profileId: String,
 )
 
 internal object GpuLutShaderHarness {
     private const val LUT_SIZE = 33
     private const val TILES_PER_ROW = 6
     private const val ATLAS_SIZE = LUT_SIZE * TILES_PER_ROW
-    private const val TOLERANCE = 2.0 / 255.0
+    private const val DEFAULT_TOLERANCE = 2.0 / 255.0
+
+    private val supportedProfileIds = setOf(
+        "provia_inspired",
+        "velvia_inspired",
+        "astia_inspired",
+        "e100_inspired",
+        "ektar_inspired",
+        "chrome64_inspired",
+    )
 
     private const val VERTEX_SHADER = """
         attribute vec2 aPosition;
@@ -92,12 +104,83 @@ internal object GpuLutShaderHarness {
         }
 
     fun run(): GpuHarnessResult {
+        val fixtures = listOf(
+            identityFixture(0f, 0f, 0f),
+            identityFixture(1f, 1f, 1f),
+            identityFixture(1f, 0f, 0f),
+            identityFixture(0f, 1f, 0f),
+            identityFixture(0f, 0f, 1f),
+            identityFixture(0.5f, 0.5f, 0.5f),
+            identityFixture(0.13f, 0.47f, 0.91f),
+            identityFixture(0.82f, 0.24f, 0.36f),
+        )
+        return runWithAtlas(
+            profileId = "identity",
+            atlasBytes = createIdentityAtlasBytes(),
+            fixtures = fixtures,
+            tolerance = DEFAULT_TOLERANCE,
+        )
+    }
+
+    fun runFilmProfile(context: Context, profileId: String): GpuHarnessResult {
+        require(profileId in supportedProfileIds) { "Unknown Film Profile: $profileId" }
+        val atlasBytes = context.assets.open("gpu_luts/$profileId.rgba8").use { it.readBytes() }
+        check(atlasBytes.size == ATLAS_SIZE * ATLAS_SIZE * 4) {
+            "$profileId GPU LUT atlas has ${atlasBytes.size} bytes; expected ${ATLAS_SIZE * ATLAS_SIZE * 4}"
+        }
+
+        val paritySource = context.assets.open("gpu_luts/native_parity.json")
+            .bufferedReader()
+            .use { it.readText() }
+        val parity = JSONObject(paritySource)
+        check(parity.getInt("version") == 1) { "Unsupported native GPU parity fixture version" }
+        check(parity.getInt("lutSize") == LUT_SIZE) { "Native GPU fixture LUT size mismatch" }
+        val tolerance = parity.optDouble("tolerance", DEFAULT_TOLERANCE)
+        val inputs = parity.getJSONArray("inputs")
+        val expected = parity.getJSONObject("profiles").getJSONArray(profileId)
+        check(inputs.length() == expected.length()) { "$profileId parity fixture length mismatch" }
+
+        val fixtures = buildList {
+            for (index in 0 until inputs.length()) {
+                val input = inputs.getJSONArray(index)
+                val output = expected.getJSONArray(index)
+                add(
+                    ShaderFixture(
+                        input = floatArrayOf(
+                            input.getDouble(0).toFloat(),
+                            input.getDouble(1).toFloat(),
+                            input.getDouble(2).toFloat(),
+                        ),
+                        expected = doubleArrayOf(
+                            output.getDouble(0),
+                            output.getDouble(1),
+                            output.getDouble(2),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        return runWithAtlas(
+            profileId = profileId,
+            atlasBytes = atlasBytes,
+            fixtures = fixtures,
+            tolerance = tolerance,
+        )
+    }
+
+    private fun runWithAtlas(
+        profileId: String,
+        atlasBytes: ByteArray,
+        fixtures: List<ShaderFixture>,
+        tolerance: Double,
+    ): GpuHarnessResult {
         val egl = createEgl()
         try {
             val renderer = GLES20.glGetString(GLES20.GL_RENDERER).orEmpty()
             val version = GLES20.glGetString(GLES20.GL_VERSION).orEmpty()
             val program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
-            val texture = createIdentityAtlasTexture()
+            val texture = createAtlasTexture(atlasBytes)
 
             val position = GLES20.glGetAttribLocation(program, "aPosition")
             val color = GLES20.glGetUniformLocation(program, "uColor")
@@ -111,31 +194,18 @@ internal object GpuLutShaderHarness {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
             GLES20.glUniform1i(lut, 0)
             GLES20.glEnableVertexAttribArray(position)
-            GLES20.glVertexAttribPointer(
-                position,
-                2,
-                GLES20.GL_FLOAT,
-                false,
-                0,
-                fullScreenQuad,
-            )
+            GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 0, fullScreenQuad)
             GLES20.glViewport(0, 0, 1, 1)
 
-            val fixtures = arrayOf(
-                floatArrayOf(0f, 0f, 0f),
-                floatArrayOf(1f, 1f, 1f),
-                floatArrayOf(1f, 0f, 0f),
-                floatArrayOf(0f, 1f, 0f),
-                floatArrayOf(0f, 0f, 1f),
-                floatArrayOf(0.5f, 0.5f, 0.5f),
-                floatArrayOf(0.13f, 0.47f, 0.91f),
-                floatArrayOf(0.82f, 0.24f, 0.36f),
-            )
             var maxError = 0.0
             val pixel = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
-
             fixtures.forEach { fixture ->
-                GLES20.glUniform3f(color, fixture[0], fixture[1], fixture[2])
+                GLES20.glUniform3f(
+                    color,
+                    fixture.input[0],
+                    fixture.input[1],
+                    fixture.input[2],
+                )
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
                 GLES20.glFinish()
                 pixel.position(0)
@@ -148,13 +218,17 @@ internal object GpuLutShaderHarness {
                     GLES20.GL_UNSIGNED_BYTE,
                     pixel,
                 )
+                checkGl("read $profileId fixture")
                 val actual = doubleArrayOf(
                     (pixel.get(0).toInt() and 0xFF) / 255.0,
                     (pixel.get(1).toInt() and 0xFF) / 255.0,
                     (pixel.get(2).toInt() and 0xFF) / 255.0,
                 )
                 for (channel in 0..2) {
-                    maxError = maxOf(maxError, abs(actual[channel] - fixture[channel]))
+                    maxError = maxOf(
+                        maxError,
+                        abs(actual[channel] - fixture.expected[channel]),
+                    )
                 }
             }
 
@@ -163,28 +237,20 @@ internal object GpuLutShaderHarness {
             GLES20.glDeleteProgram(program)
 
             return GpuHarnessResult(
-                passed = maxError <= TOLERANCE,
+                passed = maxError <= tolerance,
                 maxChannelError = maxError,
                 samples = fixtures.size,
                 renderer = renderer,
                 version = version,
+                profileId = profileId,
             )
         } finally {
             destroyEgl(egl)
         }
     }
 
-    private fun createIdentityAtlasTexture(): Int {
-        val bytes = ByteBuffer
-            .allocateDirect(ATLAS_SIZE * ATLAS_SIZE * 4)
-            .order(ByteOrder.nativeOrder())
-
-        repeat(ATLAS_SIZE * ATLAS_SIZE) {
-            bytes.put(0)
-            bytes.put(0)
-            bytes.put(0)
-            bytes.put(0)
-        }
+    private fun createIdentityAtlasBytes(): ByteArray {
+        val bytes = ByteArray(ATLAS_SIZE * ATLAS_SIZE * 4)
         for (blue in 0 until LUT_SIZE) {
             val tileX = blue % TILES_PER_ROW
             val tileY = blue / TILES_PER_ROW
@@ -193,39 +259,31 @@ internal object GpuLutShaderHarness {
                     val x = tileX * LUT_SIZE + red
                     val y = tileY * LUT_SIZE + green
                     val offset = (y * ATLAS_SIZE + x) * 4
-                    bytes.put(offset, toByte(red.toDouble() / (LUT_SIZE - 1)))
-                    bytes.put(offset + 1, toByte(green.toDouble() / (LUT_SIZE - 1)))
-                    bytes.put(offset + 2, toByte(blue.toDouble() / (LUT_SIZE - 1)))
-                    bytes.put(offset + 3, 0xFF.toByte())
+                    bytes[offset] = toByte(red.toDouble() / (LUT_SIZE - 1))
+                    bytes[offset + 1] = toByte(green.toDouble() / (LUT_SIZE - 1))
+                    bytes[offset + 2] = toByte(blue.toDouble() / (LUT_SIZE - 1))
+                    bytes[offset + 3] = 0xFF.toByte()
                 }
             }
         }
+        return bytes
+    }
+
+    private fun createAtlasTexture(atlasBytes: ByteArray): Int {
+        val bytes = ByteBuffer
+            .allocateDirect(atlasBytes.size)
+            .order(ByteOrder.nativeOrder())
+        bytes.put(atlasBytes)
         bytes.position(0)
 
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         check(ids[0] != 0) { "Unable to create LUT texture" }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MIN_FILTER,
-            GLES20.GL_NEAREST,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MAG_FILTER,
-            GLES20.GL_NEAREST,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_S,
-            GLES20.GL_CLAMP_TO_EDGE,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_T,
-            GLES20.GL_CLAMP_TO_EDGE,
-        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexImage2D(
             GLES20.GL_TEXTURE_2D,
             0,
@@ -237,7 +295,7 @@ internal object GpuLutShaderHarness {
             GLES20.GL_UNSIGNED_BYTE,
             bytes,
         )
-        checkGl("upload identity LUT atlas")
+        checkGl("upload LUT atlas")
         return ids[0]
     }
 
@@ -343,6 +401,12 @@ internal object GpuLutShaderHarness {
         EGL14.eglTerminate(state.display)
     }
 
+    private fun identityFixture(red: Float, green: Float, blue: Float): ShaderFixture =
+        ShaderFixture(
+            input = floatArrayOf(red, green, blue),
+            expected = doubleArrayOf(red.toDouble(), green.toDouble(), blue.toDouble()),
+        )
+
     private fun toByte(value: Double): Byte =
         (value.coerceIn(0.0, 1.0) * 255.0).roundToInt().toByte()
 
@@ -352,6 +416,11 @@ internal object GpuLutShaderHarness {
             "OpenGL error 0x${error.toString(16)} during $operation"
         }
     }
+
+    private data class ShaderFixture(
+        val input: FloatArray,
+        val expected: DoubleArray,
+    )
 
     private data class EglState(
         val display: EGLDisplay,
