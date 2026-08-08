@@ -22,8 +22,13 @@ internal interface GpuCameraOesRenderer {
     /** Select/upload Film state. Profile changes may update the LUT texture. */
     fun setFilm(profileId: String, strength: Float)
 
-    /** Strength-only updates must stay uniform/state-only. */
-    fun setStrength(strength: Float)
+    /**
+     * Strength-only state hook. Concrete renderers may override this once the
+     * first Camera2/OES bring-up is proven on-device; until then callers may
+     * continue using setFilm so behavior stays correct rather than silently
+     * diverging.
+     */
+    fun setStrength(strength: Float) = Unit
 
     fun setEnabled(enabled: Boolean)
 
