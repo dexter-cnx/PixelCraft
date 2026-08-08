@@ -165,9 +165,9 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
     assert(kDebugMode, 'GpuFramePacingScreen is intended for debug builds only.');
 
     if (_initializing) {
-      return const Scaffold(
-        appBar: AppBar(title: Text('GPU Frame Pacing')),
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        appBar: AppBar(title: const Text('GPU Frame Pacing')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
