@@ -145,11 +145,13 @@ internal class GpuCapabilityProbe(private val context: Context) {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun cacheIdentity(): String {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         return listOf(
             CACHE_SCHEMA.toString(),
             packageInfo.versionName.orEmpty(),
+            packageInfo.versionCode.toString(),
             Build.FINGERPRINT,
             Build.VERSION.SDK_INT.toString(),
         ).joinToString("|")
