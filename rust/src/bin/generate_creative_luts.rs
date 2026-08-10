@@ -1,7 +1,7 @@
 use image::{DynamicImage, Rgba, RgbaImage};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[path = "../photon_filters.rs"]
 mod photon_filters;
@@ -118,6 +118,3 @@ fn build_cube(filter: &str, image: &RgbaImage) -> String {
     }
     output
 }
-
-#[allow(dead_code)]
-fn _assert_path(_: &Path) {}
