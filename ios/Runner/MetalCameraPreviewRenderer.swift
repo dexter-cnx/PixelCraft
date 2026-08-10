@@ -67,10 +67,6 @@ final class MetalCameraPreviewRenderer: NSObject {
     uv.x = mix(uv.x, 1.0 - uv.x, uniforms.mirrorX);
     float3 source = camera.sample(cameraSampler, uv).rgb;
 
-    // The canonical LUT is a 33-point grid whose domain endpoints are grid
-    // samples. Metal normalized texture coordinates address texel edges, so
-    // map the canonical 0...32 grid to 3D texture texel centers before using
-    // hardware trilinear interpolation.
     const float lutSize = 33.0;
     float3 grid = clamp(source, 0.0, 1.0) * (lutSize - 1.0);
     float3 lutUv = (grid + 0.5) / lutSize;
@@ -158,6 +154,98 @@ final class MetalCameraPreviewRenderer: NSObject {
     frameLock.lock()
     diagnosticsMonitor = monitor
     frameLock.unlock()
+  }
+
+  func colorCharacterizationSample(maxSamples: Int = 4096) throws -> [String: Any] {
+    frameLock.lock()
+    guard let pixelBuffer = latestPixelBuffer else {
+      frameLock.unlock()
+      throw Self.error("No camera frame is available for color characterization")
+    }
+    let activeProfile = profileId
+    let activeStrength = strength
+    let filmEnabled = enabled && !activeProfile.isEmpty
+    frameLock.unlock()
+
+    guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else {
+      throw Self.error("Color characterization requires a 32BGRA camera frame")
+    }
+
+    let lutBytes: Data?
+    if filmEnabled {
+      guard let url = Bundle.main.url(
+        forResource: activeProfile,
+        withExtension: "rgba8",
+        subdirectory: "gpu_luts"
+      ) else {
+        throw Self.error("Missing Film LUT asset for color characterization: \(activeProfile)")
+      }
+      lutBytes = try Data(contentsOf: url)
+      let expected = 198 * 198 * 4
+      guard lutBytes?.count == expected else {
+        throw Self.error("Invalid Film LUT atlas size for color characterization")
+      }
+    } else {
+      lutBytes = nil
+    }
+
+    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+    guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+      throw Self.error("Camera frame has no readable base address")
+    }
+    let width = CVPixelBufferGetWidth(pixelBuffer)
+    let height = CVPixelBufferGetHeight(pixelBuffer)
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+    let side = min(width, height)
+    let originX = (width - side) / 2
+    let originY = (height - side) / 2
+    let requested = max(64, maxSamples)
+    let step = max(1, Int(Double(side) / sqrt(Double(requested))))
+    let bytes = base.assumingMemoryBound(to: UInt8.self)
+
+    var sourceSum = SIMD3<Double>(repeating: 0)
+    var filmSum = SIMD3<Double>(repeating: 0)
+    var samples = 0
+
+    for y in stride(from: originY, to: originY + side, by: step) {
+      for x in stride(from: originX, to: originX + side, by: step) {
+        let offset = y * bytesPerRow + x * 4
+        let source = SIMD3<Double>(
+          Double(bytes[offset + 2]) / 255.0,
+          Double(bytes[offset + 1]) / 255.0,
+          Double(bytes[offset]) / 255.0
+        )
+        sourceSum += source
+
+        if let lutBytes {
+          let transformed = Self.sampleAtlasLut(source, atlas: lutBytes)
+          let amount = Double(max(0, min(1, activeStrength)))
+          filmSum += source + (transformed - source) * amount
+        } else {
+          filmSum += source
+        }
+        samples += 1
+      }
+    }
+
+    guard samples > 0 else {
+      throw Self.error("Color characterization produced no camera samples")
+    }
+
+    let sourceMean = sourceSum / Double(samples)
+    let filmMean = filmSum / Double(samples)
+    return [
+      "profileId": activeProfile,
+      "strength": Double(activeStrength),
+      "filmEnabled": filmEnabled,
+      "samples": samples,
+      "sourceMeanRgb": [sourceMean.x, sourceMean.y, sourceMean.z],
+      "filmMeanRgb": [filmMean.x, filmMean.y, filmMean.z],
+      "roi": "centerSquare",
+      "pixelFormat": "32BGRA",
+    ]
   }
 
   func attach(view: MTKView, orientation: UIInterfaceOrientation) {
@@ -459,6 +547,53 @@ final class MetalCameraPreviewRenderer: NSObject {
       )
     }
     commandBuffer.commit()
+  }
+
+  private static func sampleAtlasLut(_ color: SIMD3<Double>, atlas: Data) -> SIMD3<Double> {
+    let scaled = SIMD3<Double>(
+      max(0, min(1, color.x)) * 32.0,
+      max(0, min(1, color.y)) * 32.0,
+      max(0, min(1, color.z)) * 32.0
+    )
+    let r0 = Int(floor(scaled.x))
+    let g0 = Int(floor(scaled.y))
+    let b0 = Int(floor(scaled.z))
+    let r1 = min(r0 + 1, 32)
+    let g1 = min(g0 + 1, 32)
+    let b1 = min(b0 + 1, 32)
+    let rf = scaled.x - Double(r0)
+    let gf = scaled.y - Double(g0)
+    let bf = scaled.z - Double(b0)
+
+    func texel(_ red: Int, _ green: Int, _ blue: Int) -> SIMD3<Double> {
+      let tileX = blue % 6
+      let tileY = blue / 6
+      let x = tileX * 33 + red
+      let y = tileY * 33 + green
+      let offset = (y * 198 + x) * 4
+      return atlas.withUnsafeBytes { raw in
+        let bytes = raw.bindMemory(to: UInt8.self)
+        return SIMD3<Double>(
+          Double(bytes[offset]) / 255.0,
+          Double(bytes[offset + 1]) / 255.0,
+          Double(bytes[offset + 2]) / 255.0
+        )
+      }
+    }
+
+    func slice(_ blue: Int) -> SIMD3<Double> {
+      let c00 = texel(r0, g0, blue)
+      let c10 = texel(r1, g0, blue)
+      let c01 = texel(r0, g1, blue)
+      let c11 = texel(r1, g1, blue)
+      let top = c00 + (c10 - c00) * rf
+      let bottom = c01 + (c11 - c01) * rf
+      return top + (bottom - top) * gf
+    }
+
+    let low = slice(b0)
+    let high = slice(b1)
+    return low + (high - low) * bf
   }
 
   private func cropScale(
