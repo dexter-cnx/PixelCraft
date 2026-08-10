@@ -59,6 +59,7 @@ final class MetalCameraPreviewPlatformView: NSObject, FlutterPlatformView {
       // or Metal resources cross Flutter/Dart.
       let renderer = try registry.renderer(id: rendererId)
       let monitor = GpuFramePacingDiagnostics.shared.monitor(rendererId: rendererId)
+      renderer.setDiagnosticsMonitor(monitor)
       let proxy = MetalFramePacingDelegateProxy(renderer: renderer, monitor: monitor)
       framePacingProxy = proxy
       metalView.delegate = proxy
@@ -72,6 +73,9 @@ final class MetalCameraPreviewPlatformView: NSObject, FlutterPlatformView {
   }
 
   deinit {
+    if let renderer = try? registry.renderer(id: rendererId) {
+      renderer.setDiagnosticsMonitor(nil)
+    }
     registry.detach(id: rendererId, view: metalView)
     GpuFramePacingDiagnostics.shared.remove(rendererId: rendererId)
   }
@@ -188,18 +192,40 @@ final class GpuFramePacingMonitor {
   private let lock = NSLock()
   private var active = false
   private var startedAt: CFTimeInterval = 0
+
   private var lastFrameAt: CFTimeInterval?
   private var frameCount = 0
   private var intervalsMs: [Double] = []
+
+  private var lastCaptureAt: CFTimeInterval?
+  private var captureFrameCount = 0
+  private var captureIntervalsMs: [Double] = []
+  private var overwrittenCaptureFrames = 0
+  private var droppedCaptureFrames = 0
+
+  private var commandCompletionLatenciesMs: [Double] = []
+  private var commandCompletionCount = 0
+  private var uniqueRenderedFrames = 0
 
   func start() {
     lock.lock()
     defer { lock.unlock() }
     active = true
     startedAt = CACurrentMediaTime()
+
     lastFrameAt = nil
     frameCount = 0
     intervalsMs.removeAll(keepingCapacity: true)
+
+    lastCaptureAt = nil
+    captureFrameCount = 0
+    captureIntervalsMs.removeAll(keepingCapacity: true)
+    overwrittenCaptureFrames = 0
+    droppedCaptureFrames = 0
+
+    commandCompletionLatenciesMs.removeAll(keepingCapacity: true)
+    commandCompletionCount = 0
+    uniqueRenderedFrames = 0
   }
 
   func recordFrame() {
@@ -213,6 +239,40 @@ final class GpuFramePacingMonitor {
     }
     lastFrameAt = now
     frameCount += 1
+  }
+
+  func recordCaptureFrame(overwrotePending: Bool) {
+    let now = CACurrentMediaTime()
+    lock.lock()
+    defer { lock.unlock() }
+    guard active else { return }
+
+    if let previous = lastCaptureAt {
+      captureIntervalsMs.append((now - previous) * 1000.0)
+    }
+    lastCaptureAt = now
+    captureFrameCount += 1
+    if overwrotePending {
+      overwrittenCaptureFrames += 1
+    }
+  }
+
+  func recordDroppedCaptureFrame() {
+    lock.lock()
+    defer { lock.unlock() }
+    guard active else { return }
+    droppedCaptureFrames += 1
+  }
+
+  func recordCommandCompletion(latencyMs: Double, uniqueFrame: Bool) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard active else { return }
+    commandCompletionCount += 1
+    commandCompletionLatenciesMs.append(max(latencyMs, 0))
+    if uniqueFrame {
+      uniqueRenderedFrames += 1
+    }
   }
 
   func stop() -> GpuFramePacingSnapshot {
@@ -233,26 +293,43 @@ final class GpuFramePacingMonitor {
   private func makeSnapshot(now: CFTimeInterval) -> GpuFramePacingSnapshot {
     let elapsed = startedAt > 0 ? max(now - startedAt, 0) : 0
     let sorted = intervalsMs.sorted()
-    let average = sorted.isEmpty ? 0 : sorted.reduce(0, +) / Double(sorted.count)
-    let fps: Double
-    if intervalsMs.isEmpty {
-      fps = 0
-    } else {
-      let intervalSeconds = intervalsMs.reduce(0, +) / 1000.0
-      fps = intervalSeconds > 0 ? Double(intervalsMs.count) / intervalSeconds : 0
-    }
+    let captureSorted = captureIntervalsMs.sorted()
+    let completionSorted = commandCompletionLatenciesMs.sorted()
 
     return GpuFramePacingSnapshot(
       active: active,
       elapsedSeconds: elapsed,
       frameCount: frameCount,
-      fps: fps,
-      averageFrameMs: average,
+      fps: rate(fromIntervalsMs: intervalsMs),
+      averageFrameMs: average(sorted),
       p95FrameMs: percentile(sorted, 0.95),
       p99FrameMs: percentile(sorted, 0.99),
       maxFrameMs: sorted.last ?? 0,
-      over40MsFrames: intervalsMs.filter { $0 > 40.0 }.count
+      over40MsFrames: intervalsMs.filter { $0 > 40.0 }.count,
+      captureFrameCount: captureFrameCount,
+      captureFps: rate(fromIntervalsMs: captureIntervalsMs),
+      averageCaptureMs: average(captureSorted),
+      p95CaptureMs: percentile(captureSorted, 0.95),
+      overwrittenCaptureFrames: overwrittenCaptureFrames,
+      droppedCaptureFrames: droppedCaptureFrames,
+      commandCompletionCount: commandCompletionCount,
+      uniqueRenderedFrames: uniqueRenderedFrames,
+      uniqueRenderedFps: elapsed > 0 ? Double(uniqueRenderedFrames) / elapsed : 0,
+      averageCommandCompletionMs: average(completionSorted),
+      p95CommandCompletionMs: percentile(completionSorted, 0.95),
+      p99CommandCompletionMs: percentile(completionSorted, 0.99),
+      maxCommandCompletionMs: completionSorted.last ?? 0
     )
+  }
+
+  private func average(_ values: [Double]) -> Double {
+    values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
+  }
+
+  private func rate(fromIntervalsMs values: [Double]) -> Double {
+    guard !values.isEmpty else { return 0 }
+    let seconds = values.reduce(0, +) / 1000.0
+    return seconds > 0 ? Double(values.count) / seconds : 0
   }
 
   private func percentile(_ sorted: [Double], _ percentile: Double) -> Double {
@@ -273,6 +350,21 @@ struct GpuFramePacingSnapshot {
   let maxFrameMs: Double
   let over40MsFrames: Int
 
+  let captureFrameCount: Int
+  let captureFps: Double
+  let averageCaptureMs: Double
+  let p95CaptureMs: Double
+  let overwrittenCaptureFrames: Int
+  let droppedCaptureFrames: Int
+
+  let commandCompletionCount: Int
+  let uniqueRenderedFrames: Int
+  let uniqueRenderedFps: Double
+  let averageCommandCompletionMs: Double
+  let p95CommandCompletionMs: Double
+  let p99CommandCompletionMs: Double
+  let maxCommandCompletionMs: Double
+
   func toChannelMap() -> [String: Any] {
     [
       "active": active,
@@ -284,7 +376,20 @@ struct GpuFramePacingSnapshot {
       "p99FrameMs": p99FrameMs,
       "maxFrameMs": maxFrameMs,
       "over40MsFrames": over40MsFrames,
-      "source": "mtkViewDrawCadence",
+      "captureFrameCount": captureFrameCount,
+      "captureFps": captureFps,
+      "averageCaptureMs": averageCaptureMs,
+      "p95CaptureMs": p95CaptureMs,
+      "overwrittenCaptureFrames": overwrittenCaptureFrames,
+      "droppedCaptureFrames": droppedCaptureFrames,
+      "commandCompletionCount": commandCompletionCount,
+      "uniqueRenderedFrames": uniqueRenderedFrames,
+      "uniqueRenderedFps": uniqueRenderedFps,
+      "averageCommandCompletionMs": averageCommandCompletionMs,
+      "p95CommandCompletionMs": p95CommandCompletionMs,
+      "p99CommandCompletionMs": p99CommandCompletionMs,
+      "maxCommandCompletionMs": maxCommandCompletionMs,
+      "source": "mtkView+avcapture+metalCompletion",
     ]
   }
 }
