@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,8 +30,7 @@ const editorPreviewMaxEdge = 1024;
 
 bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 
-double defaultAdjustmentValue(String filter) =>
-    filter == 'gaussian_blur' || filter == 'sharpen' ? 0 : 1;
+double defaultAdjustmentValue(String filter) => filter == 'gaussian_blur' ? 0 : 1;
 
 enum EditorTool { adjust, filters, film, crop, rotate, details }
 
@@ -196,6 +196,46 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
+  void _hydrateAdjustmentValuesFromRecipe(String recipeJson) {
+    _resetAdjustmentValues();
+    try {
+      final decoded = jsonDecode(recipeJson);
+      if (decoded is! Map<String, dynamic>) return;
+      final operations = decoded['operations'];
+      final cursor = decoded['cursor'];
+      final checkpointCursor = decoded['checkpoint_cursor'];
+      if (operations is! List || cursor is! int || checkpointCursor is! int) return;
+      final start = checkpointCursor.clamp(0, operations.length);
+      final end = cursor.clamp(start, operations.length);
+      for (final operation in operations.sublist(start, end)) {
+        if (operation is! Map) continue;
+        if (operation['type'] != 'filter') continue;
+        final name = operation['name'];
+        final value = operation['value'];
+        if (name is String && value is num && coreFilters.contains(name)) {
+          _adjustmentValues[name] = value.toDouble();
+        }
+      }
+    } catch (_) {
+      _resetAdjustmentValues();
+    }
+  }
+
+  Future<void> _syncAdjustmentValuesFromEngine() async {
+    try {
+      final recipe = await _engine.exportSessionRecipeInBackground();
+      _hydrateAdjustmentValuesFromRecipe(recipe);
+      final filter = state.selectedFilter;
+      if (coreFilters.contains(filter)) {
+        state = state.copyWith(
+          value: _adjustmentValues[filter] ?? defaultAdjustmentValue(filter),
+        );
+      }
+    } catch (_) {
+      // Slider recovery is best-effort; Rust image/session state remains authoritative.
+    }
+  }
+
   Future<void> load(Uint8List bytes) async {
     final generation = ++_thumbnailGeneration;
     _resetPendingKinds();
@@ -218,7 +258,7 @@ class EditorController extends StateNotifier<EditorState> {
   Future<void> restore(Uint8List bytes, String recipeJson) async {
     final generation = ++_thumbnailGeneration;
     _resetPendingKinds();
-    _resetAdjustmentValues();
+    _hydrateAdjustmentValuesFromRecipe(recipeJson);
     state = state.copyWith(isBusy: true, error: null);
     try {
       final loaded = await _engine.restoreSessionInBackground(bytes, recipeJson);
@@ -629,12 +669,14 @@ class EditorController extends StateNotifier<EditorState> {
     if (!state.canUndo || state.isBusy || state.isPreviewProcessing) return;
     _resetPendingKinds();
     await _applyBackgroundTransform(_engine.undoInBackground);
+    await _syncAdjustmentValuesFromEngine();
   }
 
   Future<void> redo() async {
     if (!state.canRedo || state.isBusy || state.isPreviewProcessing) return;
     _resetPendingKinds();
     await _applyBackgroundTransform(_engine.redoInBackground);
+    await _syncAdjustmentValuesFromEngine();
   }
 
   Future<void> _applyBackgroundTransform(
