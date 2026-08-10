@@ -156,6 +156,16 @@ class GpuEditorDiagnosticsBridge {
     return GpuEditorParityResult.fromMap(map);
   }
 
+  Future<GpuEditorParityResult> runCreativeParity() async {
+    final map = await _editorPreviewChannel.invokeMapMethod<Object?, Object?>(
+      'runCreativeParity',
+    );
+    if (map == null) {
+      throw StateError('Creative filter GPU parity returned no data');
+    }
+    return GpuEditorParityResult.fromMap(map);
+  }
+
   Future<GpuEditorLatencyResult> runLatencyBenchmark() async {
     final map = await _channel.invokeMapMethod<Object?, Object?>(
       'runLatencyBenchmark',
