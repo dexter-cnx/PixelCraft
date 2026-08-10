@@ -135,7 +135,7 @@ final class MetalFilmLutLoader {
   }
 }
 
-// MARK: - G2 editor GPU preview lab
+// MARK: - G2 editor GPU preview lab / integration
 
 final class GpuEditorPreviewPlugin {
   static let channelName = "dev.pixelcraft/gpu_editor_preview_v1"
@@ -362,8 +362,6 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     constexpr sampler lutSampler(coord::normalized, address::clamp_to_edge, filter::linear);
 
     float3 color = sourceTexture.sample(sourceSampler, in.uv).rgb;
-
-    // Match rust/src/filters.rs semantics exactly for the first G2 nodes.
     color = clamp(color + (uniforms.brightness - 1.0), 0.0, 1.0);
     const float midpoint = 128.0 / 255.0;
     color = clamp((color - midpoint) * uniforms.contrast + midpoint, 0.0, 1.0);
@@ -389,6 +387,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private weak var outputView: MTKView?
   private var sourceTexture: MTLTexture?
   private var currentLut: MTLTexture
+  private var currentProfileId = ""
   private var brightness: Float = 1
   private var contrast: Float = 1
   private var saturation: Float = 1
@@ -467,7 +466,8 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   }
 
   func setFilm(profileId: String, strength: Double) throws {
-    if profileId.isEmpty || strength <= 0 {
+    let clampedStrength = Float(max(0, min(1, strength)))
+    if profileId.isEmpty || clampedStrength <= 0 {
       stateQueue.sync {
         filmStrength = 0
         useLut = 0
@@ -475,10 +475,21 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       requestDraw()
       return
     }
+
+    if profileId == currentProfileId {
+      stateQueue.sync {
+        filmStrength = clampedStrength
+        useLut = 1
+      }
+      requestDraw()
+      return
+    }
+
     let lut = try lutLoader.load(profileId: profileId)
     stateQueue.sync {
       currentLut = lut
-      filmStrength = Float(max(0, min(1, strength)))
+      currentProfileId = profileId
+      filmStrength = clampedStrength
       useLut = 1
     }
     requestDraw()
