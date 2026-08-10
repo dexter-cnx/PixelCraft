@@ -105,8 +105,6 @@ class _GpuColorCharacterizationScreenState
     });
 
     try {
-      // Sample the native video stream immediately before triggering the clean
-      // AVCapturePhotoOutput still. Keep the scene steady during this window.
       final native = await _diagnosticsBridge.colorSample(rendererId);
       final photoPath = await _cameraBridge.capturePhoto(rendererId);
       final cleanBytes = await File(photoPath).readAsBytes();
@@ -257,7 +255,7 @@ class _GpuColorCharacterizationScreenState
       final side = width < height ? width : height;
       final originX = (width - side) ~/ 2;
       final originY = (height - side) ~/ 2;
-      final step = (side / 64).floor().clamp(1, side);
+      final step = (side / 64).floor().clamp(1, side).toInt();
 
       var red = 0.0;
       var green = 0.0;
