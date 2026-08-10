@@ -198,6 +198,17 @@ final class GpuEditorPreviewPlugin {
       } catch {
         result(flutterError("gpu_editor_adjustment_failed", error))
       }
+    case "setCreative":
+      guard let id = rendererId(args, result: result) else { return }
+      do {
+        try registry.renderer(id: id).setCreative(
+          filterId: args["filterId"] as? String ?? "",
+          intensity: number(args["intensity"], fallback: 0)
+        )
+        result(nil)
+      } catch {
+        result(flutterError("gpu_editor_creative_failed", error))
+      }
     case "setFilm":
       guard let id = rendererId(args, result: result) else { return }
       do {
@@ -344,6 +355,13 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     var horizontal: UInt32
   }
 
+  private struct CreativeUniforms {
+    var width: UInt32
+    var height: UInt32
+    var mode: UInt32
+    var intensity: Float
+  }
+
   fileprivate static let shaderSource = """
   #include <metal_stdlib>
   using namespace metal;
@@ -368,6 +386,13 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     uint height;
     float sigma;
     uint horizontal;
+  };
+
+  struct CreativeUniforms {
+    uint width;
+    uint height;
+    uint mode;
+    float intensity;
   };
 
   inline float gaussian_weight(float x, float sigma) {
@@ -399,6 +424,33 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       sum += input.read(uint2(uint(px), uint(py))) * weight;
     }
     output.write(clamp(sum, 0.0, 1.0), gid);
+  }
+
+  kernel void pixelcraft_editor_creative(
+    texture2d<float, access::read> input [[texture(0)]],
+    texture2d<float, access::write> output [[texture(1)]],
+    constant CreativeUniforms &uniforms [[buffer(0)]],
+    uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= uniforms.width || gid.y >= uniforms.height) return;
+
+    float4 source = input.read(gid);
+    uint3 source8 = uint3(clamp(floor(source.rgb * 255.0 + 0.5), 0.0, 255.0));
+    uint3 effected8 = source8;
+    if (uniforms.mode == 1) {
+      uint average = (source8.r + source8.g + source8.b) / 3;
+      effected8 = uint3(average);
+    } else if (uniforms.mode == 2) {
+      effected8 = uint3(255) - source8;
+    }
+
+    float strength = clamp(uniforms.intensity, 0.0, 1.0);
+    float3 blended8 = floor(
+      float3(source8) + (float3(effected8) - float3(source8)) * strength + 0.5
+    );
+    output.write(
+      float4(clamp(blended8, 0.0, 255.0) / 255.0, source.a),
+      gid
+    );
   }
 
   vertex VertexOut pixelcraft_editor_vertex(
@@ -462,6 +514,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private let commandQueue: MTLCommandQueue
   private let pipeline: MTLRenderPipelineState
   private let blurPipeline: MTLComputePipelineState
+  private let creativePipeline: MTLComputePipelineState
   private let textureLoader: MTKTextureLoader
   private let lutLoader: MetalFilmLutLoader
   private let stateQueue = DispatchQueue(label: "dev.pixelcraft.gpu.editor.state", qos: .userInitiated)
@@ -470,6 +523,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private var sourceTexture: MTLTexture?
   private var blurHorizontalTexture: MTLTexture?
   private var blurVerticalTexture: MTLTexture?
+  private var creativeTexture: MTLTexture?
   private var currentLut: MTLTexture
   private var currentProfileId = ""
   private var brightness: Float = 1
@@ -477,6 +531,8 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private var saturation: Float = 1
   private var sharpen: Float = 0
   private var gaussianBlur: Float = 0
+  private var creativeMode: UInt32 = 0
+  private var creativeIntensity: Float = 0
   private var filmStrength: Float = 0
   private var useLut: Float = 0
 
@@ -491,7 +547,8 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     guard
       let vertex = library.makeFunction(name: "pixelcraft_editor_vertex"),
       let fragment = library.makeFunction(name: "pixelcraft_editor_fragment"),
-      let blur = library.makeFunction(name: "pixelcraft_editor_gaussian_blur")
+      let blur = library.makeFunction(name: "pixelcraft_editor_gaussian_blur"),
+      let creative = library.makeFunction(name: "pixelcraft_editor_creative")
     else {
       throw Self.error("Editor Metal shader functions are unavailable")
     }
@@ -504,6 +561,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     self.commandQueue = commandQueue
     self.pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
     self.blurPipeline = try device.makeComputePipelineState(function: blur)
+    self.creativePipeline = try device.makeComputePipelineState(function: creative)
     self.textureLoader = MTKTextureLoader(device: device)
     self.lutLoader = MetalFilmLutLoader(device: device)
     self.currentLut = try self.lutLoader.makeIdentity()
@@ -544,6 +602,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       sourceTexture = texture
       blurHorizontalTexture = nil
       blurVerticalTexture = nil
+      creativeTexture = nil
     }
     requestDraw()
   }
@@ -565,6 +624,26 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       self.saturation = Float(max(0, min(2, saturation)))
       self.sharpen = Float(max(0, min(2, sharpen)))
       self.gaussianBlur = blur
+    }
+    requestDraw()
+  }
+
+  func setCreative(filterId: String, intensity: Double) throws {
+    let clamped = Float(max(0, min(1, intensity)))
+    let mode: UInt32
+    switch filterId {
+    case "", "none": mode = 0
+    case "grayscale": mode = 1
+    case "invert": mode = 2
+    default:
+      throw Self.error("Unsupported Metal creative filter: \(filterId)")
+    }
+    if mode != 0 && clamped > 0.0001 {
+      try ensureCreativeTextureForCurrentSource()
+    }
+    stateQueue.sync {
+      creativeMode = mode
+      creativeIntensity = mode == 0 ? 0 : clamped
     }
     requestDraw()
   }
@@ -608,6 +687,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     sourceTexture = nil
     blurHorizontalTexture = nil
     blurVerticalTexture = nil
+    creativeTexture = nil
   }
 
   func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -618,24 +698,30 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     var source: MTLTexture?
     var blurHorizontal: MTLTexture?
     var blurVertical: MTLTexture?
+    var creativeOutput: MTLTexture?
     var lut: MTLTexture?
     var localBrightness: Float = 1
     var localContrast: Float = 1
     var localSaturation: Float = 1
     var localSharpen: Float = 0
     var localGaussianBlur: Float = 0
+    var localCreativeMode: UInt32 = 0
+    var localCreativeIntensity: Float = 0
     var localFilmStrength: Float = 0
     var localUseLut: Float = 0
     stateQueue.sync {
       source = sourceTexture
       blurHorizontal = blurHorizontalTexture
       blurVertical = blurVerticalTexture
+      creativeOutput = creativeTexture
       lut = currentLut
       localBrightness = brightness
       localContrast = contrast
       localSaturation = saturation
       localSharpen = sharpen
       localGaussianBlur = gaussianBlur
+      localCreativeMode = creativeMode
+      localCreativeIntensity = creativeIntensity
       localFilmStrength = filmStrength
       localUseLut = useLut
     }
@@ -647,6 +733,23 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     else { return }
 
     var renderSource = source
+    if localCreativeMode != 0,
+       localCreativeIntensity > 0.0001,
+       let creativeOutput {
+      do {
+        try encodeCreative(
+          commandBuffer: commandBuffer,
+          input: source,
+          output: creativeOutput,
+          mode: localCreativeMode,
+          intensity: localCreativeIntensity
+        )
+        renderSource = creativeOutput
+      } catch {
+        return
+      }
+    }
+
     if localGaussianBlur > 0.0001,
        let blurHorizontal,
        let blurVertical {
@@ -654,7 +757,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       do {
         try encodeBlur(
           commandBuffer: commandBuffer,
-          input: source,
+          input: renderSource,
           output: blurHorizontal,
           sigma: sigma,
           horizontal: true
@@ -746,6 +849,61 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       blurHorizontalTexture = newHorizontal
       blurVerticalTexture = newVertical
     }
+  }
+
+  private func ensureCreativeTextureForCurrentSource() throws {
+    var source: MTLTexture?
+    var existing: MTLTexture?
+    stateQueue.sync {
+      source = sourceTexture
+      existing = creativeTexture
+    }
+    guard let source else { return }
+    if existing?.width == source.width, existing?.height == source.height {
+      return
+    }
+
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+      pixelFormat: .rgba8Unorm,
+      width: source.width,
+      height: source.height,
+      mipmapped: false
+    )
+    descriptor.usage = [.shaderRead, .shaderWrite]
+    descriptor.storageMode = .private
+    guard let texture = device.makeTexture(descriptor: descriptor) else {
+      throw Self.error("Unable to allocate creative filter working texture")
+    }
+    stateQueue.sync { creativeTexture = texture }
+  }
+
+  private func encodeCreative(
+    commandBuffer: MTLCommandBuffer,
+    input: MTLTexture,
+    output: MTLTexture,
+    mode: UInt32,
+    intensity: Float
+  ) throws {
+    guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+      throw Self.error("Unable to create creative filter compute encoder")
+    }
+    var uniforms = CreativeUniforms(
+      width: UInt32(output.width),
+      height: UInt32(output.height),
+      mode: mode,
+      intensity: intensity
+    )
+    encoder.setComputePipelineState(creativePipeline)
+    encoder.setTexture(input, index: 0)
+    encoder.setTexture(output, index: 1)
+    encoder.setBytes(&uniforms, length: MemoryLayout<CreativeUniforms>.stride, index: 0)
+    let threadWidth = creativePipeline.threadExecutionWidth
+    let threadHeight = max(1, creativePipeline.maxTotalThreadsPerThreadgroup / threadWidth)
+    encoder.dispatchThreads(
+      MTLSize(width: output.width, height: output.height, depth: 1),
+      threadsPerThreadgroup: MTLSize(width: threadWidth, height: threadHeight, depth: 1)
+    )
+    encoder.endEncoding()
   }
 
   private func encodeBlur(
