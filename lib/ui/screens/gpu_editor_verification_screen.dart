@@ -17,10 +17,12 @@ class _GpuEditorVerificationScreenState
   GpuEditorParityResult? _parity;
   GpuEditorParityResult? _blurParity;
   GpuEditorLatencyResult? _latency;
+  GpuEditorLatencyResult? _blurLatency;
   String? _error;
   bool _runningParity = false;
   bool _runningBlurParity = false;
   bool _runningLatency = false;
+  bool _runningBlurLatency = false;
 
   Future<void> _runParity() async {
     if (_runningParity) return;
@@ -99,6 +101,30 @@ class _GpuEditorVerificationScreenState
       if (mounted) setState(() => _error = '$error');
     } finally {
       if (mounted) setState(() => _runningLatency = false);
+    }
+  }
+
+  Future<void> _runBlurLatency() async {
+    if (_runningBlurLatency) return;
+    setState(() {
+      _runningBlurLatency = true;
+      _error = null;
+    });
+    try {
+      final result = await _bridge.runGaussianBlurLatencyBenchmark();
+      if (!mounted) return;
+      setState(() => _blurLatency = result);
+      debugPrint(
+        '[G2 gaussian latency] ${result.device} ${result.width}x${result.height} '
+        'avg=${result.averageMs.toStringAsFixed(3)}ms '
+        'p95=${result.p95Ms.toStringAsFixed(3)}ms '
+        'p99=${result.p99Ms.toStringAsFixed(3)}ms '
+        'passed=${result.passed}',
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _runningBlurLatency = false);
     }
   }
 
@@ -186,39 +212,31 @@ class _GpuEditorVerificationScreenState
           ),
           if (_latency case final latency?) ...[
             const SizedBox(height: 12),
-            Card.filled(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _StatusLine(
-                      passed: latency.passed,
-                      label: latency.passed
-                          ? 'Latency target PASS'
-                          : 'Latency target FAIL',
-                    ),
-                    const SizedBox(height: 10),
-                    _MetricRow('Device', latency.device),
-                    _MetricRow('Workload', latency.workload),
-                    _MetricRow('Size', '${latency.width}×${latency.height}'),
-                    _MetricRow('Iterations', '${latency.iterations}'),
-                    _MetricRow(
-                      'Average',
-                      '${latency.averageMs.toStringAsFixed(3)} ms',
-                    ),
-                    _MetricRow('p50', '${latency.p50Ms.toStringAsFixed(3)} ms'),
-                    _MetricRow('p95', '${latency.p95Ms.toStringAsFixed(3)} ms'),
-                    _MetricRow('p99', '${latency.p99Ms.toStringAsFixed(3)} ms'),
-                    _MetricRow('Max', '${latency.maxMs.toStringAsFixed(3)} ms'),
-                    _MetricRow(
-                      'Target p95',
-                      '≤ ${latency.targetMs.toStringAsFixed(2)} ms',
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _LatencyCard(result: latency, title: 'Editor latency'),
+          ],
+          const SizedBox(height: 28),
+          Text(
+            'Gaussian blur latency',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Runs the worst-case editor blur value 2.00 (sigma 5.0) as two separable 1024×1024 Metal compute passes. Working textures are allocated before timing.',
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _runningBlurLatency ? null : _runBlurLatency,
+            icon: _runningBlurLatency
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.blur_circular_rounded),
+            label: const Text('Run 1024² Gaussian Blur Latency'),
+          ),
+          if (_blurLatency case final latency?) ...[
+            const SizedBox(height: 12),
+            _LatencyCard(result: latency, title: 'Gaussian blur latency'),
           ],
           if (_error case final error?) ...[
             const SizedBox(height: 16),
@@ -281,6 +299,43 @@ class _ParityCard extends StatelessWidget {
                 const Divider(height: 24),
                 Text(result.filmParity),
               ],
+            ],
+          ),
+        ),
+      );
+}
+
+class _LatencyCard extends StatelessWidget {
+  const _LatencyCard({required this.result, required this.title});
+
+  final GpuEditorLatencyResult result;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Card.filled(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _StatusLine(
+                passed: result.passed,
+                label: result.passed ? '$title PASS' : '$title FAIL',
+              ),
+              const SizedBox(height: 10),
+              _MetricRow('Device', result.device),
+              _MetricRow('Workload', result.workload),
+              _MetricRow('Size', '${result.width}×${result.height}'),
+              _MetricRow('Iterations', '${result.iterations}'),
+              _MetricRow('Average', '${result.averageMs.toStringAsFixed(3)} ms'),
+              _MetricRow('p50', '${result.p50Ms.toStringAsFixed(3)} ms'),
+              _MetricRow('p95', '${result.p95Ms.toStringAsFixed(3)} ms'),
+              _MetricRow('p99', '${result.p99Ms.toStringAsFixed(3)} ms'),
+              _MetricRow('Max', '${result.maxMs.toStringAsFixed(3)} ms'),
+              _MetricRow(
+                'Target p95',
+                '≤ ${result.targetMs.toStringAsFixed(2)} ms',
+              ),
             ],
           ),
         ),
