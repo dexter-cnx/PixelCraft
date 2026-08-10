@@ -53,13 +53,13 @@ final class MetalCameraPreviewPlatformView: NSObject, FlutterPlatformView {
         orientation: currentOrientation(for: metalView)
       )
 
-      // The renderer remains the real MTKViewDelegate. In debug diagnostics we
-      // insert a lightweight proxy that timestamps each actual MTKView draw
-      // callback, then forwards it to the renderer unchanged. No frame pixels
-      // or Metal resources cross Flutter/Dart.
       let renderer = try registry.renderer(id: rendererId)
-      let monitor = GpuFramePacingDiagnostics.shared.monitor(rendererId: rendererId)
+      let diagnostics = GpuFramePacingDiagnostics.shared
+      let monitor = diagnostics.monitor(rendererId: rendererId)
       renderer.setDiagnosticsMonitor(monitor)
+      diagnostics.registerColorProvider(rendererId: rendererId) { maxSamples in
+        try renderer.colorCharacterizationSample(maxSamples: maxSamples)
+      }
       let proxy = MetalFramePacingDelegateProxy(renderer: renderer, monitor: monitor)
       framePacingProxy = proxy
       metalView.delegate = proxy
@@ -129,11 +129,15 @@ private final class MetalFramePacingDelegateProxy: NSObject, MTKViewDelegate {
 }
 
 final class GpuFramePacingDiagnostics {
+  typealias ColorProvider = (Int) throws -> [String: Any]
+
   static let shared = GpuFramePacingDiagnostics()
   static let channelName = "dev.pixelcraft/gpu_frame_pacing_v1"
 
   private let lock = NSLock()
+  private let colorQueue = DispatchQueue(label: "dev.pixelcraft.gpu.color-characterization", qos: .userInitiated)
   private var monitors: [String: GpuFramePacingMonitor] = [:]
+  private var colorProviders: [String: ColorProvider] = [:]
   private var channel: FlutterMethodChannel?
 
   private init() {}
@@ -156,13 +160,26 @@ final class GpuFramePacingDiagnostics {
     return monitor
   }
 
-  func remove(rendererId: String) {
+  func registerColorProvider(rendererId: String, provider: @escaping ColorProvider) {
     lock.lock()
-    monitors.removeValue(forKey: rendererId)
+    colorProviders[rendererId] = provider
     lock.unlock()
   }
 
-  private func handle(call: FlutterMethodCall, result: FlutterResult) {
+  func remove(rendererId: String) {
+    lock.lock()
+    monitors.removeValue(forKey: rendererId)
+    colorProviders.removeValue(forKey: rendererId)
+    lock.unlock()
+  }
+
+  private func colorProvider(rendererId: String) -> ColorProvider? {
+    lock.lock()
+    defer { lock.unlock() }
+    return colorProviders[rendererId]
+  }
+
+  private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any] ?? [:]
     guard let rendererId = args["rendererId"] as? String, !rendererId.isEmpty else {
       result(FlutterError(
@@ -170,6 +187,33 @@ final class GpuFramePacingDiagnostics {
         message: "rendererId is required",
         details: nil
       ))
+      return
+    }
+
+    if call.method == "colorSample" {
+      guard let provider = colorProvider(rendererId: rendererId) else {
+        result(FlutterError(
+          code: "gpu_color_characterization_unavailable",
+          message: "Color characterization provider is unavailable for this renderer",
+          details: nil
+        ))
+        return
+      }
+      let maxSamples = max(64, (args["maxSamples"] as? NSNumber)?.intValue ?? 4096)
+      colorQueue.async {
+        do {
+          let payload = try provider(maxSamples)
+          DispatchQueue.main.async { result(payload) }
+        } catch {
+          DispatchQueue.main.async {
+            result(FlutterError(
+              code: "gpu_color_characterization_failed",
+              message: error.localizedDescription,
+              details: nil
+            ))
+          }
+        }
+      }
       return
     }
 
