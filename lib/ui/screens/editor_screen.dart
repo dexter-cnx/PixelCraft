@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/export_file_service.dart';
+import '../../gpu/gpu_editor_preview_bridge.dart';
+import '../../gpu/ios_gpu_editor_preview.dart';
 import '../../state/editor_controller.dart';
 import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
@@ -36,14 +40,47 @@ class EditorScreen extends ConsumerStatefulWidget {
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
   static const _fileService = ExportFileService();
+  static const _gpuEditorIntegration =
+      bool.fromEnvironment('GPU_EDITOR_INTEGRATION');
+  static const _gpuBridge = GpuEditorPreviewBridge();
+
   bool _isSavingExport = false;
   bool _isPreparingSource = true;
   String? _sourceError;
+
+  String? _gpuRendererId;
+  File? _gpuSourceFile;
+  Future<String>? _gpuRendererFuture;
+  bool _gpuPreviewActive = false;
+  String? _gpuDraftKind;
+  String? _gpuDraftKey;
+  double _gpuDraftValue = 1;
+  String? _gpuOwnedDraftKind;
+  String? _gpuOwnedDraftKey;
+  int _gpuActivationSerial = 0;
+
+  bool get _gpuIntegrationEligible =>
+      _gpuEditorIntegration &&
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   @override
   void initState() {
     super.initState();
     Future.microtask(_initializeEditor);
+  }
+
+  @override
+  void dispose() {
+    final rendererId = _gpuRendererId;
+    if (rendererId != null) {
+      unawaited(_gpuBridge.destroyRenderer(rendererId).catchError((_) {}));
+    }
+    final file = _gpuSourceFile;
+    if (file != null) {
+      unawaited(file.delete().catchError((_) => file));
+    }
+    super.dispose();
   }
 
   Future<void> _initializeEditor() async {
@@ -54,9 +91,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         bytes = await ref.read(imageFileLoaderProvider)(path);
       } else {
         final source = widget.imageBytes!;
-        // Camera/gallery reads already produce Uint8List. Reuse that buffer
-        // instead of copying a potentially multi-megabyte full-resolution
-        // image before handing it to the background engine.
         bytes = source is Uint8List ? source : Uint8List.fromList(source);
       }
 
@@ -76,6 +110,167 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         _isPreparingSource = false;
         _sourceError = '$error';
       });
+    }
+  }
+
+  bool _canUseGpuDraft(EditorState state, String kind, String key) {
+    if (!_gpuIntegrationEligible || state.isBusy || state.isPreviewProcessing) {
+      return false;
+    }
+    if (state.originalPreviewBytes == null || state.showOriginal) return false;
+
+    if (kind == 'adjust') {
+      final supported =
+          key == 'brightness' || key == 'contrast' || key == 'saturation';
+      if (!supported) return false;
+      if (state.cursor == 0) return true;
+      return state.cursor == 1 &&
+          _gpuOwnedDraftKind == kind &&
+          _gpuOwnedDraftKey == key;
+    }
+
+    if (kind == 'film') {
+      // A selected Film profile with exactly one draft operation is safe: the
+      // checkpoint excludes that Film operation and Metal can render the new
+      // strength directly from the checkpoint without stacking LUTs.
+      return state.cursor <= 1 && state.selectedFilmProfile == key;
+    }
+
+    return false;
+  }
+
+  void _onGpuPreviewStart(String kind, String key, double value) {
+    final state = ref.read(editorProvider);
+    if (!_canUseGpuDraft(state, kind, key)) return;
+
+    _gpuDraftKind = kind;
+    _gpuDraftKey = key;
+    _gpuDraftValue = value;
+    final serial = ++_gpuActivationSerial;
+    unawaited(_activateGpuPreview(state, serial));
+  }
+
+  void _onGpuPreviewChanged(String kind, String key, double value) {
+    if (_gpuDraftKind != kind || _gpuDraftKey != key) return;
+    _gpuDraftValue = value;
+    final rendererId = _gpuRendererId;
+    if (rendererId != null && _gpuPreviewActive) {
+      unawaited(_applyGpuDraft(rendererId));
+    }
+  }
+
+  void _onGpuPreviewCommit(String kind, String key, double value) {
+    unawaited(_commitGpuPreview(kind, key, value));
+  }
+
+  Future<String> _ensureGpuRenderer() {
+    final id = _gpuRendererId;
+    if (id != null) return Future.value(id);
+    final pending = _gpuRendererFuture;
+    if (pending != null) return pending;
+
+    final future = _gpuBridge.createRenderer().then((id) {
+      _gpuRendererId = id;
+      _gpuRendererFuture = null;
+      return id;
+    }, onError: (Object error, StackTrace stack) {
+      _gpuRendererFuture = null;
+      Error.throwWithStackTrace(error, stack);
+    });
+    _gpuRendererFuture = future;
+    return future;
+  }
+
+  Future<void> _activateGpuPreview(EditorState state, int serial) async {
+    try {
+      final checkpoint = state.originalPreviewBytes;
+      if (checkpoint == null) return;
+
+      final rendererId = await _ensureGpuRenderer();
+      if (!mounted || serial != _gpuActivationSerial) return;
+
+      final previous = _gpuSourceFile;
+      final file = File(
+        '${Directory.systemTemp.path}/pixelcraft-editor-gpu-${identityHashCode(this)}.png',
+      );
+      await file.writeAsBytes(checkpoint, flush: true);
+      if (previous != null && previous.path != file.path) {
+        unawaited(previous.delete().catchError((_) => previous));
+      }
+      _gpuSourceFile = file;
+
+      await _gpuBridge.setSourcePath(rendererId, file.path);
+      if (!mounted || serial != _gpuActivationSerial) return;
+      await _applyGpuDraft(rendererId);
+      if (!mounted || serial != _gpuActivationSerial) return;
+
+      setState(() => _gpuPreviewActive = true);
+    } catch (error) {
+      debugPrint('[G2 editor GPU] live preview unavailable: $error');
+      if (mounted && serial == _gpuActivationSerial) {
+        setState(() => _gpuPreviewActive = false);
+      }
+    }
+  }
+
+  Future<void> _applyGpuDraft(String rendererId) async {
+    final kind = _gpuDraftKind;
+    final key = _gpuDraftKey;
+    if (kind == null || key == null) return;
+    final value = _gpuDraftValue;
+
+    if (kind == 'adjust') {
+      var adjustments = const GpuEditorAdjustmentState();
+      adjustments = switch (key) {
+        'brightness' => adjustments.copyWith(brightness: value),
+        'contrast' => adjustments.copyWith(contrast: value),
+        'saturation' => adjustments.copyWith(saturation: value),
+        _ => adjustments,
+      };
+      await _gpuBridge.setFilm(
+        rendererId,
+        profileId: '',
+        strength: 0,
+      );
+      await _gpuBridge.setAdjustments(rendererId, adjustments);
+      return;
+    }
+
+    if (kind == 'film') {
+      await _gpuBridge.setAdjustments(
+        rendererId,
+        const GpuEditorAdjustmentState(),
+      );
+      await _gpuBridge.setFilm(
+        rendererId,
+        profileId: key,
+        strength: value,
+      );
+    }
+  }
+
+  Future<void> _commitGpuPreview(String kind, String key, double value) async {
+    final controller = ref.read(editorProvider.notifier);
+    final wasGpuActive = _gpuPreviewActive &&
+        _gpuDraftKind == kind &&
+        _gpuDraftKey == key;
+
+    try {
+      if (kind == 'adjust') {
+        await controller.commitFilterValue(value);
+      } else if (kind == 'film') {
+        await controller.updateFilmProfileStrength(value);
+      }
+      if (wasGpuActive) {
+        _gpuOwnedDraftKind = kind;
+        _gpuOwnedDraftKey = key;
+      }
+    } finally {
+      if (mounted && wasGpuActive) {
+        setState(() => _gpuPreviewActive = false);
+      }
+      _gpuDraftKind = null;
+      _gpuDraftKey = null;
     }
   }
 
@@ -207,6 +402,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       appBar: AppBar(
         title: Text('Editor · ${state.cursor}/${state.operationCount} edits'),
         actions: [
+          if (_gpuIntegrationEligible)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Chip(
+                avatar: const Icon(Icons.memory_rounded, size: 16),
+                label: Text(_gpuPreviewActive ? 'GPU LIVE' : 'GPU READY'),
+              ),
+            ),
           IconButton(
             onPressed: state.canUndo && !actionsBlocked ? controller.undo : null,
             tooltip: 'Undo',
@@ -247,8 +450,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       )
                     : LayoutBuilder(
                         builder: (context, constraints) {
-                          final canvas = _EditorCanvas(state: state, controller: controller);
-                          final tools = EditorToolPanel(state: state, controller: controller);
+                          final canvas = _EditorCanvas(
+                            state: state,
+                            controller: controller,
+                            gpuRendererId: _gpuRendererId,
+                            gpuPreviewActive: _gpuPreviewActive,
+                          );
+                          final tools = EditorToolPanel(
+                            state: state,
+                            controller: controller,
+                            onGpuPreviewStart:
+                                _gpuIntegrationEligible ? _onGpuPreviewStart : null,
+                            onGpuPreviewChanged:
+                                _gpuIntegrationEligible ? _onGpuPreviewChanged : null,
+                            onGpuPreviewCommit:
+                                _gpuIntegrationEligible ? _onGpuPreviewCommit : null,
+                          );
                           final content = constraints.maxWidth >= 900
                               ? Padding(
                                   padding: const EdgeInsets.all(16),
@@ -438,13 +655,23 @@ class _PreparingPhotoView extends StatelessWidget {
 }
 
 class _EditorCanvas extends StatelessWidget {
-  const _EditorCanvas({required this.state, required this.controller});
+  const _EditorCanvas({
+    required this.state,
+    required this.controller,
+    required this.gpuRendererId,
+    required this.gpuPreviewActive,
+  });
 
   final EditorState state;
   final EditorController controller;
+  final String? gpuRendererId;
+  final bool gpuPreviewActive;
 
   @override
   Widget build(BuildContext context) {
+    final rendererId = gpuRendererId;
+    final showGpu = gpuPreviewActive && rendererId != null && !state.showOriginal;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPressStart: state.isBusy
@@ -459,6 +686,24 @@ class _EditorCanvas extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           ImagePreview(bytes: state.visiblePreview!),
+          if (showGpu)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: IosGpuEditorPreview(rendererId: rendererId),
+                ),
+              ),
+            ),
+          if (showGpu)
+            const Positioned(
+              top: 12,
+              right: 12,
+              child: Chip(
+                avatar: Icon(Icons.bolt_rounded, size: 16),
+                label: Text('Metal live draft'),
+              ),
+            ),
           Positioned(
             top: 12,
             left: 12,
