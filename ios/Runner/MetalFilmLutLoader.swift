@@ -2,6 +2,7 @@ import Flutter
 import Foundation
 import Metal
 import MetalKit
+import QuartzCore
 import UIKit
 
 final class MetalFilmLutLoader {
@@ -135,7 +136,7 @@ final class MetalFilmLutLoader {
   }
 }
 
-// MARK: - G2 editor GPU preview lab / integration
+// MARK: - G2 editor GPU preview / integration
 
 final class GpuEditorPreviewPlugin {
   static let channelName = "dev.pixelcraft/gpu_editor_preview_v1"
@@ -143,6 +144,10 @@ final class GpuEditorPreviewPlugin {
 
   private let channel: FlutterMethodChannel
   private let registry = MetalEditorRendererRegistry()
+  private let benchmarkQueue = DispatchQueue(
+    label: "dev.pixelcraft.gpu.editor.blur.benchmark",
+    qos: .userInitiated
+  )
 
   init(registrar: FlutterPluginRegistrar) {
     channel = FlutterMethodChannel(
@@ -182,12 +187,12 @@ final class GpuEditorPreviewPlugin {
     case "setAdjustments":
       guard let id = rendererId(args, result: result) else { return }
       do {
-        let renderer = try registry.renderer(id: id)
-        renderer.setAdjustments(
+        try registry.renderer(id: id).setAdjustments(
           brightness: number(args["brightness"], fallback: 1),
           contrast: number(args["contrast"], fallback: 1),
           saturation: number(args["saturation"], fallback: 1),
-          sharpen: number(args["sharpen"], fallback: 0)
+          sharpen: number(args["sharpen"], fallback: 0),
+          gaussianBlur: number(args["gaussianBlur"], fallback: 0)
         )
         result(nil)
       } catch {
@@ -203,6 +208,18 @@ final class GpuEditorPreviewPlugin {
         result(nil)
       } catch {
         result(flutterError("gpu_editor_film_failed", error))
+      }
+    case "runGaussianBlurLatencyBenchmark":
+      benchmarkQueue.async { [weak self] in
+        guard let self else { return }
+        do {
+          let payload = try MetalGaussianBlurBenchmark().run()
+          DispatchQueue.main.async { result(payload) }
+        } catch {
+          DispatchQueue.main.async {
+            result(self.flutterError("gpu_editor_blur_latency_failed", error))
+          }
+        }
       }
     case "destroyRenderer":
       guard let id = rendererId(args, result: result) else { return }
@@ -320,7 +337,14 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     var useLut: Float
   }
 
-  private static let shaderSource = """
+  private struct BlurUniforms {
+    var width: UInt32
+    var height: UInt32
+    var sigma: Float
+    var horizontal: UInt32
+  }
+
+  fileprivate static let shaderSource = """
   #include <metal_stdlib>
   using namespace metal;
 
@@ -338,6 +362,44 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     float filmStrength;
     float useLut;
   };
+
+  struct BlurUniforms {
+    uint width;
+    uint height;
+    float sigma;
+    uint horizontal;
+  };
+
+  inline float gaussian_weight(float x, float sigma) {
+    const float twoPi = 6.28318530717958647692;
+    float safeSigma = max(sigma, 0.01);
+    return exp(-(x * x) / (2.0 * safeSigma * safeSigma)) /
+      (sqrt(twoPi) * safeSigma);
+  }
+
+  kernel void pixelcraft_editor_gaussian_blur(
+    texture2d<float, access::read> input [[texture(0)]],
+    texture2d<float, access::write> output [[texture(1)]],
+    constant BlurUniforms &uniforms [[buffer(0)]],
+    uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= uniforms.width || gid.y >= uniforms.height) return;
+
+    float sigma = max(uniforms.sigma, 0.01);
+    int radius = int(ceil(2.0 * sigma));
+    float4 sum = float4(0.0);
+    for (int offset = -radius; offset <= radius; ++offset) {
+      int px = int(gid.x);
+      int py = int(gid.y);
+      if (uniforms.horizontal != 0) {
+        px = clamp(px + offset, 0, int(uniforms.width) - 1);
+      } else {
+        py = clamp(py + offset, 0, int(uniforms.height) - 1);
+      }
+      float weight = gaussian_weight(float(offset), sigma);
+      sum += input.read(uint2(uint(px), uint(py))) * weight;
+    }
+    output.write(clamp(sum, 0.0, 1.0), gid);
+  }
 
   vertex VertexOut pixelcraft_editor_vertex(
     uint vertexId [[vertex_id]],
@@ -399,18 +461,22 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private let device: MTLDevice
   private let commandQueue: MTLCommandQueue
   private let pipeline: MTLRenderPipelineState
+  private let blurPipeline: MTLComputePipelineState
   private let textureLoader: MTKTextureLoader
   private let lutLoader: MetalFilmLutLoader
   private let stateQueue = DispatchQueue(label: "dev.pixelcraft.gpu.editor.state", qos: .userInitiated)
 
   private weak var outputView: MTKView?
   private var sourceTexture: MTLTexture?
+  private var blurHorizontalTexture: MTLTexture?
+  private var blurVerticalTexture: MTLTexture?
   private var currentLut: MTLTexture
   private var currentProfileId = ""
   private var brightness: Float = 1
   private var contrast: Float = 1
   private var saturation: Float = 1
   private var sharpen: Float = 0
+  private var gaussianBlur: Float = 0
   private var filmStrength: Float = 0
   private var useLut: Float = 0
 
@@ -424,7 +490,8 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     let library = try device.makeLibrary(source: Self.shaderSource, options: nil)
     guard
       let vertex = library.makeFunction(name: "pixelcraft_editor_vertex"),
-      let fragment = library.makeFunction(name: "pixelcraft_editor_fragment")
+      let fragment = library.makeFunction(name: "pixelcraft_editor_fragment"),
+      let blur = library.makeFunction(name: "pixelcraft_editor_gaussian_blur")
     else {
       throw Self.error("Editor Metal shader functions are unavailable")
     }
@@ -436,6 +503,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     self.device = device
     self.commandQueue = commandQueue
     self.pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+    self.blurPipeline = try device.makeComputePipelineState(function: blur)
     self.textureLoader = MTKTextureLoader(device: device)
     self.lutLoader = MetalFilmLutLoader(device: device)
     self.currentLut = try self.lutLoader.makeIdentity()
@@ -472,7 +540,11 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
         .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
       ]
     )
-    stateQueue.sync { sourceTexture = texture }
+    stateQueue.sync {
+      sourceTexture = texture
+      blurHorizontalTexture = nil
+      blurVerticalTexture = nil
+    }
     requestDraw()
   }
 
@@ -480,13 +552,19 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     brightness: Double,
     contrast: Double,
     saturation: Double,
-    sharpen: Double
-  ) {
+    sharpen: Double,
+    gaussianBlur: Double
+  ) throws {
+    let blur = Float(max(0, min(2, gaussianBlur)))
+    if blur > 0.0001 {
+      try ensureBlurTexturesForCurrentSource()
+    }
     stateQueue.sync {
       self.brightness = Float(max(0, min(2, brightness)))
       self.contrast = Float(max(0, min(2, contrast)))
       self.saturation = Float(max(0, min(2, saturation)))
       self.sharpen = Float(max(0, min(2, sharpen)))
+      self.gaussianBlur = blur
     }
     requestDraw()
   }
@@ -528,6 +606,8 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     }
     outputView = nil
     sourceTexture = nil
+    blurHorizontalTexture = nil
+    blurVerticalTexture = nil
   }
 
   func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -536,20 +616,26 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
 
   func draw(in view: MTKView) {
     var source: MTLTexture?
+    var blurHorizontal: MTLTexture?
+    var blurVertical: MTLTexture?
     var lut: MTLTexture?
     var localBrightness: Float = 1
     var localContrast: Float = 1
     var localSaturation: Float = 1
     var localSharpen: Float = 0
+    var localGaussianBlur: Float = 0
     var localFilmStrength: Float = 0
     var localUseLut: Float = 0
     stateQueue.sync {
       source = sourceTexture
+      blurHorizontal = blurHorizontalTexture
+      blurVertical = blurVerticalTexture
       lut = currentLut
       localBrightness = brightness
       localContrast = contrast
       localSaturation = saturation
       localSharpen = sharpen
+      localGaussianBlur = gaussianBlur
       localFilmStrength = filmStrength
       localUseLut = useLut
     }
@@ -560,9 +646,35 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       let commandBuffer = commandQueue.makeCommandBuffer()
     else { return }
 
+    var renderSource = source
+    if localGaussianBlur > 0.0001,
+       let blurHorizontal,
+       let blurVertical {
+      let sigma = max(localGaussianBlur * 2.5, 0.01)
+      do {
+        try encodeBlur(
+          commandBuffer: commandBuffer,
+          input: source,
+          output: blurHorizontal,
+          sigma: sigma,
+          horizontal: true
+        )
+        try encodeBlur(
+          commandBuffer: commandBuffer,
+          input: blurHorizontal,
+          output: blurVertical,
+          sigma: sigma,
+          horizontal: false
+        )
+        renderSource = blurVertical
+      } catch {
+        return
+      }
+    }
+
     let outputWidth = max(Float(view.drawableSize.width), 1)
     let outputHeight = max(Float(view.drawableSize.height), 1)
-    let sourceAspect = Float(source.width) / Float(max(source.height, 1))
+    let sourceAspect = Float(renderSource.width) / Float(max(renderSource.height, 1))
     let outputAspect = outputWidth / outputHeight
     let contentScale: SIMD2<Float>
     if sourceAspect > outputAspect {
@@ -590,13 +702,79 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
     encoder.setRenderPipelineState(pipeline)
     encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
-    encoder.setFragmentTexture(source, index: 0)
+    encoder.setFragmentTexture(renderSource, index: 0)
     encoder.setFragmentTexture(lut, index: 1)
     encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
     encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     encoder.endEncoding()
     commandBuffer.present(drawable)
     commandBuffer.commit()
+  }
+
+  private func ensureBlurTexturesForCurrentSource() throws {
+    var source: MTLTexture?
+    var horizontal: MTLTexture?
+    var vertical: MTLTexture?
+    stateQueue.sync {
+      source = sourceTexture
+      horizontal = blurHorizontalTexture
+      vertical = blurVerticalTexture
+    }
+    guard let source else { return }
+    if horizontal?.width == source.width,
+       horizontal?.height == source.height,
+       vertical?.width == source.width,
+       vertical?.height == source.height {
+      return
+    }
+
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+      pixelFormat: .rgba8Unorm,
+      width: source.width,
+      height: source.height,
+      mipmapped: false
+    )
+    descriptor.usage = [.shaderRead, .shaderWrite]
+    descriptor.storageMode = .private
+    guard
+      let newHorizontal = device.makeTexture(descriptor: descriptor),
+      let newVertical = device.makeTexture(descriptor: descriptor)
+    else {
+      throw Self.error("Unable to allocate Gaussian blur working textures")
+    }
+    stateQueue.sync {
+      blurHorizontalTexture = newHorizontal
+      blurVerticalTexture = newVertical
+    }
+  }
+
+  private func encodeBlur(
+    commandBuffer: MTLCommandBuffer,
+    input: MTLTexture,
+    output: MTLTexture,
+    sigma: Float,
+    horizontal: Bool
+  ) throws {
+    guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+      throw Self.error("Unable to create Gaussian blur compute encoder")
+    }
+    var uniforms = BlurUniforms(
+      width: UInt32(output.width),
+      height: UInt32(output.height),
+      sigma: sigma,
+      horizontal: horizontal ? 1 : 0
+    )
+    encoder.setComputePipelineState(blurPipeline)
+    encoder.setTexture(input, index: 0)
+    encoder.setTexture(output, index: 1)
+    encoder.setBytes(&uniforms, length: MemoryLayout<BlurUniforms>.stride, index: 0)
+    let threadWidth = blurPipeline.threadExecutionWidth
+    let threadHeight = max(1, blurPipeline.maxTotalThreadsPerThreadgroup / threadWidth)
+    encoder.dispatchThreads(
+      MTLSize(width: output.width, height: output.height, depth: 1),
+      threadsPerThreadgroup: MTLSize(width: threadWidth, height: threadHeight, depth: 1)
+    )
+    encoder.endEncoding()
   }
 
   private func requestDraw() {
@@ -609,6 +787,145 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     NSError(
       domain: "PixelCraftGpuEditor",
       code: 4100,
+      userInfo: [NSLocalizedDescriptionKey: message]
+    )
+  }
+}
+
+private final class MetalGaussianBlurBenchmark {
+  private struct BlurUniforms {
+    var width: UInt32
+    var height: UInt32
+    var sigma: Float
+    var horizontal: UInt32
+  }
+
+  private let device: MTLDevice
+  private let queue: MTLCommandQueue
+  private let pipeline: MTLComputePipelineState
+
+  init() throws {
+    guard let device = MTLCreateSystemDefaultDevice(),
+          let queue = device.makeCommandQueue()
+    else { throw Self.error("Metal device/queue unavailable") }
+    let library = try device.makeLibrary(source: MetalEditorPreviewRenderer.shaderSource, options: nil)
+    guard let function = library.makeFunction(name: "pixelcraft_editor_gaussian_blur") else {
+      throw Self.error("Gaussian blur benchmark kernel unavailable")
+    }
+    self.device = device
+    self.queue = queue
+    self.pipeline = try device.makeComputePipelineState(function: function)
+  }
+
+  func run() throws -> [String: Any] {
+    let width = 1024
+    let height = 1024
+    let iterations = 60
+    let warmup = 8
+    let sigma: Float = 5.0
+
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+      pixelFormat: .rgba8Unorm,
+      width: width,
+      height: height,
+      mipmapped: false
+    )
+    descriptor.usage = [.shaderRead, .shaderWrite]
+    descriptor.storageMode = .private
+    guard
+      let source = device.makeTexture(descriptor: descriptor),
+      let horizontal = device.makeTexture(descriptor: descriptor),
+      let vertical = device.makeTexture(descriptor: descriptor)
+    else { throw Self.error("Unable to allocate blur benchmark textures") }
+
+    for _ in 0..<warmup {
+      _ = try submit(source: source, horizontal: horizontal, vertical: vertical, sigma: sigma)
+    }
+    var samples: [Double] = []
+    samples.reserveCapacity(iterations)
+    for _ in 0..<iterations {
+      samples.append(try submit(source: source, horizontal: horizontal, vertical: vertical, sigma: sigma))
+    }
+    samples.sort()
+    let average = samples.reduce(0, +) / Double(samples.count)
+    let target = 16.67
+    let p50 = percentile(samples, 0.50)
+    let p95 = percentile(samples, 0.95)
+    let p99 = percentile(samples, 0.99)
+    return [
+      "backend": "iosMetal",
+      "device": device.name,
+      "width": width,
+      "height": height,
+      "iterations": iterations,
+      "workload": "gaussian_blur_2.00_sigma5_two_pass",
+      "averageMs": average,
+      "p50Ms": p50,
+      "p95Ms": p95,
+      "p99Ms": p99,
+      "maxMs": samples.last ?? 0,
+      "targetMs": target,
+      "passed": p95 <= target,
+    ]
+  }
+
+  private func submit(
+    source: MTLTexture,
+    horizontal: MTLTexture,
+    vertical: MTLTexture,
+    sigma: Float
+  ) throws -> Double {
+    guard let commandBuffer = queue.makeCommandBuffer() else {
+      throw Self.error("Unable to create blur benchmark command buffer")
+    }
+    try encode(commandBuffer, input: source, output: horizontal, sigma: sigma, horizontal: true)
+    try encode(commandBuffer, input: horizontal, output: vertical, sigma: sigma, horizontal: false)
+    let start = CACurrentMediaTime()
+    commandBuffer.commit()
+    commandBuffer.waitUntilCompleted()
+    if let error = commandBuffer.error { throw error }
+    return (CACurrentMediaTime() - start) * 1000.0
+  }
+
+  private func encode(
+    _ commandBuffer: MTLCommandBuffer,
+    input: MTLTexture,
+    output: MTLTexture,
+    sigma: Float,
+    horizontal: Bool
+  ) throws {
+    guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+      throw Self.error("Unable to create blur benchmark encoder")
+    }
+    var uniforms = BlurUniforms(
+      width: UInt32(output.width),
+      height: UInt32(output.height),
+      sigma: sigma,
+      horizontal: horizontal ? 1 : 0
+    )
+    encoder.setComputePipelineState(pipeline)
+    encoder.setTexture(input, index: 0)
+    encoder.setTexture(output, index: 1)
+    encoder.setBytes(&uniforms, length: MemoryLayout<BlurUniforms>.stride, index: 0)
+    let threadWidth = pipeline.threadExecutionWidth
+    let threadHeight = max(1, pipeline.maxTotalThreadsPerThreadgroup / threadWidth)
+    encoder.dispatchThreads(
+      MTLSize(width: output.width, height: output.height, depth: 1),
+      threadsPerThreadgroup: MTLSize(width: threadWidth, height: threadHeight, depth: 1)
+    )
+    encoder.endEncoding()
+  }
+
+  private func percentile(_ values: [Double], _ percentile: Double) -> Double {
+    guard !values.isEmpty else { return 0 }
+    let index = Int(ceil(percentile * Double(values.count))) - 1
+    return values[max(0, min(values.count - 1, index))]
+  }
+
+  private static func error(_ message: String) -> NSError {
+    NSError(
+      domain: "PixelCraftGpuEditorBlurBenchmark",
+      code: 4300,
       userInfo: [NSLocalizedDescriptionKey: message]
     )
   }
