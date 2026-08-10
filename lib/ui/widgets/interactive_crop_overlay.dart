@@ -16,6 +16,8 @@ class CropDraft {
   final double y;
   final double width;
   final double height;
+
+  /// Target crop aspect ratio in source-pixel space (width / height).
   final double? aspectRatio;
 
   Rect get normalizedRect => Rect.fromLTWH(x, y, width, height);
@@ -35,14 +37,19 @@ class CropDraft {
         aspectRatio: clearAspectRatio ? null : aspectRatio ?? this.aspectRatio,
       );
 
-  static CropDraft centeredForAspect(double? aspectRatio) {
+  static CropDraft centeredForAspect(
+    double? aspectRatio, {
+    double sourceAspectRatio = 1,
+  }) {
     if (aspectRatio == null) return const CropDraft();
+    final safeSourceAspect = sourceAspectRatio > 0 ? sourceAspectRatio : 1.0;
+    final normalizedRatio = aspectRatio / safeSourceAspect;
     var width = 1.0;
     var height = 1.0;
-    if (aspectRatio >= 1) {
-      height = 1 / aspectRatio;
+    if (normalizedRatio >= 1) {
+      height = 1 / normalizedRatio;
     } else {
-      width = aspectRatio;
+      width = normalizedRatio;
     }
     return CropDraft(
       x: (1 - width) / 2,
@@ -127,8 +134,10 @@ class _InteractiveCropOverlayState extends State<InteractiveCropOverlay> {
     top = top.clamp(0.0, bottom - _minimumSize);
     bottom = bottom.clamp(top + _minimumSize, 1.0);
 
-    final ratio = initial.aspectRatio;
-    if (ratio != null) {
+    final targetPixelRatio = initial.aspectRatio;
+    if (targetPixelRatio != null) {
+      final sourceAspect = size.height > 0 ? size.width / size.height : 1.0;
+      final normalizedRatio = targetPixelRatio / sourceAspect;
       final anchor = switch (handle) {
         _CropHandle.topLeft => Offset(right, bottom),
         _CropHandle.topRight => Offset(left, bottom),
@@ -138,10 +147,10 @@ class _InteractiveCropOverlayState extends State<InteractiveCropOverlay> {
       };
       var width = right - left;
       var height = bottom - top;
-      if (width / height > ratio) {
-        width = height * ratio;
+      if (width / height > normalizedRatio) {
+        width = height * normalizedRatio;
       } else {
-        height = width / ratio;
+        height = width / normalizedRatio;
       }
       switch (handle) {
         case _CropHandle.topLeft:
