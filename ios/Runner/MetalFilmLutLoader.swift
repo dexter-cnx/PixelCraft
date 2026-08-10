@@ -145,7 +145,7 @@ final class GpuEditorPreviewPlugin {
   private let channel: FlutterMethodChannel
   private let registry = MetalEditorRendererRegistry()
   private let benchmarkQueue = DispatchQueue(
-    label: "dev.pixelcraft.gpu.editor.blur.benchmark",
+    label: "dev.pixelcraft.gpu.editor.benchmark",
     qos: .userInitiated
   )
 
@@ -219,6 +219,18 @@ final class GpuEditorPreviewPlugin {
         result(nil)
       } catch {
         result(flutterError("gpu_editor_film_failed", error))
+      }
+    case "runCreativeParity":
+      benchmarkQueue.async { [weak self] in
+        guard let self else { return }
+        do {
+          let payload = try MetalCreativeFilterParityHarness().run()
+          DispatchQueue.main.async { result(payload) }
+        } catch {
+          DispatchQueue.main.async {
+            result(self.flutterError("gpu_editor_creative_parity_failed", error))
+          }
+        }
       }
     case "runGaussianBlurLatencyBenchmark":
       benchmarkQueue.async { [weak self] in
@@ -355,7 +367,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     var horizontal: UInt32
   }
 
-  private struct CreativeUniforms {
+  fileprivate struct CreativeUniforms {
     var width: UInt32
     var height: UInt32
     var mode: UInt32
@@ -945,6 +957,187 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     NSError(
       domain: "PixelCraftGpuEditor",
       code: 4100,
+      userInfo: [NSLocalizedDescriptionKey: message]
+    )
+  }
+}
+
+private final class MetalCreativeFilterParityHarness {
+  private let device: MTLDevice
+  private let queue: MTLCommandQueue
+  private let pipeline: MTLComputePipelineState
+
+  init() throws {
+    guard let device = MTLCreateSystemDefaultDevice(),
+          let queue = device.makeCommandQueue()
+    else { throw Self.error("Metal device/queue unavailable") }
+    let library = try device.makeLibrary(source: MetalEditorPreviewRenderer.shaderSource, options: nil)
+    guard let function = library.makeFunction(name: "pixelcraft_editor_creative") else {
+      throw Self.error("Creative filter parity kernel unavailable")
+    }
+    self.device = device
+    self.queue = queue
+    self.pipeline = try device.makeComputePipelineState(function: function)
+  }
+
+  func run() throws -> [String: Any] {
+    let pixels: [[UInt8]] = [
+      [0, 0, 0, 255], [255, 255, 255, 255], [255, 0, 0, 255], [0, 255, 0, 255],
+      [0, 0, 255, 255], [64, 128, 192, 255], [192, 128, 64, 255], [16, 48, 240, 255],
+      [240, 48, 16, 255], [32, 200, 96, 255], [127, 128, 129, 255], [8, 240, 128, 255],
+      [220, 180, 140, 255], [40, 80, 120, 255], [12, 34, 56, 255], [201, 77, 155, 255],
+    ]
+    let sourceBytes = pixels.flatMap { $0 }
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+      pixelFormat: .rgba8Unorm,
+      width: pixels.count,
+      height: 1,
+      mipmapped: false
+    )
+    descriptor.usage = [.shaderRead, .shaderWrite]
+    descriptor.storageMode = .shared
+    guard
+      let source = device.makeTexture(descriptor: descriptor),
+      let output = device.makeTexture(descriptor: descriptor)
+    else { throw Self.error("Unable to allocate creative parity textures") }
+
+    sourceBytes.withUnsafeBytes { raw in
+      guard let base = raw.baseAddress else { return }
+      source.replace(
+        region: MTLRegionMake2D(0, 0, pixels.count, 1),
+        mipmapLevel: 0,
+        withBytes: base,
+        bytesPerRow: pixels.count * 4
+      )
+    }
+
+    let cases: [(String, UInt32, Float)] = [
+      ("grayscale_0.25", 1, 0.25),
+      ("grayscale_0.50", 1, 0.50),
+      ("grayscale_1.00", 1, 1.00),
+      ("invert_0.25", 2, 0.25),
+      ("invert_0.50", 2, 0.50),
+      ("invert_1.00", 2, 1.00),
+    ]
+    let tolerance = 1.0 / 255.0
+    var results: [[String: Any]] = []
+    var overallMax = 0.0
+    var overallPassed = true
+
+    for test in cases {
+      try submit(
+        source: source,
+        output: output,
+        mode: test.1,
+        intensity: test.2
+      )
+      var actual = [UInt8](repeating: 0, count: sourceBytes.count)
+      actual.withUnsafeMutableBytes { raw in
+        guard let base = raw.baseAddress else { return }
+        output.getBytes(
+          base,
+          bytesPerRow: pixels.count * 4,
+          from: MTLRegionMake2D(0, 0, pixels.count, 1),
+          mipmapLevel: 0
+        )
+      }
+
+      var maxError = 0.0
+      for index in pixels.indices {
+        let expected = reference(
+          pixel: pixels[index],
+          mode: test.1,
+          intensity: test.2
+        )
+        for channel in 0..<3 {
+          let offset = index * 4 + channel
+          maxError = max(
+            maxError,
+            abs(Double(actual[offset]) - Double(expected[channel])) / 255.0
+          )
+        }
+      }
+      let passed = maxError <= tolerance
+      overallMax = max(overallMax, maxError)
+      overallPassed = overallPassed && passed
+      results.append([
+        "name": test.0,
+        "samples": pixels.count,
+        "maxChannelError": maxError,
+        "passed": passed,
+      ])
+    }
+
+    return [
+      "backend": "iosMetal",
+      "reference": "photon-rs 0.3.3 grayscale/invert + PixelCraft u8 intensity blend",
+      "tolerance": tolerance,
+      "overallMaxChannelError": overallMax,
+      "passed": overallPassed,
+      "cases": results,
+      "filmParity": "",
+    ]
+  }
+
+  private func submit(
+    source: MTLTexture,
+    output: MTLTexture,
+    mode: UInt32,
+    intensity: Float
+  ) throws {
+    guard let commandBuffer = queue.makeCommandBuffer(),
+          let encoder = commandBuffer.makeComputeCommandEncoder()
+    else { throw Self.error("Unable to create creative parity command") }
+
+    var uniforms = MetalEditorPreviewRenderer.CreativeUniforms(
+      width: UInt32(output.width),
+      height: UInt32(output.height),
+      mode: mode,
+      intensity: intensity
+    )
+    encoder.setComputePipelineState(pipeline)
+    encoder.setTexture(source, index: 0)
+    encoder.setTexture(output, index: 1)
+    encoder.setBytes(
+      &uniforms,
+      length: MemoryLayout<MetalEditorPreviewRenderer.CreativeUniforms>.stride,
+      index: 0
+    )
+    let width = min(pipeline.maxTotalThreadsPerThreadgroup, output.width)
+    encoder.dispatchThreads(
+      MTLSize(width: output.width, height: 1, depth: 1),
+      threadsPerThreadgroup: MTLSize(width: max(width, 1), height: 1, depth: 1)
+    )
+    encoder.endEncoding()
+    commandBuffer.commit()
+    commandBuffer.waitUntilCompleted()
+    if let error = commandBuffer.error { throw error }
+  }
+
+  private func reference(
+    pixel: [UInt8],
+    mode: UInt32,
+    intensity: Float
+  ) -> [UInt8] {
+    let source = [Int(pixel[0]), Int(pixel[1]), Int(pixel[2])]
+    let effected: [Int]
+    if mode == 1 {
+      let average = (source[0] + source[1] + source[2]) / 3
+      effected = [average, average, average]
+    } else {
+      effected = source.map { 255 - $0 }
+    }
+    return (0..<3).map { channel in
+      let value = Float(source[channel]) +
+        (Float(effected[channel]) - Float(source[channel])) * intensity
+      return UInt8(max(0, min(255, Int(value.rounded()))))
+    }
+  }
+
+  private static func error(_ message: String) -> NSError {
+    NSError(
+      domain: "PixelCraftGpuEditorCreativeParity",
+      code: 4400,
       userInfo: [NSLocalizedDescriptionKey: message]
     )
   }
