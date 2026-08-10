@@ -1,5 +1,8 @@
+import Flutter
 import Foundation
 import Metal
+import MetalKit
+import UIKit
 
 final class MetalFilmLutLoader {
   static let lutSize = 33
@@ -129,5 +132,444 @@ final class MetalFilmLutLoader {
       )
     }
     return texture
+  }
+}
+
+// MARK: - G2 editor GPU preview lab
+
+final class GpuEditorPreviewPlugin {
+  static let channelName = "dev.pixelcraft/gpu_editor_preview_v1"
+  static let viewType = "dev.pixelcraft/gpu_editor_preview_v1"
+
+  private let channel: FlutterMethodChannel
+  private let registry = MetalEditorRendererRegistry()
+
+  init(registrar: FlutterPluginRegistrar) {
+    channel = FlutterMethodChannel(
+      name: Self.channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    registrar.register(
+      MetalEditorPreviewViewFactory(registry: registry),
+      withId: Self.viewType
+    )
+    channel.setMethodCallHandler { [weak self] call, result in
+      self?.handle(call: call, result: result)
+    }
+  }
+
+  private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    let args = call.arguments as? [String: Any] ?? [:]
+    switch call.method {
+    case "createRenderer":
+      do {
+        result(["rendererId": try registry.create()])
+      } catch {
+        result(flutterError("gpu_editor_init_failed", error))
+      }
+    case "setSourcePath":
+      guard let id = rendererId(args, result: result) else { return }
+      guard let path = args["path"] as? String, !path.isEmpty else {
+        result(FlutterError(code: "gpu_editor_source_invalid", message: "path is required", details: nil))
+        return
+      }
+      do {
+        try registry.renderer(id: id).setSource(path: path)
+        result(nil)
+      } catch {
+        result(flutterError("gpu_editor_source_failed", error))
+      }
+    case "setAdjustments":
+      guard let id = rendererId(args, result: result) else { return }
+      do {
+        let renderer = try registry.renderer(id: id)
+        renderer.setAdjustments(
+          brightness: number(args["brightness"], fallback: 1),
+          contrast: number(args["contrast"], fallback: 1),
+          saturation: number(args["saturation"], fallback: 1)
+        )
+        result(nil)
+      } catch {
+        result(flutterError("gpu_editor_adjustment_failed", error))
+      }
+    case "setFilm":
+      guard let id = rendererId(args, result: result) else { return }
+      do {
+        let renderer = try registry.renderer(id: id)
+        let profileId = args["profileId"] as? String ?? ""
+        let strength = number(args["strength"], fallback: 0)
+        try renderer.setFilm(profileId: profileId, strength: strength)
+        result(nil)
+      } catch {
+        result(flutterError("gpu_editor_film_failed", error))
+      }
+    case "destroyRenderer":
+      guard let id = rendererId(args, result: result) else { return }
+      registry.destroy(id: id)
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func rendererId(_ args: [String: Any], result: FlutterResult) -> String? {
+    guard let id = args["rendererId"] as? String, !id.isEmpty else {
+      result(FlutterError(code: "gpu_editor_renderer_invalid", message: "rendererId is required", details: nil))
+      return nil
+    }
+    return id
+  }
+
+  private func number(_ value: Any?, fallback: Double) -> Double {
+    (value as? NSNumber)?.doubleValue ?? fallback
+  }
+
+  private func flutterError(_ code: String, _ error: Error) -> FlutterError {
+    FlutterError(code: code, message: error.localizedDescription, details: nil)
+  }
+}
+
+final class MetalEditorRendererRegistry {
+  private var renderers: [String: MetalEditorPreviewRenderer] = [:]
+
+  func create() throws -> String {
+    let id = UUID().uuidString
+    renderers[id] = try MetalEditorPreviewRenderer()
+    return id
+  }
+
+  func renderer(id: String) throws -> MetalEditorPreviewRenderer {
+    guard let renderer = renderers[id] else {
+      throw NSError(
+        domain: "PixelCraftGpuEditor",
+        code: 4101,
+        userInfo: [NSLocalizedDescriptionKey: "Unknown editor GPU renderer: \(id)"]
+      )
+    }
+    return renderer
+  }
+
+  func destroy(id: String) {
+    renderers.removeValue(forKey: id)?.releaseRenderer()
+  }
+
+  func attach(id: String, view: MTKView) throws {
+    try renderer(id: id).attach(view: view)
+  }
+
+  func detach(id: String, view: MTKView) {
+    try? renderer(id: id).detach(view: view)
+  }
+}
+
+final class MetalEditorPreviewViewFactory: NSObject, FlutterPlatformViewFactory {
+  private let registry: MetalEditorRendererRegistry
+
+  init(registry: MetalEditorRendererRegistry) {
+    self.registry = registry
+    super.init()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    let rendererId = (args as? [String: Any])?["rendererId"] as? String ?? ""
+    return MetalEditorPreviewPlatformView(
+      frame: frame,
+      rendererId: rendererId,
+      registry: registry
+    )
+  }
+}
+
+final class MetalEditorPreviewPlatformView: NSObject, FlutterPlatformView {
+  private let rendererId: String
+  private let registry: MetalEditorRendererRegistry
+  private let metalView: MTKView
+
+  init(frame: CGRect, rendererId: String, registry: MetalEditorRendererRegistry) {
+    self.rendererId = rendererId
+    self.registry = registry
+    self.metalView = MTKView(frame: frame)
+    super.init()
+    try? registry.attach(id: rendererId, view: metalView)
+  }
+
+  func view() -> UIView { metalView }
+
+  deinit {
+    registry.detach(id: rendererId, view: metalView)
+  }
+}
+
+final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
+  private struct Uniforms {
+    var contentScale: SIMD2<Float>
+    var brightness: Float
+    var contrast: Float
+    var saturation: Float
+    var filmStrength: Float
+    var useLut: Float
+  }
+
+  private static let shaderSource = """
+  #include <metal_stdlib>
+  using namespace metal;
+
+  struct VertexOut {
+    float4 position [[position]];
+    float2 uv;
+  };
+
+  struct Uniforms {
+    float2 contentScale;
+    float brightness;
+    float contrast;
+    float saturation;
+    float filmStrength;
+    float useLut;
+  };
+
+  vertex VertexOut pixelcraft_editor_vertex(
+    uint vertexId [[vertex_id]],
+    constant Uniforms &uniforms [[buffer(0)]]) {
+    const float2 positions[4] = {
+      float2(-1.0, -1.0), float2(1.0, -1.0),
+      float2(-1.0,  1.0), float2(1.0,  1.0)
+    };
+    const float2 uvs[4] = {
+      float2(0.0, 1.0), float2(1.0, 1.0),
+      float2(0.0, 0.0), float2(1.0, 0.0)
+    };
+    VertexOut out;
+    out.position = float4(positions[vertexId] * uniforms.contentScale, 0.0, 1.0);
+    out.uv = uvs[vertexId];
+    return out;
+  }
+
+  fragment float4 pixelcraft_editor_fragment(
+    VertexOut in [[stage_in]],
+    texture2d<float> sourceTexture [[texture(0)]],
+    texture3d<float> lut [[texture(1)]],
+    constant Uniforms &uniforms [[buffer(0)]]) {
+    constexpr sampler sourceSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+    constexpr sampler lutSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+
+    float3 color = sourceTexture.sample(sourceSampler, in.uv).rgb;
+
+    // Match rust/src/filters.rs semantics exactly for the first G2 nodes.
+    color = clamp(color + (uniforms.brightness - 1.0), 0.0, 1.0);
+    const float midpoint = 128.0 / 255.0;
+    color = clamp((color - midpoint) * uniforms.contrast + midpoint, 0.0, 1.0);
+    const float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+    color = clamp(luminance + (color - luminance) * uniforms.saturation, 0.0, 1.0);
+
+    const float lutSize = 33.0;
+    float3 grid = clamp(color, 0.0, 1.0) * (lutSize - 1.0);
+    float3 lutUv = (grid + 0.5) / lutSize;
+    float3 film = lut.sample(lutSampler, lutUv).rgb;
+    float amount = clamp(uniforms.useLut * uniforms.filmStrength, 0.0, 1.0);
+    return float4(mix(color, film, amount), 1.0);
+  }
+  """
+
+  private let device: MTLDevice
+  private let commandQueue: MTLCommandQueue
+  private let pipeline: MTLRenderPipelineState
+  private let textureLoader: MTKTextureLoader
+  private let lutLoader: MetalFilmLutLoader
+  private let stateQueue = DispatchQueue(label: "dev.pixelcraft.gpu.editor.state", qos: .userInitiated)
+
+  private weak var outputView: MTKView?
+  private var sourceTexture: MTLTexture?
+  private var currentLut: MTLTexture
+  private var brightness: Float = 1
+  private var contrast: Float = 1
+  private var saturation: Float = 1
+  private var filmStrength: Float = 0
+  private var useLut: Float = 0
+
+  init() throws {
+    guard let device = MTLCreateSystemDefaultDevice() else {
+      throw Self.error("Metal device is unavailable")
+    }
+    guard let commandQueue = device.makeCommandQueue() else {
+      throw Self.error("Unable to create editor Metal command queue")
+    }
+    let library = try device.makeLibrary(source: Self.shaderSource, options: nil)
+    guard
+      let vertex = library.makeFunction(name: "pixelcraft_editor_vertex"),
+      let fragment = library.makeFunction(name: "pixelcraft_editor_fragment")
+    else {
+      throw Self.error("Editor Metal shader functions are unavailable")
+    }
+    let descriptor = MTLRenderPipelineDescriptor()
+    descriptor.vertexFunction = vertex
+    descriptor.fragmentFunction = fragment
+    descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+
+    self.device = device
+    self.commandQueue = commandQueue
+    self.pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+    self.textureLoader = MTKTextureLoader(device: device)
+    self.lutLoader = MetalFilmLutLoader(device: device)
+    self.currentLut = try self.lutLoader.makeIdentity()
+    super.init()
+  }
+
+  func attach(view: MTKView) {
+    outputView = view
+    view.device = device
+    view.colorPixelFormat = .bgra8Unorm
+    view.framebufferOnly = true
+    view.enableSetNeedsDisplay = true
+    view.isPaused = true
+    view.delegate = self
+    requestDraw()
+  }
+
+  func detach(view: MTKView) {
+    if outputView === view {
+      view.delegate = nil
+      outputView = nil
+    }
+  }
+
+  func setSource(path: String) throws {
+    let url = URL(fileURLWithPath: path)
+    guard FileManager.default.fileExists(atPath: path) else {
+      throw Self.error("Editor source file does not exist: \(path)")
+    }
+    let texture = try textureLoader.newTexture(
+      URL: url,
+      options: [
+        .SRGB: false,
+        .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
+      ]
+    )
+    stateQueue.sync { sourceTexture = texture }
+    requestDraw()
+  }
+
+  func setAdjustments(brightness: Double, contrast: Double, saturation: Double) {
+    stateQueue.sync {
+      self.brightness = Float(max(0, min(2, brightness)))
+      self.contrast = Float(max(0, min(2, contrast)))
+      self.saturation = Float(max(0, min(2, saturation)))
+    }
+    requestDraw()
+  }
+
+  func setFilm(profileId: String, strength: Double) throws {
+    if profileId.isEmpty || strength <= 0 {
+      stateQueue.sync {
+        filmStrength = 0
+        useLut = 0
+      }
+      requestDraw()
+      return
+    }
+    let lut = try lutLoader.load(profileId: profileId)
+    stateQueue.sync {
+      currentLut = lut
+      filmStrength = Float(max(0, min(1, strength)))
+      useLut = 1
+    }
+    requestDraw()
+  }
+
+  func releaseRenderer() {
+    if let view = outputView {
+      view.delegate = nil
+      view.isPaused = true
+    }
+    outputView = nil
+    sourceTexture = nil
+  }
+
+  func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+    requestDraw()
+  }
+
+  func draw(in view: MTKView) {
+    var source: MTLTexture?
+    var lut: MTLTexture?
+    var localBrightness: Float = 1
+    var localContrast: Float = 1
+    var localSaturation: Float = 1
+    var localFilmStrength: Float = 0
+    var localUseLut: Float = 0
+    stateQueue.sync {
+      source = sourceTexture
+      lut = currentLut
+      localBrightness = brightness
+      localContrast = contrast
+      localSaturation = saturation
+      localFilmStrength = filmStrength
+      localUseLut = useLut
+    }
+    guard
+      let source,
+      let lut,
+      let drawable = view.currentDrawable,
+      let commandBuffer = commandQueue.makeCommandBuffer()
+    else { return }
+
+    let outputWidth = max(Float(view.drawableSize.width), 1)
+    let outputHeight = max(Float(view.drawableSize.height), 1)
+    let sourceAspect = Float(source.width) / Float(max(source.height, 1))
+    let outputAspect = outputWidth / outputHeight
+    let contentScale: SIMD2<Float>
+    if sourceAspect > outputAspect {
+      contentScale = SIMD2<Float>(1, outputAspect / sourceAspect)
+    } else {
+      contentScale = SIMD2<Float>(sourceAspect / outputAspect, 1)
+    }
+
+    var uniforms = Uniforms(
+      contentScale: contentScale,
+      brightness: localBrightness,
+      contrast: localContrast,
+      saturation: localSaturation,
+      filmStrength: localFilmStrength,
+      useLut: localUseLut
+    )
+
+    let pass = MTLRenderPassDescriptor()
+    pass.colorAttachments[0].texture = drawable.texture
+    pass.colorAttachments[0].loadAction = .clear
+    pass.colorAttachments[0].storeAction = .store
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1)
+
+    guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
+    encoder.setRenderPipelineState(pipeline)
+    encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+    encoder.setFragmentTexture(source, index: 0)
+    encoder.setFragmentTexture(lut, index: 1)
+    encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+    encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+    encoder.endEncoding()
+    commandBuffer.present(drawable)
+    commandBuffer.commit()
+  }
+
+  private func requestDraw() {
+    DispatchQueue.main.async { [weak self] in
+      self?.outputView?.setNeedsDisplay()
+    }
+  }
+
+  private static func error(_ message: String) -> NSError {
+    NSError(
+      domain: "PixelCraftGpuEditor",
+      code: 4100,
+      userInfo: [NSLocalizedDescriptionKey: message]
+    )
   }
 }
