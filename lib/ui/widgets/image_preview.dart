@@ -80,7 +80,13 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
   }
 
   void _setAspect(double? ratio) {
-    setState(() => _cropDraft = CropDraft.centeredForAspect(ratio));
+    final sourceAspect = _imageHeight > 0 ? _imageWidth / _imageHeight : 1.0;
+    setState(
+      () => _cropDraft = CropDraft.centeredForAspect(
+        ratio,
+        sourceAspectRatio: sourceAspect,
+      ),
+    );
   }
 
   Rect _containRect(Size canvasSize) {
