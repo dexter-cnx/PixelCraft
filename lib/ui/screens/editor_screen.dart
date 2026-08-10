@@ -132,6 +132,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           _gpuOwnedDraftKey == key;
     }
 
+    if (kind == 'creative') {
+      final supported = key == 'grayscale' || key == 'invert';
+      if (!supported || state.selectedCreativeFilter != key) return false;
+      return state.cursor <= 1;
+    }
+
     if (kind == 'film') {
       return state.cursor <= 1 && state.selectedFilmProfile == key;
     }
@@ -228,6 +234,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         'gaussian_blur' => adjustments.copyWith(gaussianBlur: value),
         _ => adjustments,
       };
+      await _gpuBridge.setCreative(
+        rendererId,
+        filterId: '',
+        intensity: 0,
+      );
       await _gpuBridge.setFilm(
         rendererId,
         profileId: '',
@@ -237,10 +248,33 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       return;
     }
 
+    if (kind == 'creative') {
+      await _gpuBridge.setAdjustments(
+        rendererId,
+        const GpuEditorAdjustmentState(),
+      );
+      await _gpuBridge.setFilm(
+        rendererId,
+        profileId: '',
+        strength: 0,
+      );
+      await _gpuBridge.setCreative(
+        rendererId,
+        filterId: key,
+        intensity: value,
+      );
+      return;
+    }
+
     if (kind == 'film') {
       await _gpuBridge.setAdjustments(
         rendererId,
         const GpuEditorAdjustmentState(),
+      );
+      await _gpuBridge.setCreative(
+        rendererId,
+        filterId: '',
+        intensity: 0,
       );
       await _gpuBridge.setFilm(
         rendererId,
@@ -267,6 +301,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     try {
       if (kind == 'adjust') {
         await controller.commitFilterValue(value);
+      } else if (kind == 'creative') {
+        await controller.updateCreativeFilterValue(value);
       } else if (kind == 'film') {
         await controller.updateFilmProfileStrength(value);
       }
