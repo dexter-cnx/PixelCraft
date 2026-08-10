@@ -76,7 +76,13 @@ class EditorToolPanel extends StatelessWidget {
                   onGpuPreviewChanged: onGpuPreviewChanged,
                   onGpuPreviewCommit: onGpuPreviewCommit,
                 ),
-              EditorTool.filters => _FilterPanel(state: state, controller: controller),
+              EditorTool.filters => _FilterPanel(
+                  state: state,
+                  controller: controller,
+                  onGpuPreviewStart: onGpuPreviewStart,
+                  onGpuPreviewChanged: onGpuPreviewChanged,
+                  onGpuPreviewCommit: onGpuPreviewCommit,
+                ),
               EditorTool.film => _FilmPanel(
                   state: state,
                   controller: controller,
@@ -193,13 +199,25 @@ class _AdjustPanel extends StatelessWidget {
 }
 
 class _FilterPanel extends StatelessWidget {
-  const _FilterPanel({required this.state, required this.controller});
+  const _FilterPanel({
+    required this.state,
+    required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
+  });
+
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
 
   @override
   Widget build(BuildContext context) {
     final selected = state.selectedCreativeFilter;
+    final gpuSupported = selected == 'grayscale' || selected == 'invert';
+    final useGpuCallbacks = gpuSupported && onGpuPreviewChanged != null;
     return Column(
       key: const ValueKey('filters'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,7 +253,19 @@ class _FilterPanel extends StatelessWidget {
             min: 0,
             max: 1,
             enabled: !state.isBusy,
-            onChangeEnd: controller.updateCreativeFilterValue,
+            onChangeStart: useGpuCallbacks
+                ? (value) => onGpuPreviewStart?.call('creative', selected, value)
+                : null,
+            onChanged: useGpuCallbacks
+                ? (value) => onGpuPreviewChanged?.call('creative', selected, value)
+                : null,
+            onChangeEnd: (value) {
+              if (useGpuCallbacks && onGpuPreviewCommit != null) {
+                onGpuPreviewCommit!.call('creative', selected, value);
+              } else {
+                controller.updateCreativeFilterValue(value);
+              }
+            },
           ),
         ],
       ],
