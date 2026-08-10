@@ -216,7 +216,7 @@ class _FilterPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = state.selectedCreativeFilter;
-    final gpuSupported = selected == 'grayscale' || selected == 'invert';
+    final gpuSupported = creativeFilters.contains(selected);
     final useGpuCallbacks = gpuSupported && onGpuPreviewChanged != null;
     return Column(
       key: const ValueKey('filters'),
