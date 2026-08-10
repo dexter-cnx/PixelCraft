@@ -7,15 +7,27 @@ import '../../state/editor_controller.dart';
 import 'filter_slider.dart';
 import 'histogram_widget.dart';
 
+typedef EditorGpuPreviewCallback = void Function(
+  String kind,
+  String key,
+  double value,
+);
+
 class EditorToolPanel extends StatelessWidget {
   const EditorToolPanel({
     super.key,
     required this.state,
     required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
   });
 
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
 
   @override
   Widget build(BuildContext context) {
@@ -57,9 +69,21 @@ class EditorToolPanel extends StatelessWidget {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
             child: switch (state.selectedTool) {
-              EditorTool.adjust => _AdjustPanel(state: state, controller: controller),
+              EditorTool.adjust => _AdjustPanel(
+                  state: state,
+                  controller: controller,
+                  onGpuPreviewStart: onGpuPreviewStart,
+                  onGpuPreviewChanged: onGpuPreviewChanged,
+                  onGpuPreviewCommit: onGpuPreviewCommit,
+                ),
               EditorTool.filters => _FilterPanel(state: state, controller: controller),
-              EditorTool.film => _FilmPanel(state: state, controller: controller),
+              EditorTool.film => _FilmPanel(
+                  state: state,
+                  controller: controller,
+                  onGpuPreviewStart: onGpuPreviewStart,
+                  onGpuPreviewChanged: onGpuPreviewChanged,
+                  onGpuPreviewCommit: onGpuPreviewCommit,
+                ),
               EditorTool.crop => _CropPanel(controller: controller),
               EditorTool.rotate => _RotatePanel(state: state, controller: controller),
               EditorTool.details => _DetailsPanel(state: state),
@@ -108,12 +132,29 @@ class _DraftActionBar extends StatelessWidget {
 }
 
 class _AdjustPanel extends StatelessWidget {
-  const _AdjustPanel({required this.state, required this.controller});
+  const _AdjustPanel({
+    required this.state,
+    required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
+  });
+
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
+
+  bool get _gpuSupported =>
+      state.selectedFilter == 'brightness' ||
+      state.selectedFilter == 'contrast' ||
+      state.selectedFilter == 'saturation';
 
   @override
   Widget build(BuildContext context) {
+    final filter = state.selectedFilter;
+    final useGpuCallbacks = _gpuSupported && onGpuPreviewChanged != null;
     return Column(
       key: const ValueKey('adjust'),
       children: [
@@ -130,7 +171,19 @@ class _AdjustPanel extends StatelessWidget {
           min: 0,
           max: 2,
           enabled: !state.isBusy,
-          onChangeEnd: controller.commitFilterValue,
+          onChangeStart: useGpuCallbacks
+              ? (value) => onGpuPreviewStart?.call('adjust', filter, value)
+              : null,
+          onChanged: useGpuCallbacks
+              ? (value) => onGpuPreviewChanged?.call('adjust', filter, value)
+              : null,
+          onChangeEnd: (value) {
+            if (useGpuCallbacks && onGpuPreviewCommit != null) {
+              onGpuPreviewCommit!.call('adjust', filter, value);
+            } else {
+              controller.commitFilterValue(value);
+            }
+          },
         ),
       ],
     );
@@ -189,9 +242,19 @@ class _FilterPanel extends StatelessWidget {
 }
 
 class _FilmPanel extends StatelessWidget {
-  const _FilmPanel({required this.state, required this.controller});
+  const _FilmPanel({
+    required this.state,
+    required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
+  });
+
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
 
   @override
   Widget build(BuildContext context) {
@@ -200,6 +263,7 @@ class _FilmPanel extends StatelessWidget {
           (profile) => profile?.id == selected,
           orElse: () => null,
         );
+    final useGpuCallbacks = selectedProfile != null && onGpuPreviewChanged != null;
 
     return Column(
       key: const ValueKey('film'),
@@ -238,7 +302,19 @@ class _FilmPanel extends StatelessWidget {
             min: 0,
             max: 1,
             enabled: !state.isBusy,
-            onChangeEnd: controller.updateFilmProfileStrength,
+            onChangeStart: useGpuCallbacks
+                ? (value) => onGpuPreviewStart?.call('film', selected, value)
+                : null,
+            onChanged: useGpuCallbacks
+                ? (value) => onGpuPreviewChanged?.call('film', selected, value)
+                : null,
+            onChangeEnd: (value) {
+              if (useGpuCallbacks && onGpuPreviewCommit != null) {
+                onGpuPreviewCommit!.call('film', selected, value);
+              } else {
+                controller.updateFilmProfileStrength(value);
+              }
+            },
           ),
         ],
       ],
