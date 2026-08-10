@@ -23,6 +23,7 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
   int _imageWidth = 1;
   int _imageHeight = 1;
   int _decodeGeneration = 0;
+  bool _hasDecodedSize = false;
   bool _applyingCrop = false;
 
   @override
@@ -35,7 +36,9 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
   void didUpdateWidget(covariant ImagePreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.bytes, widget.bytes)) {
-      _cropDraft = const CropDraft();
+      // Pixel-only edits must not erase an in-progress crop just because the
+      // preview bytes changed. _decodeImageSize resets the crop only when the
+      // source geometry actually changes.
       _decodeImageSize();
     }
   }
@@ -50,9 +53,16 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
       frame.image.dispose();
       codec.dispose();
       if (!mounted || generation != _decodeGeneration) return;
+
+      final geometryChanged =
+          _hasDecodedSize && (width != _imageWidth || height != _imageHeight);
       setState(() {
         _imageWidth = width;
         _imageHeight = height;
+        _hasDecodedSize = true;
+        if (geometryChanged) {
+          _cropDraft = const CropDraft();
+        }
       });
     } catch (_) {
       // Image.memory will surface decode failures through its own rendering path.
@@ -80,7 +90,8 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
   }
 
   void _setAspect(double? ratio) {
-    final sourceAspect = _imageHeight > 0 ? _imageWidth / _imageHeight : 1.0;
+    final sourceAspect =
+        _imageHeight > 0 ? _imageWidth / _imageHeight : 1.0;
     setState(
       () => _cropDraft = CropDraft.centeredForAspect(
         ratio,
@@ -115,19 +126,12 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
       editorProvider.select((state) => state.straightenDegrees),
     );
     final busy = ref.watch(
-      editorProvider.select((state) => state.isBusy || state.isPreviewProcessing),
+      editorProvider.select(
+        (state) => state.isBusy || state.isPreviewProcessing,
+      ),
     );
     final cropMode = selectedTool == EditorTool.crop;
     final radians = straightenDegrees * math.pi / 180.0;
-
-    ref.listen<EditorTool>(
-      editorProvider.select((state) => state.selectedTool),
-      (previous, next) {
-        if (previous == EditorTool.crop && next != EditorTool.crop && mounted) {
-          setState(() => _cropDraft = const CropDraft());
-        }
-      },
-    );
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
@@ -157,7 +161,8 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
                           ignoring: busy || _applyingCrop,
                           child: InteractiveCropOverlay(
                             draft: _cropDraft,
-                            onChanged: (draft) => setState(() => _cropDraft = draft),
+                            onChanged: (draft) =>
+                                setState(() => _cropDraft = draft),
                           ),
                         ),
                       ),
@@ -178,7 +183,9 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
                         child: _CropActionBar(
                           applying: _applyingCrop,
                           enabled: !busy,
-                          onReset: () => setState(() => _cropDraft = const CropDraft()),
+                          onReset: () => setState(
+                            () => _cropDraft = const CropDraft(),
+                          ),
                           onApply: _applyCrop,
                         ),
                       ),
@@ -240,7 +247,8 @@ class _CropAspectBar extends StatelessWidget {
             ChoiceChip(
               label: Text(option.$1),
               selected: isSelected(option.$2),
-              onSelected: enabled ? (_) => onSelected(option.$2) : null,
+              onSelected:
+                  enabled ? (_) => onSelected(option.$2) : null,
             ),
             const SizedBox(width: 6),
           ],
