@@ -16,11 +16,13 @@ class _GpuEditorVerificationScreenState
 
   GpuEditorParityResult? _parity;
   GpuEditorParityResult? _blurParity;
+  GpuEditorParityResult? _creativeParity;
   GpuEditorLatencyResult? _latency;
   GpuEditorLatencyResult? _blurLatency;
   String? _error;
   bool _runningParity = false;
   bool _runningBlurParity = false;
+  bool _runningCreativeParity = false;
   bool _runningLatency = false;
   bool _runningBlurLatency = false;
 
@@ -77,6 +79,34 @@ class _GpuEditorVerificationScreenState
       if (mounted) setState(() => _error = '$error');
     } finally {
       if (mounted) setState(() => _runningBlurParity = false);
+    }
+  }
+
+  Future<void> _runCreativeParity() async {
+    if (_runningCreativeParity) return;
+    setState(() {
+      _runningCreativeParity = true;
+      _error = null;
+    });
+    try {
+      final result = await _bridge.runCreativeParity();
+      if (!mounted) return;
+      setState(() => _creativeParity = result);
+      debugPrint(
+        '[G2 creative parity] passed=${result.passed} '
+        'maxError=${result.overallMaxChannelError.toStringAsFixed(8)}',
+      );
+      for (final item in result.cases) {
+        debugPrint(
+          '[G2 creative parity] ${item.name} samples=${item.samples} '
+          'maxError=${item.maxChannelError.toStringAsFixed(8)} '
+          'passed=${item.passed}',
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _runningCreativeParity = false);
     }
   }
 
@@ -187,6 +217,34 @@ class _GpuEditorVerificationScreenState
             _ParityCard(
               result: blur,
               title: 'Gaussian blur parity',
+              showFilmParity: false,
+            ),
+          ],
+          const SizedBox(height: 28),
+          Text(
+            'Creative filter parity',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Checks grayscale and invert against photon-rs 0.3.3 u8 semantics, including PixelCraft intensity blending and rounding back to u8.',
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _runningCreativeParity ? null : _runCreativeParity,
+            icon: _runningCreativeParity
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome_rounded),
+            label: const Text('Run Creative Filter Numeric Parity'),
+          ),
+          if (_creativeParity case final creative?) ...[
+            const SizedBox(height: 12),
+            _ParityCard(
+              result: creative,
+              title: 'Creative filter parity',
               showFilmParity: false,
             ),
           ],
