@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 const gpuEditorDiagnosticsChannelName =
     'dev.pixelcraft/gpu_editor_diagnostics_v1';
 const _gpuPreviewDiagnosticsChannelName = 'dev.pixelcraft/gpu_preview_v1';
+const _gpuEditorPreviewChannelName = 'dev.pixelcraft/gpu_editor_preview_v1';
 
 @immutable
 class GpuEditorParityCaseResult {
@@ -124,13 +125,17 @@ class GpuEditorDiagnosticsBridge {
   const GpuEditorDiagnosticsBridge({
     MethodChannel? channel,
     MethodChannel? previewChannel,
+    MethodChannel? editorPreviewChannel,
   })  : _channel = channel ??
             const MethodChannel(gpuEditorDiagnosticsChannelName),
         _previewChannel = previewChannel ??
-            const MethodChannel(_gpuPreviewDiagnosticsChannelName);
+            const MethodChannel(_gpuPreviewDiagnosticsChannelName),
+        _editorPreviewChannel = editorPreviewChannel ??
+            const MethodChannel(_gpuEditorPreviewChannelName);
 
   final MethodChannel _channel;
   final MethodChannel _previewChannel;
+  final MethodChannel _editorPreviewChannel;
 
   Future<GpuEditorParityResult> runAdjustmentParity() async {
     final map = await _channel.invokeMapMethod<Object?, Object?>(
@@ -156,6 +161,16 @@ class GpuEditorDiagnosticsBridge {
       'runLatencyBenchmark',
     );
     if (map == null) throw StateError('Editor GPU latency returned no data');
+    return GpuEditorLatencyResult.fromMap(map);
+  }
+
+  Future<GpuEditorLatencyResult> runGaussianBlurLatencyBenchmark() async {
+    final map = await _editorPreviewChannel.invokeMapMethod<Object?, Object?>(
+      'runGaussianBlurLatencyBenchmark',
+    );
+    if (map == null) {
+      throw StateError('Gaussian blur GPU latency returned no data');
+    }
     return GpuEditorLatencyResult.fromMap(map);
   }
 }
