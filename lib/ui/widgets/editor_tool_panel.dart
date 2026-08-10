@@ -149,7 +149,8 @@ class _AdjustPanel extends StatelessWidget {
   bool get _gpuSupported =>
       state.selectedFilter == 'brightness' ||
       state.selectedFilter == 'contrast' ||
-      state.selectedFilter == 'saturation';
+      state.selectedFilter == 'saturation' ||
+      state.selectedFilter == 'sharpen';
 
   @override
   Widget build(BuildContext context) {
