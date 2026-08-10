@@ -15,9 +15,11 @@ class _GpuEditorVerificationScreenState
   static const _bridge = GpuEditorDiagnosticsBridge();
 
   GpuEditorParityResult? _parity;
+  GpuEditorParityResult? _blurParity;
   GpuEditorLatencyResult? _latency;
   String? _error;
   bool _runningParity = false;
+  bool _runningBlurParity = false;
   bool _runningLatency = false;
 
   Future<void> _runParity() async {
@@ -45,6 +47,34 @@ class _GpuEditorVerificationScreenState
       if (mounted) setState(() => _error = '$error');
     } finally {
       if (mounted) setState(() => _runningParity = false);
+    }
+  }
+
+  Future<void> _runBlurParity() async {
+    if (_runningBlurParity) return;
+    setState(() {
+      _runningBlurParity = true;
+      _error = null;
+    });
+    try {
+      final result = await _bridge.runGaussianBlurParity();
+      if (!mounted) return;
+      setState(() => _blurParity = result);
+      debugPrint(
+        '[G2 gaussian parity] passed=${result.passed} '
+        'maxError=${result.overallMaxChannelError.toStringAsFixed(8)}',
+      );
+      for (final item in result.cases) {
+        debugPrint(
+          '[G2 gaussian parity] ${item.name} samples=${item.samples} '
+          'maxError=${item.maxChannelError.toStringAsFixed(8)} '
+          'passed=${item.passed}',
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _runningBlurParity = false);
     }
   }
 
@@ -85,7 +115,7 @@ class _GpuEditorVerificationScreenState
           ),
           const SizedBox(height: 6),
           const Text(
-            'Brightness, contrast and saturation are checked against the exact u8 formulas used by rust/src/filters.rs. Sharpen uses a deterministic 5×5 spatial fixture with the same 3×3 kernel and continuity edge padding. Film 33³ LUT sampling reuses the G1 canonical Metal parity path.',
+            'Brightness, contrast, saturation and sharpen are checked against Rust semantics. Film 33³ LUT sampling reuses the G1 canonical Metal parity path.',
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
@@ -100,37 +130,38 @@ class _GpuEditorVerificationScreenState
           ),
           if (_parity case final parity?) ...[
             const SizedBox(height: 12),
-            Card.filled(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _StatusLine(
-                      passed: parity.passed,
-                      label: parity.passed ? 'Editor parity PASS' : 'Editor parity FAIL',
-                    ),
-                    const SizedBox(height: 10),
-                    _MetricRow('Reference', parity.reference),
-                    _MetricRow(
-                      'Tolerance',
-                      '${parity.tolerance.toStringAsFixed(8)} (1/255)',
-                    ),
-                    _MetricRow(
-                      'Overall max Δ',
-                      parity.overallMaxChannelError.toStringAsFixed(8),
-                    ),
-                    const Divider(height: 24),
-                    for (final item in parity.cases)
-                      _MetricRow(
-                        item.name,
-                        '${item.maxChannelError.toStringAsFixed(8)}  ${item.passed ? 'PASS' : 'FAIL'}',
-                      ),
-                    const Divider(height: 24),
-                    Text(parity.filmParity),
-                  ],
-                ),
-              ),
+            _ParityCard(
+              result: parity,
+              title: 'Editor parity',
+              showFilmParity: true,
+            ),
+          ],
+          const SizedBox(height: 28),
+          Text(
+            'Gaussian blur parity',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Checks a 9×9 spatial fixture using the imageproc 0.23 behavior used by the Rust engine: separable horizontal/vertical Gaussian passes, continuity edge padding, and u8 quantization between passes.',
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _runningBlurParity ? null : _runBlurParity,
+            icon: _runningBlurParity
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.blur_on_rounded),
+            label: const Text('Run Gaussian Blur Numeric Parity'),
+          ),
+          if (_blurParity case final blur?) ...[
+            const SizedBox(height: 12),
+            _ParityCard(
+              result: blur,
+              title: 'Gaussian blur parity',
+              showFilmParity: false,
             ),
           ],
           const SizedBox(height: 28),
@@ -163,19 +194,27 @@ class _GpuEditorVerificationScreenState
                   children: [
                     _StatusLine(
                       passed: latency.passed,
-                      label: latency.passed ? 'Latency target PASS' : 'Latency target FAIL',
+                      label: latency.passed
+                          ? 'Latency target PASS'
+                          : 'Latency target FAIL',
                     ),
                     const SizedBox(height: 10),
                     _MetricRow('Device', latency.device),
                     _MetricRow('Workload', latency.workload),
                     _MetricRow('Size', '${latency.width}×${latency.height}'),
                     _MetricRow('Iterations', '${latency.iterations}'),
-                    _MetricRow('Average', '${latency.averageMs.toStringAsFixed(3)} ms'),
+                    _MetricRow(
+                      'Average',
+                      '${latency.averageMs.toStringAsFixed(3)} ms',
+                    ),
                     _MetricRow('p50', '${latency.p50Ms.toStringAsFixed(3)} ms'),
                     _MetricRow('p95', '${latency.p95Ms.toStringAsFixed(3)} ms'),
                     _MetricRow('p99', '${latency.p99Ms.toStringAsFixed(3)} ms'),
                     _MetricRow('Max', '${latency.maxMs.toStringAsFixed(3)} ms'),
-                    _MetricRow('Target p95', '≤ ${latency.targetMs.toStringAsFixed(2)} ms'),
+                    _MetricRow(
+                      'Target p95',
+                      '≤ ${latency.targetMs.toStringAsFixed(2)} ms',
+                    ),
                   ],
                 ),
               ),
@@ -200,6 +239,52 @@ class _GpuEditorVerificationScreenState
       ),
     );
   }
+}
+
+class _ParityCard extends StatelessWidget {
+  const _ParityCard({
+    required this.result,
+    required this.title,
+    required this.showFilmParity,
+  });
+
+  final GpuEditorParityResult result;
+  final String title;
+  final bool showFilmParity;
+
+  @override
+  Widget build(BuildContext context) => Card.filled(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _StatusLine(
+                passed: result.passed,
+                label: result.passed ? '$title PASS' : '$title FAIL',
+              ),
+              const SizedBox(height: 10),
+              _MetricRow('Reference', result.reference),
+              _MetricRow('Tolerance', result.tolerance.toStringAsFixed(8)),
+              _MetricRow(
+                'Overall max Δ',
+                result.overallMaxChannelError.toStringAsFixed(8),
+              ),
+              const Divider(height: 24),
+              for (final item in result.cases)
+                _MetricRow(
+                  item.name,
+                  '${item.maxChannelError.toStringAsFixed(8)}  '
+                  '${item.passed ? 'PASS' : 'FAIL'}',
+                ),
+              if (showFilmParity && result.filmParity.isNotEmpty) ...[
+                const Divider(height: 24),
+                Text(result.filmParity),
+              ],
+            ],
+          ),
+        ),
+      );
 }
 
 class _StatusLine extends StatelessWidget {
