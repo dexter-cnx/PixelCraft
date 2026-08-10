@@ -120,7 +120,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     if (kind == 'adjust') {
       final supported =
-          key == 'brightness' || key == 'contrast' || key == 'saturation';
+          key == 'brightness' ||
+          key == 'contrast' ||
+          key == 'saturation' ||
+          key == 'sharpen';
       if (!supported) return false;
       if (state.cursor == 0) return true;
       return state.cursor == 1 &&
@@ -220,6 +223,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         'brightness' => adjustments.copyWith(brightness: value),
         'contrast' => adjustments.copyWith(contrast: value),
         'saturation' => adjustments.copyWith(saturation: value),
+        'sharpen' => adjustments.copyWith(sharpen: value),
         _ => adjustments,
       };
       await _gpuBridge.setFilm(
