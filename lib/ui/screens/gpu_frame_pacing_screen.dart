@@ -35,8 +35,7 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
   bool _filmBenchmark = true;
   String? _error;
 
-  String get _benchmarkLabel =>
-      _filmBenchmark ? 'Velvia 100%' : 'Original';
+  String get _benchmarkLabel => _filmBenchmark ? 'Velvia 100%' : 'Original';
 
   @override
   void initState() {
@@ -137,8 +136,6 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
     if (_running || rendererId == null) return;
 
     try {
-      // Re-apply the workload immediately before measurement so the recorded
-      // interval cannot accidentally represent a stale renderer mode.
       await _applyBenchmarkMode(rendererId, filmEnabled: _filmBenchmark);
       await _pacingBridge.start(rendererId);
       if (!mounted) return;
@@ -170,8 +167,7 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
       if (!mounted) return;
       setState(() => _snapshot = snapshot);
     } catch (_) {
-      // Keep the measurement running; stop() will surface a final error if the
-      // native diagnostics channel is no longer available.
+      // Keep the measurement running; stop() surfaces the final channel error.
     }
   }
 
@@ -184,14 +180,17 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
     try {
       final snapshot = await _pacingBridge.stop(rendererId);
       debugPrint(
-        '[GPU frame pacing] workload=$_benchmarkLabel '
-        'fps=${snapshot.fps.toStringAsFixed(2)} '
-        'avg=${snapshot.averageFrameMs.toStringAsFixed(2)}ms '
-        'p95=${snapshot.p95FrameMs.toStringAsFixed(2)}ms '
-        'p99=${snapshot.p99FrameMs.toStringAsFixed(2)}ms '
-        'max=${snapshot.maxFrameMs.toStringAsFixed(2)}ms '
-        'over40=${snapshot.over40MsFrames} '
-        'frames=${snapshot.frameCount} '
+        '[GPU pipeline] workload=$_benchmarkLabel '
+        'displayFps=${snapshot.fps.toStringAsFixed(2)} '
+        'displayP95=${snapshot.p95FrameMs.toStringAsFixed(2)}ms '
+        'captureFps=${snapshot.captureFps.toStringAsFixed(2)} '
+        'captureP95=${snapshot.p95CaptureMs.toStringAsFixed(2)}ms '
+        'overwritten=${snapshot.overwrittenCaptureFrames} '
+        'avDropped=${snapshot.droppedCaptureFrames} '
+        'uniqueFps=${snapshot.uniqueRenderedFps.toStringAsFixed(2)} '
+        'metalAvg=${snapshot.averageCommandCompletionMs.toStringAsFixed(2)}ms '
+        'metalP95=${snapshot.p95CommandCompletionMs.toStringAsFixed(2)}ms '
+        'metalP99=${snapshot.p99CommandCompletionMs.toStringAsFixed(2)}ms '
         'elapsed=${snapshot.elapsedSeconds.toStringAsFixed(1)}s',
       );
       if (!mounted) return;
@@ -217,14 +216,14 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
 
     if (_initializing) {
       return Scaffold(
-        appBar: AppBar(title: const Text('GPU Frame Pacing')),
+        appBar: AppBar(title: const Text('GPU Pipeline Metrics')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_error != null && _rendererId == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('GPU Frame Pacing')),
+        appBar: AppBar(title: const Text('GPU Pipeline Metrics')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -238,97 +237,101 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
     final snapshot = _snapshot;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('GPU Frame Pacing')),
+      appBar: AppBar(title: const Text('GPU Pipeline Metrics')),
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
+              flex: 3,
               child: ColoredBox(
                 color: Colors.black,
                 child: IosGpuCameraPreview(rendererId: rendererId),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${_probe?.renderer ?? 'iOS Metal'} · $_benchmarkLabel',
-                          style: Theme.of(context).textTheme.titleSmall,
+            Expanded(
+              flex: 5,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${_probe?.renderer ?? 'iOS Metal'} · $_benchmarkLabel',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
                         ),
-                      ),
-                      if (_running)
-                        Text(
-                          '${snapshot?.elapsedSeconds.toStringAsFixed(0) ?? '0'} / 60 s',
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment<bool>(
-                        value: false,
-                        icon: Icon(Icons.hide_image_outlined),
-                        label: Text('Original'),
-                      ),
-                      ButtonSegment<bool>(
-                        value: true,
-                        icon: Icon(Icons.filter_vintage_outlined),
-                        label: Text('Velvia 100%'),
-                      ),
-                    ],
-                    selected: {_filmBenchmark},
-                    onSelectionChanged: _running
-                        ? null
-                        : (selection) {
-                            if (selection.isNotEmpty) {
-                              unawaited(
-                                _changeBenchmarkMode(selection.first),
-                              );
-                            }
-                          },
-                  ),
-                  const SizedBox(height: 10),
-                  if (snapshot != null)
-                    _StatsCard(
-                      snapshot: snapshot,
-                      workloadLabel: _benchmarkLabel,
+                        if (_running)
+                          Text(
+                            '${snapshot?.elapsedSeconds.toStringAsFixed(0) ?? '0'} / 60 s',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                      ],
                     ),
-                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment<bool>(
+                          value: false,
+                          icon: Icon(Icons.hide_image_outlined),
+                          label: Text('Original'),
+                        ),
+                        ButtonSegment<bool>(
+                          value: true,
+                          icon: Icon(Icons.filter_vintage_outlined),
+                          label: Text('Velvia 100%'),
+                        ),
+                      ],
+                      selected: {_filmBenchmark},
+                      onSelectionChanged: _running
+                          ? null
+                          : (selection) {
+                              if (selection.isNotEmpty) {
+                                unawaited(
+                                  _changeBenchmarkMode(selection.first),
+                                );
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                    if (snapshot != null)
+                      _StatsCard(
+                        snapshot: snapshot,
+                        workloadLabel: _benchmarkLabel,
+                      ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: _running ? _stop : _start,
+                      icon: Icon(
+                        _running ? Icons.stop_rounded : Icons.speed_rounded,
+                      ),
+                      label: Text(
+                        _running
+                            ? 'Stop Measurement'
+                            : 'Start 60s $_benchmarkLabel Measurement',
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                      'Display target: FPS ≥ 30 and p95 ≤ 40 ms. Pipeline health '
+                      'also reports AVCapture unique FPS, pending-frame overwrite, '
+                      'AVFoundation drops, unique frames completed by Metal, and '
+                      'command-buffer completion latency. No image pixels cross Dart.',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: _running ? _stop : _start,
-                    icon: Icon(
-                      _running ? Icons.stop_rounded : Icons.speed_rounded,
-                    ),
-                    label: Text(
-                      _running
-                          ? 'Stop Measurement'
-                          : 'Start 60s $_benchmarkLabel Measurement',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Default G1 workload is Velvia at 100% strength so the '
-                    'measurement includes the 33³ Film LUT shader path. '
-                    'Target: sustained FPS ≥ 30 and p95 frame interval ≤ 40 ms. '
-                    'Source is native MTKView draw cadence, not Flutter frame timing.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+                ),
               ),
             ),
           ],
@@ -350,7 +353,8 @@ class _StatsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enoughData = snapshot.elapsedSeconds >= 10;
-    final passed = enoughData && snapshot.meetsG1Target;
+    final displayPassed = enoughData && snapshot.meetsG1Target;
+    final pipelinePassed = enoughData && snapshot.meetsPipelineTarget;
 
     return Card.filled(
       child: Padding(
@@ -358,49 +362,118 @@ class _StatsCard extends StatelessWidget {
         child: Column(
           children: [
             _row('Workload', workloadLabel),
+            const Divider(),
+            _section(context, 'Display / MTKView'),
             _row('FPS', snapshot.fps.toStringAsFixed(2)),
-            _row(
-              'Average',
-              '${snapshot.averageFrameMs.toStringAsFixed(2)} ms',
-            ),
+            _row('Average', '${snapshot.averageFrameMs.toStringAsFixed(2)} ms'),
             _row('p95', '${snapshot.p95FrameMs.toStringAsFixed(2)} ms'),
             _row('p99', '${snapshot.p99FrameMs.toStringAsFixed(2)} ms'),
             _row('Max', '${snapshot.maxFrameMs.toStringAsFixed(2)} ms'),
             _row('> 40 ms', '${snapshot.over40MsFrames} frames'),
-            _row('Frames', '${snapshot.frameCount}'),
-            _row(
-              'Elapsed',
-              '${snapshot.elapsedSeconds.toStringAsFixed(1)} s',
-            ),
+            _row('Draw callbacks', '${snapshot.frameCount}'),
             const Divider(),
-            Row(
-              children: [
-                Icon(
-                  !enoughData
-                      ? Icons.timelapse_rounded
-                      : passed
-                          ? Icons.check_circle_rounded
-                          : Icons.error_rounded,
-                  color: !enoughData
-                      ? null
-                      : passed
-                          ? Colors.green
-                          : Theme.of(context).colorScheme.error,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  !enoughData
-                      ? 'Collecting data…'
-                      : passed
-                          ? 'G1 pacing target PASS'
-                          : 'G1 pacing target FAIL',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ],
+            _section(context, 'Camera / AVCapture'),
+            _row('Capture FPS', snapshot.captureFps.toStringAsFixed(2)),
+            _row('Capture avg', '${snapshot.averageCaptureMs.toStringAsFixed(2)} ms'),
+            _row('Capture p95', '${snapshot.p95CaptureMs.toStringAsFixed(2)} ms'),
+            _row('Captured', '${snapshot.captureFrameCount}'),
+            _row('Overwritten', '${snapshot.overwrittenCaptureFrames}'),
+            _row('AV dropped', '${snapshot.droppedCaptureFrames}'),
+            _row('Capture loss', '${(snapshot.captureLossRate * 100).toStringAsFixed(2)}%'),
+            const Divider(),
+            _section(context, 'Metal completion'),
+            _row('Unique FPS', snapshot.uniqueRenderedFps.toStringAsFixed(2)),
+            _row('Unique frames', '${snapshot.uniqueRenderedFrames}'),
+            _row('Commands', '${snapshot.commandCompletionCount}'),
+            _row(
+              'Completion avg',
+              '${snapshot.averageCommandCompletionMs.toStringAsFixed(2)} ms',
+            ),
+            _row(
+              'Completion p95',
+              '${snapshot.p95CommandCompletionMs.toStringAsFixed(2)} ms',
+            ),
+            _row(
+              'Completion p99',
+              '${snapshot.p99CommandCompletionMs.toStringAsFixed(2)} ms',
+            ),
+            _row(
+              'Completion max',
+              '${snapshot.maxCommandCompletionMs.toStringAsFixed(2)} ms',
+            ),
+            _row('Elapsed', '${snapshot.elapsedSeconds.toStringAsFixed(1)} s'),
+            const Divider(),
+            _statusRow(
+              context,
+              enoughData: enoughData,
+              passed: displayPassed,
+              pendingLabel: 'Collecting display data…',
+              passLabel: 'G1 display pacing PASS',
+              failLabel: 'G1 display pacing FAIL',
+            ),
+            const SizedBox(height: 6),
+            _statusRow(
+              context,
+              enoughData: enoughData,
+              passed: pipelinePassed,
+              pendingLabel: 'Collecting pipeline data…',
+              passLabel: 'Pipeline health PASS',
+              failLabel: 'Pipeline health CHECK',
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _section(BuildContext context, String text) => Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+      );
+
+  Widget _statusRow(
+    BuildContext context, {
+    required bool enoughData,
+    required bool passed,
+    required String pendingLabel,
+    required String passLabel,
+    required String failLabel,
+  }) {
+    final color = !enoughData
+        ? null
+        : passed
+            ? Colors.green
+            : Theme.of(context).colorScheme.error;
+    return Row(
+      children: [
+        Icon(
+          !enoughData
+              ? Icons.timelapse_rounded
+              : passed
+                  ? Icons.check_circle_rounded
+                  : Icons.info_rounded,
+          color: color,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            !enoughData
+                ? pendingLabel
+                : passed
+                    ? passLabel
+                    : failLabel,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
     );
   }
 
