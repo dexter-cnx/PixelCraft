@@ -29,6 +29,9 @@ const editorPreviewMaxEdge = 1024;
 
 bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 
+double defaultAdjustmentValue(String filter) =>
+    filter == 'gaussian_blur' || filter == 'sharpen' ? 0 : 1;
+
 enum EditorTool { adjust, filters, film, crop, rotate, details }
 
 enum _PreviewKind { adjust, creative, film }
@@ -176,6 +179,9 @@ class EditorController extends StateNotifier<EditorState> {
 
   final ImageEngine _engine;
   final EditorSessionStore _sessionStore;
+  final Map<String, double> _adjustmentValues = {
+    for (final filter in coreFilters) filter: defaultAdjustmentValue(filter),
+  };
   int _thumbnailGeneration = 0;
   bool _hasPendingFilterOperation = false;
   bool _hasPendingFilmOperation = false;
@@ -184,9 +190,16 @@ class EditorController extends StateNotifier<EditorState> {
   bool _previewWorkerRunning = false;
   Future<void> _persistTail = Future.value();
 
+  void _resetAdjustmentValues() {
+    for (final filter in coreFilters) {
+      _adjustmentValues[filter] = defaultAdjustmentValue(filter);
+    }
+  }
+
   Future<void> load(Uint8List bytes) async {
     final generation = ++_thumbnailGeneration;
     _resetPendingKinds();
+    _resetAdjustmentValues();
     state = state.copyWith(isBusy: true, error: null);
     try {
       final loaded = await _engine.loadImageInBackground(
@@ -205,6 +218,7 @@ class EditorController extends StateNotifier<EditorState> {
   Future<void> restore(Uint8List bytes, String recipeJson) async {
     final generation = ++_thumbnailGeneration;
     _resetPendingKinds();
+    _resetAdjustmentValues();
     state = state.copyWith(isBusy: true, error: null);
     try {
       final loaded = await _engine.restoreSessionInBackground(bytes, recipeJson);
@@ -232,7 +246,7 @@ class EditorController extends StateNotifier<EditorState> {
       selectedFilter: 'brightness',
       selectedCreativeFilter: '',
       selectedFilmProfile: '',
-      value: 1,
+      value: _adjustmentValues['brightness'] ?? 1,
       creativeFilterValue: 1,
       filmProfileStrength: 1,
       straightenDegrees: 0,
@@ -265,7 +279,7 @@ class EditorController extends StateNotifier<EditorState> {
       selectedFilter: filter,
       selectedCreativeFilter: '',
       selectedFilmProfile: '',
-      value: filter == 'gaussian_blur' ? 0 : 1,
+      value: _adjustmentValues[filter] ?? defaultAdjustmentValue(filter),
       creativeFilterValue: 1,
       filmProfileStrength: 1,
       isAdjusting: false,
@@ -360,8 +374,10 @@ class EditorController extends StateNotifier<EditorState> {
 
   Future<void> commitFilterValue(double value) async {
     if (state.isBusy || state.previewBytes == null) return;
+    final filter = state.selectedFilter;
+    _adjustmentValues[filter] = value;
     state = state.copyWith(value: value, isAdjusting: false, error: null);
-    _queuePreview(_PreviewKind.adjust, state.selectedFilter, value);
+    _queuePreview(_PreviewKind.adjust, filter, value);
   }
 
   Future<void> selectFilmProfile(String id) async {
@@ -452,6 +468,7 @@ class EditorController extends StateNotifier<EditorState> {
     try {
       final result = await _engine.applyEditsInBackground();
       _resetPendingKinds();
+      _resetAdjustmentValues();
       state = state.copyWith(
         originalPreviewBytes: result.bytes,
         previewBytes: result.bytes,
@@ -489,6 +506,7 @@ class EditorController extends StateNotifier<EditorState> {
     try {
       final result = await _engine.discardEditsInBackground();
       _resetPendingKinds();
+      _resetAdjustmentValues();
       state = state.copyWith(
         previewBytes: result.bytes,
         histogram: result.histogram,
