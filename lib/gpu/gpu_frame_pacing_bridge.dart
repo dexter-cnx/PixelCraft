@@ -4,6 +4,48 @@ import 'package:flutter/services.dart';
 const gpuFramePacingChannelName = 'dev.pixelcraft/gpu_frame_pacing_v1';
 
 @immutable
+class GpuColorCharacterizationSample {
+  const GpuColorCharacterizationSample({
+    required this.profileId,
+    required this.strength,
+    required this.filmEnabled,
+    required this.samples,
+    required this.sourceMeanRgb,
+    required this.filmMeanRgb,
+    required this.roi,
+    required this.pixelFormat,
+  });
+
+  final String profileId;
+  final double strength;
+  final bool filmEnabled;
+  final int samples;
+  final List<double> sourceMeanRgb;
+  final List<double> filmMeanRgb;
+  final String roi;
+  final String pixelFormat;
+
+  factory GpuColorCharacterizationSample.fromMap(Map<Object?, Object?> map) =>
+      GpuColorCharacterizationSample(
+        profileId: map['profileId'] as String? ?? '',
+        strength: (map['strength'] as num? ?? 0).toDouble(),
+        filmEnabled: map['filmEnabled'] as bool? ?? false,
+        samples: map['samples'] as int? ?? 0,
+        sourceMeanRgb: _rgb(map['sourceMeanRgb']),
+        filmMeanRgb: _rgb(map['filmMeanRgb']),
+        roi: map['roi'] as String? ?? '',
+        pixelFormat: map['pixelFormat'] as String? ?? '',
+      );
+
+  static List<double> _rgb(Object? value) {
+    if (value is! List || value.length != 3) return const [0, 0, 0];
+    return value.map((item) => (item as num? ?? 0).toDouble()).toList(
+          growable: false,
+        );
+  }
+}
+
+@immutable
 class GpuFramePacingSnapshot {
   const GpuFramePacingSnapshot({
     required this.active,
@@ -33,8 +75,6 @@ class GpuFramePacingSnapshot {
 
   final bool active;
   final double elapsedSeconds;
-
-  /// MTKView display/draw cadence.
   final int frameCount;
   final double fps;
   final double averageFrameMs;
@@ -42,16 +82,12 @@ class GpuFramePacingSnapshot {
   final double p99FrameMs;
   final double maxFrameMs;
   final int over40MsFrames;
-
-  /// Unique frames delivered by AVCaptureVideoDataOutput.
   final int captureFrameCount;
   final double captureFps;
   final double averageCaptureMs;
   final double p95CaptureMs;
   final int overwrittenCaptureFrames;
   final int droppedCaptureFrames;
-
-  /// Metal command-buffer completion and unique-frame throughput.
   final int commandCompletionCount;
   final int uniqueRenderedFrames;
   final double uniqueRenderedFps;
@@ -59,16 +95,11 @@ class GpuFramePacingSnapshot {
   final double p95CommandCompletionMs;
   final double p99CommandCompletionMs;
   final double maxCommandCompletionMs;
-
   final String source;
 
   bool get meetsG1Target =>
       elapsedSeconds >= 10 && fps >= 30 && p95FrameMs <= 40;
 
-  /// Pipeline-level validation: the camera must sustain at least 24 unique
-  /// frames/s, Metal must complete unique frames at roughly the same rate, and
-  /// pending-frame overwrite/drop must remain low. The display target remains
-  /// the stricter user-visible G1 criterion above.
   bool get meetsPipelineTarget {
     if (elapsedSeconds < 10 || captureFrameCount == 0) return false;
     final loss = overwrittenCaptureFrames + droppedCaptureFrames;
@@ -150,5 +181,22 @@ class GpuFramePacingBridge {
       throw StateError('GPU frame pacing stop returned no data');
     }
     return GpuFramePacingSnapshot.fromMap(result);
+  }
+
+  Future<GpuColorCharacterizationSample> colorSample(
+    String rendererId, {
+    int maxSamples = 4096,
+  }) async {
+    final result = await _channel.invokeMapMethod<Object?, Object?>(
+      'colorSample',
+      <String, Object?>{
+        'rendererId': rendererId,
+        'maxSamples': maxSamples,
+      },
+    );
+    if (result == null) {
+      throw StateError('GPU color characterization returned no data');
+    }
+    return GpuColorCharacterizationSample.fromMap(result);
   }
 }
