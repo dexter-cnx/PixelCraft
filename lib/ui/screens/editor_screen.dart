@@ -74,12 +74,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   void dispose() {
     final rendererId = _gpuRendererId;
     if (rendererId != null) {
-      unawaited(_gpuBridge.destroyRenderer(rendererId).catchError((_) {}));
+      _gpuBridge.destroyRenderer(rendererId).ignore();
     }
-    final file = _gpuSourceFile;
-    if (file != null) {
-      unawaited(file.delete().catchError((_) => file));
-    }
+    _gpuSourceFile?.delete().ignore();
     super.dispose();
   }
 
@@ -130,9 +127,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
 
     if (kind == 'film') {
-      // A selected Film profile with exactly one draft operation is safe: the
-      // checkpoint excludes that Film operation and Metal can render the new
-      // strength directly from the checkpoint without stacking LUTs.
       return state.cursor <= 1 && state.selectedFilmProfile == key;
     }
 
@@ -169,14 +163,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final pending = _gpuRendererFuture;
     if (pending != null) return pending;
 
-    final future = _gpuBridge.createRenderer().then((id) {
-      _gpuRendererId = id;
-      _gpuRendererFuture = null;
-      return id;
-    }, onError: (Object error, StackTrace stack) {
-      _gpuRendererFuture = null;
-      Error.throwWithStackTrace(error, stack);
-    });
+    final future = _gpuBridge.createRenderer().then(
+      (id) {
+        _gpuRendererId = id;
+        _gpuRendererFuture = null;
+        return id;
+      },
+      onError: (Object error, StackTrace stack) {
+        _gpuRendererFuture = null;
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
     _gpuRendererFuture = future;
     return future;
   }
@@ -189,14 +186,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       final rendererId = await _ensureGpuRenderer();
       if (!mounted || serial != _gpuActivationSerial) return;
 
-      final previous = _gpuSourceFile;
       final file = File(
         '${Directory.systemTemp.path}/pixelcraft-editor-gpu-${identityHashCode(this)}.png',
       );
       await file.writeAsBytes(checkpoint, flush: true);
-      if (previous != null && previous.path != file.path) {
-        unawaited(previous.delete().catchError((_) => previous));
-      }
       _gpuSourceFile = file;
 
       await _gpuBridge.setSourcePath(rendererId, file.path);
@@ -249,6 +242,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
+  Future<void> _waitForRustPreviewSettled() async {
+    for (var tick = 0; tick < 300; tick++) {
+      if (!mounted) return;
+      if (!ref.read(editorProvider).isPreviewProcessing) return;
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+  }
+
   Future<void> _commitGpuPreview(String kind, String key, double value) async {
     final controller = ref.read(editorProvider.notifier);
     final wasGpuActive = _gpuPreviewActive &&
@@ -261,7 +262,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       } else if (kind == 'film') {
         await controller.updateFilmProfileStrength(value);
       }
-      if (wasGpuActive) {
+      await _waitForRustPreviewSettled();
+      final settledState = ref.read(editorProvider);
+      if (wasGpuActive && settledState.error == null) {
         _gpuOwnedDraftKind = kind;
         _gpuOwnedDraftKey = key;
       }
