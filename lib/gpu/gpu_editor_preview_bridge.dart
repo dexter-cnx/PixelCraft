@@ -74,6 +74,20 @@ class GpuEditorPreviewBridge {
         },
       );
 
+  Future<void> setCreative(
+    String rendererId, {
+    required String filterId,
+    required double intensity,
+  }) =>
+      _channel.invokeMethod<void>(
+        'setCreative',
+        <String, Object?>{
+          'rendererId': rendererId,
+          'filterId': filterId,
+          'intensity': intensity.clamp(0.0, 1.0).toDouble(),
+        },
+      );
+
   Future<void> setFilm(
     String rendererId, {
     required String profileId,
