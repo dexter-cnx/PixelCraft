@@ -45,6 +45,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     defaultValue: true,
   );
   static const _gpuBridge = GpuEditorPreviewBridge();
+  static const _gpuCreativeFilters = <String>{
+    'grayscale',
+    'invert',
+    'vintage',
+    'oceanic',
+    'lofi',
+    'dramatic',
+    'golden',
+    'pastel_pink',
+  };
+  static const _gpuCreativeComputeFilters = <String>{'grayscale', 'invert'};
 
   bool _isSavingExport = false;
   bool _isPreparingSource = true;
@@ -133,8 +144,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
 
     if (kind == 'creative') {
-      final supported = key == 'grayscale' || key == 'invert';
-      if (!supported || state.selectedCreativeFilter != key) return false;
+      if (!_gpuCreativeFilters.contains(key) ||
+          state.selectedCreativeFilter != key) {
+        return false;
+      }
       return state.cursor <= 1;
     }
 
@@ -253,16 +266,29 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         rendererId,
         const GpuEditorAdjustmentState(),
       );
-      await _gpuBridge.setFilm(
-        rendererId,
-        profileId: '',
-        strength: 0,
-      );
-      await _gpuBridge.setCreative(
-        rendererId,
-        filterId: key,
-        intensity: value,
-      );
+      if (_gpuCreativeComputeFilters.contains(key)) {
+        await _gpuBridge.setFilm(
+          rendererId,
+          profileId: '',
+          strength: 0,
+        );
+        await _gpuBridge.setCreative(
+          rendererId,
+          filterId: key,
+          intensity: value,
+        );
+      } else {
+        await _gpuBridge.setCreative(
+          rendererId,
+          filterId: '',
+          intensity: 0,
+        );
+        await _gpuBridge.setFilm(
+          rendererId,
+          profileId: 'creative_$key',
+          strength: value,
+        );
+      }
       return;
     }
 
