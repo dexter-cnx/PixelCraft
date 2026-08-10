@@ -10,24 +10,28 @@ class GpuEditorAdjustmentState {
     this.contrast = 1,
     this.saturation = 1,
     this.sharpen = 0,
+    this.gaussianBlur = 0,
   });
 
   final double brightness;
   final double contrast;
   final double saturation;
   final double sharpen;
+  final double gaussianBlur;
 
   GpuEditorAdjustmentState copyWith({
     double? brightness,
     double? contrast,
     double? saturation,
     double? sharpen,
+    double? gaussianBlur,
   }) =>
       GpuEditorAdjustmentState(
         brightness: brightness ?? this.brightness,
         contrast: contrast ?? this.contrast,
         saturation: saturation ?? this.saturation,
         sharpen: sharpen ?? this.sharpen,
+        gaussianBlur: gaussianBlur ?? this.gaussianBlur,
       );
 }
 
@@ -66,6 +70,7 @@ class GpuEditorPreviewBridge {
           'contrast': state.contrast,
           'saturation': state.saturation,
           'sharpen': state.sharpen,
+          'gaussianBlur': state.gaussianBlur,
         },
       );
 
