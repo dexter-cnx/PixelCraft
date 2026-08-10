@@ -90,7 +90,7 @@ class EditorToolPanel extends StatelessWidget {
                   onGpuPreviewChanged: onGpuPreviewChanged,
                   onGpuPreviewCommit: onGpuPreviewCommit,
                 ),
-              EditorTool.crop => _CropPanel(controller: controller),
+              EditorTool.crop => const _CropPanel(),
               EditorTool.rotate => _RotatePanel(state: state, controller: controller),
               EditorTool.details => _DetailsPanel(state: state),
             },
@@ -452,23 +452,26 @@ class _PreviewCard extends StatelessWidget {
 }
 
 class _CropPanel extends StatelessWidget {
-  const _CropPanel({required this.controller});
-  final EditorController controller;
+  const _CropPanel();
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      key: const ValueKey('crop'),
-      spacing: 8,
-      runSpacing: 8,
-      alignment: WrapAlignment.center,
-      children: [
-        ActionChip(label: const Text('1:1'), onPressed: () => controller.applyCenteredCrop(1)),
-        ActionChip(label: const Text('4:3'), onPressed: () => controller.applyCenteredCrop(4 / 3)),
-        ActionChip(label: const Text('3:4'), onPressed: () => controller.applyCenteredCrop(3 / 4)),
-        ActionChip(label: const Text('16:9'), onPressed: () => controller.applyCenteredCrop(16 / 9)),
-        ActionChip(label: const Text('9:16'), onPressed: () => controller.applyCenteredCrop(9 / 16)),
-      ],
+    return const Card.filled(
+      key: ValueKey('crop'),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.touch_app_rounded),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Adjust the crop directly on the image. Choose an aspect ratio, drag or resize the frame, then tap Apply Crop.',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
