@@ -186,7 +186,8 @@ final class GpuEditorPreviewPlugin {
         renderer.setAdjustments(
           brightness: number(args["brightness"], fallback: 1),
           contrast: number(args["contrast"], fallback: 1),
-          saturation: number(args["saturation"], fallback: 1)
+          saturation: number(args["saturation"], fallback: 1),
+          sharpen: number(args["sharpen"], fallback: 0)
         )
         result(nil)
       } catch {
@@ -314,6 +315,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     var brightness: Float
     var contrast: Float
     var saturation: Float
+    var sharpen: Float
     var filmStrength: Float
     var useLut: Float
   }
@@ -332,6 +334,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     float brightness;
     float contrast;
     float saturation;
+    float sharpen;
     float filmStrength;
     float useLut;
   };
@@ -361,7 +364,23 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     constexpr sampler sourceSampler(coord::normalized, address::clamp_to_edge, filter::linear);
     constexpr sampler lutSampler(coord::normalized, address::clamp_to_edge, filter::linear);
 
-    float3 color = sourceTexture.sample(sourceSampler, in.uv).rgb;
+    float3 center = sourceTexture.sample(sourceSampler, in.uv).rgb;
+    float3 color = center;
+    float sharpenStrength = clamp(uniforms.sharpen, 0.0, 2.0);
+    if (sharpenStrength > 0.0001) {
+      float2 texel = 1.0 / float2(sourceTexture.get_width(), sourceTexture.get_height());
+      float3 left = sourceTexture.sample(sourceSampler, in.uv - float2(texel.x, 0.0)).rgb;
+      float3 right = sourceTexture.sample(sourceSampler, in.uv + float2(texel.x, 0.0)).rgb;
+      float3 up = sourceTexture.sample(sourceSampler, in.uv - float2(0.0, texel.y)).rgb;
+      float3 down = sourceTexture.sample(sourceSampler, in.uv + float2(0.0, texel.y)).rgb;
+      color = clamp(
+        center * (1.0 + 4.0 * sharpenStrength) -
+          sharpenStrength * (left + right + up + down),
+        0.0,
+        1.0
+      );
+    }
+
     color = clamp(color + (uniforms.brightness - 1.0), 0.0, 1.0);
     const float midpoint = 128.0 / 255.0;
     color = clamp((color - midpoint) * uniforms.contrast + midpoint, 0.0, 1.0);
@@ -391,6 +410,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private var brightness: Float = 1
   private var contrast: Float = 1
   private var saturation: Float = 1
+  private var sharpen: Float = 0
   private var filmStrength: Float = 0
   private var useLut: Float = 0
 
@@ -456,11 +476,17 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     requestDraw()
   }
 
-  func setAdjustments(brightness: Double, contrast: Double, saturation: Double) {
+  func setAdjustments(
+    brightness: Double,
+    contrast: Double,
+    saturation: Double,
+    sharpen: Double
+  ) {
     stateQueue.sync {
       self.brightness = Float(max(0, min(2, brightness)))
       self.contrast = Float(max(0, min(2, contrast)))
       self.saturation = Float(max(0, min(2, saturation)))
+      self.sharpen = Float(max(0, min(2, sharpen)))
     }
     requestDraw()
   }
@@ -514,6 +540,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
     var localBrightness: Float = 1
     var localContrast: Float = 1
     var localSaturation: Float = 1
+    var localSharpen: Float = 0
     var localFilmStrength: Float = 0
     var localUseLut: Float = 0
     stateQueue.sync {
@@ -522,6 +549,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       localBrightness = brightness
       localContrast = contrast
       localSaturation = saturation
+      localSharpen = sharpen
       localFilmStrength = filmStrength
       localUseLut = useLut
     }
@@ -548,6 +576,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
       brightness: localBrightness,
       contrast: localContrast,
       saturation: localSaturation,
+      sharpen: localSharpen,
       filmStrength: localFilmStrength,
       useLut: localUseLut
     )
