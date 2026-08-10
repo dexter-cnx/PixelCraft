@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -329,13 +328,9 @@ class RustImageEngine implements ImageEngine {
     double value,
   ) =>
       _runCommittedRustTask(() {
-        // The controller knows that a filter has existed in this draft, but it
-        // may no longer be the immediately previous operation (for example
-        // Filter -> Film -> Filter). Only undo when the recipe confirms the
-        // latest operation is itself a Filter.
-        if (_lastRecipeOperationType() == 'filter') {
-          rust.undo();
-        }
+        // Rust owns filter-draft replacement semantics. Committing the same
+        // filter name again updates that filter inside the current checkpoint
+        // instead of deleting whichever filter happened to be last.
         rust.beginFilter(filter: filter);
         final preview = rust.updateFilterPreview(filter: filter, value: value);
         final bytes = rust.commitFilter();
@@ -540,23 +535,6 @@ Future<EngineCommitResult> _runCommittedRustTask(_RustCommittedCall task) =>
         session: session,
       );
     });
-
-String? _lastRecipeOperationType() {
-  try {
-    final decoded = jsonDecode(rust.exportSessionRecipe());
-    if (decoded is! Map<String, dynamic>) return null;
-    final operations = decoded['operations'];
-    final cursor = decoded['cursor'];
-    if (operations is! List || cursor is! int || cursor <= 0 || cursor > operations.length) {
-      return null;
-    }
-    final operation = operations[cursor - 1];
-    if (operation is! Map) return null;
-    return operation['type'] as String?;
-  } catch (_) {
-    return null;
-  }
-}
 
 EngineSessionInfo _sessionInfo() {
   final info = rust.sessionInfo();
