@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 const gpuEditorDiagnosticsChannelName =
     'dev.pixelcraft/gpu_editor_diagnostics_v1';
+const _gpuPreviewDiagnosticsChannelName = 'dev.pixelcraft/gpu_preview_v1';
 
 @immutable
 class GpuEditorParityCaseResult {
@@ -120,17 +121,33 @@ class GpuEditorLatencyResult {
 }
 
 class GpuEditorDiagnosticsBridge {
-  const GpuEditorDiagnosticsBridge({MethodChannel? channel})
-      : _channel = channel ??
-            const MethodChannel(gpuEditorDiagnosticsChannelName);
+  const GpuEditorDiagnosticsBridge({
+    MethodChannel? channel,
+    MethodChannel? previewChannel,
+  })  : _channel = channel ??
+            const MethodChannel(gpuEditorDiagnosticsChannelName),
+        _previewChannel = previewChannel ??
+            const MethodChannel(_gpuPreviewDiagnosticsChannelName);
 
   final MethodChannel _channel;
+  final MethodChannel _previewChannel;
 
   Future<GpuEditorParityResult> runAdjustmentParity() async {
     final map = await _channel.invokeMapMethod<Object?, Object?>(
       'runAdjustmentParity',
     );
     if (map == null) throw StateError('Editor GPU parity returned no data');
+    return GpuEditorParityResult.fromMap(map);
+  }
+
+  Future<GpuEditorParityResult> runGaussianBlurParity() async {
+    final map = await _previewChannel.invokeMapMethod<Object?, Object?>(
+      'runGaussianBlurHarness',
+      const <String, Object?>{'protocolVersion': 1},
+    );
+    if (map == null) {
+      throw StateError('Gaussian blur GPU parity returned no data');
+    }
     return GpuEditorParityResult.fromMap(map);
   }
 
