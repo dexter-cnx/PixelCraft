@@ -234,7 +234,7 @@ final class MetalEditorRendererRegistry {
 
   func create() throws -> String {
     let id = UUID().uuidString
-    renderers[id] = try MetalEditorPreviewRenderer()
+    renderers[id] = try MetalEditorPreviewRenderer(editorPreview: ())
     return id
   }
 
@@ -395,7 +395,7 @@ final class MetalEditorPreviewRenderer: NSObject, MTKViewDelegate {
   private var filmStrength: Float = 0
   private var useLut: Float = 0
 
-  init() throws {
+  init(editorPreview: Void) throws {
     guard let device = MTLCreateSystemDefaultDevice() else {
       throw Self.error("Metal device is unavailable")
     }
