@@ -70,6 +70,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   String? _gpuOwnedDraftKind;
   String? _gpuOwnedDraftKey;
   int _gpuActivationSerial = 0;
+  int _gpuRendererEpoch = 0;
 
   bool get _gpuIntegrationEligible =>
       _gpuEditorIntegration &&
@@ -84,7 +85,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   @override
   void dispose() {
+    _gpuActivationSerial++;
+    _gpuRendererEpoch++;
     final rendererId = _gpuRendererId;
+    _gpuRendererId = null;
+    _gpuRendererFuture = null;
     if (rendererId != null) {
       _gpuBridge.destroyRenderer(rendererId).ignore();
     }
@@ -173,12 +178,48 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _gpuDraftValue = value;
     final rendererId = _gpuRendererId;
     if (rendererId != null && _gpuPreviewActive) {
-      unawaited(_applyGpuDraft(rendererId));
+      final serial = _gpuActivationSerial;
+      unawaited(_applyGpuDraftSafely(rendererId, serial));
     }
   }
 
   void _onGpuPreviewCommit(String kind, String key, double value) {
     unawaited(_commitGpuPreview(kind, key, value));
+  }
+
+  void _invalidateGpuPreview({
+    bool dropRenderer = false,
+    bool clearOwnership = false,
+    String? reason,
+  }) {
+    _gpuActivationSerial++;
+    _gpuDraftKind = null;
+    _gpuDraftKey = null;
+    if (clearOwnership) {
+      _gpuOwnedDraftKind = null;
+      _gpuOwnedDraftKey = null;
+    }
+
+    if (dropRenderer) {
+      _gpuRendererEpoch++;
+      final rendererId = _gpuRendererId;
+      _gpuRendererId = null;
+      _gpuRendererFuture = null;
+      if (rendererId != null) {
+        unawaited(_gpuBridge.destroyRenderer(rendererId).catchError((Object error) {
+          debugPrint('[G2 editor GPU] renderer cleanup failed: $error');
+        }));
+      }
+    }
+
+    if (reason != null) {
+      debugPrint('[G2 editor GPU] invalidated: $reason');
+    }
+    if (mounted && _gpuPreviewActive) {
+      setState(() => _gpuPreviewActive = false);
+    } else {
+      _gpuPreviewActive = false;
+    }
   }
 
   Future<String> _ensureGpuRenderer() {
@@ -187,17 +228,23 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final pending = _gpuRendererFuture;
     if (pending != null) return pending;
 
-    final future = _gpuBridge.createRenderer().then(
-      (id) {
-        _gpuRendererId = id;
+    final epoch = _gpuRendererEpoch;
+    final future = _gpuBridge.createRenderer().then((id) async {
+      if (!mounted || epoch != _gpuRendererEpoch) {
+        await _gpuBridge.destroyRenderer(id).catchError((Object error) {
+          debugPrint('[G2 editor GPU] stale renderer cleanup failed: $error');
+        });
+        throw StateError('GPU renderer creation was superseded');
+      }
+      _gpuRendererId = id;
+      _gpuRendererFuture = null;
+      return id;
+    }, onError: (Object error, StackTrace stack) {
+      if (epoch == _gpuRendererEpoch) {
         _gpuRendererFuture = null;
-        return id;
-      },
-      onError: (Object error, StackTrace stack) {
-        _gpuRendererFuture = null;
-        Error.throwWithStackTrace(error, stack);
-      },
-    );
+      }
+      Error.throwWithStackTrace(error, stack);
+    });
     _gpuRendererFuture = future;
     return future;
   }
@@ -225,7 +272,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     } catch (error) {
       debugPrint('[G2 editor GPU] live preview unavailable: $error');
       if (mounted && serial == _gpuActivationSerial) {
-        setState(() => _gpuPreviewActive = false);
+        _invalidateGpuPreview(
+          dropRenderer: true,
+          reason: 'activation failure',
+        );
+      }
+    }
+  }
+
+  Future<void> _applyGpuDraftSafely(String rendererId, int serial) async {
+    try {
+      await _applyGpuDraft(rendererId);
+    } catch (error) {
+      debugPrint('[G2 editor GPU] live update failed: $error');
+      if (mounted && serial == _gpuActivationSerial) {
+        _invalidateGpuPreview(
+          dropRenderer: true,
+          reason: 'live update failure',
+        );
       }
     }
   }
@@ -319,6 +383,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Future<void> _commitGpuPreview(String kind, String key, double value) async {
     final controller = ref.read(editorProvider.notifier);
+    final serial = _gpuActivationSerial;
     final wasGpuActive = _gpuPreviewActive &&
         _gpuDraftKind == kind &&
         _gpuDraftKey == key;
@@ -332,17 +397,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         await controller.updateFilmProfileStrength(value);
       }
       await _waitForRustPreviewSettled();
+      if (!mounted || serial != _gpuActivationSerial) return;
       final settledState = ref.read(editorProvider);
       if (wasGpuActive && settledState.error == null) {
         _gpuOwnedDraftKind = kind;
         _gpuOwnedDraftKey = key;
       }
     } finally {
-      if (mounted && wasGpuActive) {
+      if (mounted && wasGpuActive && serial == _gpuActivationSerial) {
         setState(() => _gpuPreviewActive = false);
       }
-      _gpuDraftKind = null;
-      _gpuDraftKey = null;
+      if (serial == _gpuActivationSerial) {
+        _gpuDraftKind = null;
+        _gpuDraftKey = null;
+      }
     }
   }
 
@@ -469,6 +537,36 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final controller = ref.read(editorProvider.notifier);
     final isProcessing = state.isBusy || _isSavingExport;
     final actionsBlocked = isProcessing || state.isPreviewProcessing;
+
+    ref.listen<EditorState>(editorProvider, (previous, next) {
+      if (previous == null) return;
+      final toolChanged = previous.selectedTool != next.selectedTool;
+      final checkpointChanged =
+          !identical(previous.originalPreviewBytes, next.originalPreviewBytes);
+      final enteredOriginal = !previous.showOriginal && next.showOriginal;
+      final becameBusy = !previous.isBusy && next.isBusy;
+      final failed = next.error != null && next.error != previous.error;
+      if (!toolChanged &&
+          !checkpointChanged &&
+          !enteredOriginal &&
+          !becameBusy &&
+          !failed) {
+        return;
+      }
+
+      _invalidateGpuPreview(
+        clearOwnership: checkpointChanged,
+        reason: checkpointChanged
+            ? 'Rust checkpoint changed'
+            : toolChanged
+                ? 'editor tool changed'
+                : enteredOriginal
+                    ? 'original preview requested'
+                    : becameBusy
+                        ? 'editor entered busy state'
+                        : 'editor reported an error',
+      );
+    });
 
     return Scaffold(
       appBar: AppBar(
