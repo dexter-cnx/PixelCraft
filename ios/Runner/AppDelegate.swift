@@ -237,12 +237,14 @@ private final class EditorMetalVerificationHarness {
       for index in samples.indices {
         let expected = rustReference(samples[index], testCase: testCase)
         let actual = gpu[index]
-        maxError = max(
-          maxError,
+        let rgbError = max(
           Double(abs(actual.x - expected.x)),
-          Double(abs(actual.y - expected.y)),
-          Double(abs(actual.z - expected.z))
+          max(
+            Double(abs(actual.y - expected.y)),
+            Double(abs(actual.z - expected.z))
+          )
         )
+        maxError = max(maxError, rgbError)
       }
       let passed = maxError <= tolerance
       overallMax = max(overallMax, maxError)
