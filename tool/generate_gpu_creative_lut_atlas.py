@@ -5,11 +5,16 @@ The authoritative creative look is produced by rust/src/bin/generate_creative_lu
 which executes Pixel Craft's photon-rs filter path at full strength. This script
 only converts those canonical 33^3 .cube samples to the same RGBA8 atlas layout
 used by Film preview.
+
+Creative assets are emitted beside Film assets with a `creative_` prefix so the
+existing native 33^3 LUT loader/sampler can be reused without a second shader or
+loader implementation.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -22,7 +27,6 @@ from generate_gpu_lut_atlas import (
     load_parity_fixtures,
     parse_cube,
     verify_parity,
-    write_profile,
 )
 
 CREATIVE_FILTER_IDS = (
@@ -53,18 +57,26 @@ def process(
             )
         cube = parse_cube(cube_path)
         atlas = build_rgba8_atlas(cube)
-        max_error = verify_parity(
-            f"creative:{filter_id}", cube, atlas, fixture_points
-        )
+        asset_id = f"creative_{filter_id}"
+        max_error = verify_parity(asset_id, cube, atlas, fixture_points)
         print(
             f"[Pixel Craft] creative {filter_id}: "
             f"atlas parity max error {max_error:.6f}"
         )
         if write:
-            manifest_profiles.append(write_profile(output_root, filter_id, atlas))
+            output_root.mkdir(parents=True, exist_ok=True)
+            file_name = f"{asset_id}.rgba8"
+            (output_root / file_name).write_bytes(atlas)
+            manifest_profiles.append(
+                {
+                    "id": filter_id,
+                    "assetId": asset_id,
+                    "file": file_name,
+                    "sha256": hashlib.sha256(atlas).hexdigest(),
+                }
+            )
 
     if write:
-        output_root.mkdir(parents=True, exist_ok=True)
         manifest = {
             "version": 1,
             "kind": "creative",
@@ -79,7 +91,7 @@ def process(
             "intensity": "post-lut-linear-blend",
             "profiles": manifest_profiles,
         }
-        (output_root / "manifest.json").write_text(
+        (output_root / "creative_manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -95,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("build/gpu_luts/creative"),
+        default=Path("build/gpu_luts"),
     )
     parser.add_argument(
         "--fixtures",
