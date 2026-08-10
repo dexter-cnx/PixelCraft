@@ -18,6 +18,8 @@ class GpuFramePacingScreen extends StatefulWidget {
 
 class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
   static const _measurementDuration = Duration(seconds: 60);
+  static const _benchmarkProfileId = 'velvia_inspired';
+  static const _benchmarkStrength = 1.0;
 
   final _gpuBridge = const NativeGpuPreviewBridge();
   final _cameraBridge = const NativeGpuCameraBridge();
@@ -30,7 +32,11 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
   Timer? _stopTimer;
   bool _initializing = true;
   bool _running = false;
+  bool _filmBenchmark = true;
   String? _error;
+
+  String get _benchmarkLabel =>
+      _filmBenchmark ? 'Velvia 100%' : 'Original';
 
   @override
   void initState() {
@@ -63,11 +69,13 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
 
       final permission = await _cameraBridge.requestCameraPermission();
       if (!permission) {
-        throw StateError('Camera permission is required for live preview measurement.');
+        throw StateError(
+          'Camera permission is required for live preview measurement.',
+        );
       }
 
       final rendererId = await _gpuBridge.createRenderer();
-      await _gpuBridge.setEnabled(rendererId, false);
+      await _applyBenchmarkMode(rendererId, filmEnabled: _filmBenchmark);
 
       if (!mounted) {
         await _gpuBridge.destroyRenderer(rendererId);
@@ -88,11 +96,50 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
     }
   }
 
+  Future<void> _applyBenchmarkMode(
+    String rendererId, {
+    required bool filmEnabled,
+  }) async {
+    if (filmEnabled) {
+      await _gpuBridge.setFilm(
+        rendererId,
+        const GpuPreviewFilmState(
+          profileId: _benchmarkProfileId,
+          strength: _benchmarkStrength,
+        ),
+      );
+      await _gpuBridge.setEnabled(rendererId, true);
+    } else {
+      await _gpuBridge.setEnabled(rendererId, false);
+    }
+  }
+
+  Future<void> _changeBenchmarkMode(bool filmEnabled) async {
+    final rendererId = _rendererId;
+    if (_running || rendererId == null || filmEnabled == _filmBenchmark) return;
+
+    try {
+      await _applyBenchmarkMode(rendererId, filmEnabled: filmEnabled);
+      if (!mounted) return;
+      setState(() {
+        _filmBenchmark = filmEnabled;
+        _snapshot = null;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = '$error');
+    }
+  }
+
   Future<void> _start() async {
     final rendererId = _rendererId;
     if (_running || rendererId == null) return;
 
     try {
+      // Re-apply the workload immediately before measurement so the recorded
+      // interval cannot accidentally represent a stale renderer mode.
+      await _applyBenchmarkMode(rendererId, filmEnabled: _filmBenchmark);
       await _pacingBridge.start(rendererId);
       if (!mounted) return;
       setState(() {
@@ -137,7 +184,8 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
     try {
       final snapshot = await _pacingBridge.stop(rendererId);
       debugPrint(
-        '[GPU frame pacing] fps=${snapshot.fps.toStringAsFixed(2)} '
+        '[GPU frame pacing] workload=$_benchmarkLabel '
+        'fps=${snapshot.fps.toStringAsFixed(2)} '
         'avg=${snapshot.averageFrameMs.toStringAsFixed(2)}ms '
         'p95=${snapshot.p95FrameMs.toStringAsFixed(2)}ms '
         'p99=${snapshot.p99FrameMs.toStringAsFixed(2)}ms '
@@ -162,7 +210,10 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    assert(kDebugMode, 'GpuFramePacingScreen is intended for debug builds only.');
+    assert(
+      kDebugMode,
+      'GpuFramePacingScreen is intended for debug builds only.',
+    );
 
     if (_initializing) {
       return Scaffold(
@@ -206,7 +257,7 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          '${_probe?.renderer ?? 'iOS Metal'} · Original preview',
+                          '${_probe?.renderer ?? 'iOS Metal'} · $_benchmarkLabel',
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                       ),
@@ -218,23 +269,62 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  if (snapshot != null) _StatsCard(snapshot: snapshot),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment<bool>(
+                        value: false,
+                        icon: Icon(Icons.hide_image_outlined),
+                        label: Text('Original'),
+                      ),
+                      ButtonSegment<bool>(
+                        value: true,
+                        icon: Icon(Icons.filter_vintage_outlined),
+                        label: Text('Velvia 100%'),
+                      ),
+                    ],
+                    selected: {_filmBenchmark},
+                    onSelectionChanged: _running
+                        ? null
+                        : (selection) {
+                            if (selection.isNotEmpty) {
+                              unawaited(
+                                _changeBenchmarkMode(selection.first),
+                              );
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                  if (snapshot != null)
+                    _StatsCard(
+                      snapshot: snapshot,
+                      workloadLabel: _benchmarkLabel,
+                    ),
                   if (_error != null) ...[
                     const SizedBox(height: 8),
                     Text(
                       _error!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 10),
                   FilledButton.icon(
                     onPressed: _running ? _stop : _start,
-                    icon: Icon(_running ? Icons.stop_rounded : Icons.speed_rounded),
-                    label: Text(_running ? 'Stop Measurement' : 'Start 60s Measurement'),
+                    icon: Icon(
+                      _running ? Icons.stop_rounded : Icons.speed_rounded,
+                    ),
+                    label: Text(
+                      _running
+                          ? 'Stop Measurement'
+                          : 'Start 60s $_benchmarkLabel Measurement',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'G1 target: sustained FPS ≥ 30 and p95 frame interval ≤ 40 ms. '
+                    'Default G1 workload is Velvia at 100% strength so the '
+                    'measurement includes the 33³ Film LUT shader path. '
+                    'Target: sustained FPS ≥ 30 and p95 frame interval ≤ 40 ms. '
                     'Source is native MTKView draw cadence, not Flutter frame timing.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
@@ -249,9 +339,13 @@ class _GpuFramePacingScreenState extends State<GpuFramePacingScreen> {
 }
 
 class _StatsCard extends StatelessWidget {
-  const _StatsCard({required this.snapshot});
+  const _StatsCard({
+    required this.snapshot,
+    required this.workloadLabel,
+  });
 
   final GpuFramePacingSnapshot snapshot;
+  final String workloadLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -263,14 +357,21 @@ class _StatsCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         child: Column(
           children: [
+            _row('Workload', workloadLabel),
             _row('FPS', snapshot.fps.toStringAsFixed(2)),
-            _row('Average', '${snapshot.averageFrameMs.toStringAsFixed(2)} ms'),
+            _row(
+              'Average',
+              '${snapshot.averageFrameMs.toStringAsFixed(2)} ms',
+            ),
             _row('p95', '${snapshot.p95FrameMs.toStringAsFixed(2)} ms'),
             _row('p99', '${snapshot.p99FrameMs.toStringAsFixed(2)} ms'),
             _row('Max', '${snapshot.maxFrameMs.toStringAsFixed(2)} ms'),
             _row('> 40 ms', '${snapshot.over40MsFrames} frames'),
             _row('Frames', '${snapshot.frameCount}'),
-            _row('Elapsed', '${snapshot.elapsedSeconds.toStringAsFixed(1)} s'),
+            _row(
+              'Elapsed',
+              '${snapshot.elapsedSeconds.toStringAsFixed(1)} s',
+            ),
             const Divider(),
             Row(
               children: [
@@ -308,7 +409,10 @@ class _StatsCard extends StatelessWidget {
         child: Row(
           children: [
             Expanded(child: Text(label)),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ],
         ),
       );
