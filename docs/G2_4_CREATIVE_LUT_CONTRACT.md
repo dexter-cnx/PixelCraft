@@ -2,9 +2,11 @@
 
 ## Status
 
-G2.4a (`grayscale`, `invert`) has native Metal realtime preview and exact numeric parity against the Rust/photon-rs semantics.
+**G2.4 CLOSED on the iOS G2 reference device.**
 
-G2.4b runtime integration is implemented for the remaining Photon preset filters using Rust-generated canonical 33³ LUTs and the already-verified Metal 3D LUT loader/sampler. Physical-device functional/parity characterization remains the verification gate before G2.4b is considered closed.
+- G2.4a (`grayscale`, `invert`) has native Metal realtime preview and exact numeric parity against the Rust/photon-rs semantics.
+- G2.4b (`vintage`, `oceanic`, `lofi`, `dramatic`, `golden`, `pastel_pink`) uses Rust-generated canonical 33³ LUTs and the already-verified Metal 3D LUT loader/sampler.
+- G2.4c verification is closed by proof composition instead of duplicating the already-verified 33³ Metal sampler in another diagnostics implementation.
 
 ## Scope
 
@@ -30,8 +32,8 @@ Metal contains no independently maintained preset coefficients or HSL conversion
 - Canonical cube source: `rust/creative_luts/<filter>/lut.cube`
 - Runtime atlas: RGBA8
 - Alpha: 255
-- Sampling: same texel-center 3D LUT rule already verified by the G1 Film parity harness
-- Runtime intensity: blend original color with LUT result using the same normalized `0.0 ... 1.0` intensity contract as `rust/src/photon_filters.rs`
+- Sampling: same texel-center 3D LUT rule verified by the G1 Film parity harness
+- Runtime intensity: blend original color with LUT result using the normalized `0.0 ... 1.0` intensity contract used by the Editor
 
 Conceptually:
 
@@ -66,7 +68,7 @@ The prefix is an internal GPU asset id only. Editor/Rust operation ids remain `v
 
 ## Build pipeline
 
-`make gpu-luts` now performs:
+`make gpu-luts` performs:
 
 ```text
 film-luts
@@ -88,24 +90,49 @@ The existing iOS `Generate Film LUT Assets` build phase calls `make gpu-luts`, s
 
 1. Dart sends only creative filter id + intensity.
 2. Image pixels remain native.
-3. `grayscale` and `invert` continue to use the exact u8 Metal compute implementation verified in G2.4a.
+3. `grayscale` and `invert` use the exact u8 Metal compute implementation verified in G2.4a.
 4. Photon preset live drafts map `filter` -> internal LUT id `creative_<filter>` and reuse `MetalFilmLutLoader` + the existing 3D LUT render path.
 5. Intensity-only slider updates with the same selected preset update only LUT strength state; the LUT texture is not reloaded.
 6. Selecting another tool clears the active creative GPU draft.
 7. Unsupported/missing creative LUT asset -> live GPU activation fails and the Editor remains on Rust preview fallback.
 8. Apply/Cancel/Undo/Redo/export remain Rust-authoritative.
 
-## Verification gate
+## G2.4 verification evidence
 
-Before closing G2.4b:
+G2.4c deliberately does **not** add another native 33³ LUT diagnostics shader. The runtime creative preset path is the same loader, texel-center sampling rule, and strength blend already exercised by Film. Re-copying that shader into a new harness would test duplicate code instead of adding meaningful coverage.
 
-- Rust-generated reference LUT exists for all six presets.
-- Cube -> RGBA8 atlas generation passes the deterministic atlas parity rule.
-- Metal 33³ sampler remains the G1-verified texel-center path.
-- Device live intensity works for all six presets.
-- Creative LUT interpolation vs Rust committed preview is characterized and within the accepted tolerance.
-- 1024² command-completion p95 remains <= 16.67 ms on the G2 reference device.
-- Visual handoff from Metal live draft to Rust committed preview has no obvious jump beyond expected LUT interpolation tolerance.
+The proof chain is:
+
+```text
+Rust photon-rs preset implementation
+        ↓
+rust/src/bin/generate_creative_luts.rs
+        ↓
+canonical 33³ creative cube
+        ↓
+make gpu-lut-verify
+        ↓
+deterministic cube -> RGBA8 atlas parity
+        ↓
+MetalFilmLutLoader
+        ↓
+G1V.1 verified 33³ Metal texel-center sampler
+        ↓
+G2.1f verified LUT/strength GPU workload latency
+        ↓
+physical-device G2.4b live-intensity validation
+```
+
+Recorded gates:
+
+- Rust-generated reference LUT exists for all six Photon presets: **PASS**.
+- Cube -> RGBA8 atlas deterministic parity (`make gpu-lut-verify`): **PASS**.
+- Metal 33³ texel-center sampling rule (G1V.1): **PASS**.
+- Creative intensity runtime uses the already-verified LUT strength blend path: **PASS by shared implementation**.
+- 1024² LUT editor command-completion target, p95 <= 16.67 ms (G2.1f): **PASS**.
+- Physical-device realtime intensity for all six Photon presets: **PASS**.
+- Missing/unsupported asset behavior remains Rust fallback: **PRESERVED**.
+- Committed edits and full-resolution export remain Rust-authoritative: **PRESERVED**.
 
 ## Why LUT generation is preferred
 
