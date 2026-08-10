@@ -85,7 +85,7 @@ class _GpuEditorVerificationScreenState
           ),
           const SizedBox(height: 6),
           const Text(
-            'Brightness, contrast and saturation are checked against the exact u8 formulas used by rust/src/filters.rs. Film 33³ LUT sampling reuses the G1 canonical Metal parity path.',
+            'Brightness, contrast and saturation are checked against the exact u8 formulas used by rust/src/filters.rs. Sharpen uses a deterministic 5×5 spatial fixture with the same 3×3 kernel and continuity edge padding. Film 33³ LUT sampling reuses the G1 canonical Metal parity path.',
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
@@ -96,7 +96,7 @@ class _GpuEditorVerificationScreenState
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.rule_rounded),
-            label: const Text('Run Adjustment Numeric Parity'),
+            label: const Text('Run Editor Numeric Parity'),
           ),
           if (_parity case final parity?) ...[
             const SizedBox(height: 12),
@@ -108,7 +108,7 @@ class _GpuEditorVerificationScreenState
                   children: [
                     _StatusLine(
                       passed: parity.passed,
-                      label: parity.passed ? 'Adjustment parity PASS' : 'Adjustment parity FAIL',
+                      label: parity.passed ? 'Editor parity PASS' : 'Editor parity FAIL',
                     ),
                     const SizedBox(height: 10),
                     _MetricRow('Reference', parity.reference),
