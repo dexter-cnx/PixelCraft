@@ -205,8 +205,8 @@ class EditorController extends StateNotifier<EditorState> {
       final cursor = decoded['cursor'];
       final checkpointCursor = decoded['checkpoint_cursor'];
       if (operations is! List || cursor is! int || checkpointCursor is! int) return;
-      final start = checkpointCursor.clamp(0, operations.length);
-      final end = cursor.clamp(start, operations.length);
+      final start = checkpointCursor.clamp(0, operations.length).toInt();
+      final end = cursor.clamp(start, operations.length).toInt();
       for (final operation in operations.sublist(start, end)) {
         if (operation is! Map) continue;
         if (operation['type'] != 'filter') continue;
