@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../gpu/gpu_preview_renderer.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
 import 'gpu_color_characterization_screen.dart';
+import 'gpu_editor_verification_screen.dart';
 import 'gpu_frame_pacing_screen.dart';
 
 class GpuDiagnosticsScreen extends StatefulWidget {
@@ -227,6 +228,18 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
                 : null,
             icon: const Icon(Icons.color_lens_outlined),
             label: const Text('Characterize Camera ↔ Rust Color'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: canMeasureMetal
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const GpuEditorVerificationScreen(),
+                      ),
+                    )
+                : null,
+            icon: const Icon(Icons.tune_rounded),
+            label: const Text('Verify G2 Editor Metal Preview'),
           ),
           const SizedBox(height: 16),
           if (_hasCompleteRun)
