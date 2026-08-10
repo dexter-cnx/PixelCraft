@@ -151,16 +151,41 @@ impl EngineState {
         if self.active_filter.as_deref() != Some(filter) {
             return Err("Filter transaction was not started".to_string());
         }
-        let base = self
-            .preview_base
-            .clone()
-            .ok_or_else(|| "No preview base is available".to_string())?;
-        let filtered = filters::apply(base, filter, value)?;
-        let bytes = encode_png(&filtered)?;
-        self.pending_operation = Some(EditOperation::Filter {
+
+        let operation = EditOperation::Filter {
             name: filter.to_string(),
             value,
-        });
+        };
+        let existing_index = self.operations[self.checkpoint_cursor..self.cursor]
+            .iter()
+            .position(|candidate| {
+                matches!(candidate, EditOperation::Filter { name, .. } if name == filter)
+            })
+            .map(|offset| self.checkpoint_cursor + offset);
+
+        let filtered = if let Some(index) = existing_index {
+            let mut draft = self.operations[self.checkpoint_cursor..self.cursor].to_vec();
+            draft[index - self.checkpoint_cursor] = operation.clone();
+            let base = if let Some(checkpoint) = &self.checkpoint_preview {
+                checkpoint.clone()
+            } else {
+                let original = self
+                    .original
+                    .as_ref()
+                    .ok_or_else(|| "No image loaded".to_string())?;
+                resize_to_max_edge(decode(original)?, self.preview_max_edge)
+            };
+            replay_preview_operations(base, &draft, self.preview_max_edge)?
+        } else {
+            let base = self
+                .preview_base
+                .clone()
+                .ok_or_else(|| "No preview base is available".to_string())?;
+            filters::apply(base, filter, value)?
+        };
+
+        let bytes = encode_png(&filtered)?;
+        self.pending_operation = Some(operation);
         self.pending_preview = Some(bytes.clone());
         Ok(bytes)
     }
@@ -174,7 +199,23 @@ impl EngineState {
             .pending_preview
             .take()
             .ok_or_else(|| "No filter preview to commit".to_string())?;
-        self.push_operation(operation);
+
+        self.operations.truncate(self.cursor);
+        let existing_index = match &operation {
+            EditOperation::Filter { name, .. } => self.operations[self.checkpoint_cursor..self.cursor]
+                .iter()
+                .position(|candidate| {
+                    matches!(candidate, EditOperation::Filter { name: candidate_name, .. } if candidate_name == name)
+                })
+                .map(|offset| self.checkpoint_cursor + offset),
+            _ => None,
+        };
+
+        if let Some(index) = existing_index {
+            self.operations[index] = operation;
+        } else {
+            self.push_operation(operation);
+        }
         self.clear_transaction();
         Ok(bytes)
     }
@@ -557,6 +598,33 @@ mod tests {
     }
 
     #[test]
+    fn revisiting_filter_replaces_value_without_stacking_or_dropping_other_filters() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+
+        for (name, value) in [("brightness", 1.2), ("contrast", 1.3), ("brightness", 1.4)] {
+            engine.begin_filter(name.to_string()).unwrap();
+            engine.update_filter_preview(name, value).unwrap();
+            engine.commit_filter().unwrap();
+        }
+
+        assert_eq!(engine.operations.len(), 2);
+        assert_eq!(engine.cursor, 2);
+        assert!(matches!(
+            engine.operations[0],
+            EditOperation::Filter { ref name, value }
+                if name == "brightness" && (value - 1.4).abs() < f32::EPSILON
+        ));
+        assert!(matches!(
+            engine.operations[1],
+            EditOperation::Filter { ref name, value }
+                if name == "contrast" && (value - 1.3).abs() < f32::EPSILON
+        ));
+    }
+
+    #[test]
     fn film_profile_is_replayable() {
         let mut engine = EngineState::default();
         engine.reset(source_png());
@@ -721,10 +789,10 @@ mod tests {
         engine.update_filter_preview("contrast", 1.3).unwrap();
         engine.commit_filter().unwrap();
 
-        assert_eq!(engine.operations.len(), 2);
-        assert_eq!(engine.cursor, 2);
+        assert_eq!(engine.operations.len(), 1);
+        assert_eq!(engine.cursor, 1);
         assert!(matches!(
-            engine.operations[1],
+            engine.operations[0],
             EditOperation::Filter { ref name, .. } if name == "contrast"
         ));
     }
