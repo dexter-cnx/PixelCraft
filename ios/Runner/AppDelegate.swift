@@ -30,7 +30,7 @@ import UIKit
   }
 }
 
-// MARK: - G2.1 editor GPU verification diagnostics
+// MARK: - G2 editor GPU verification diagnostics
 
 final class GpuEditorVerificationDiagnostics {
   static let shared = GpuEditorVerificationDiagnostics()
@@ -96,6 +96,13 @@ private final class EditorMetalVerificationHarness {
     var padding: Float = 0
   }
 
+  private struct SharpenUniforms {
+    var width: UInt32
+    var height: UInt32
+    var strength: Float
+    var padding: Float = 0
+  }
+
   private struct LatencyUniforms {
     var width: UInt32
     var height: UInt32
@@ -122,6 +129,13 @@ private final class EditorMetalVerificationHarness {
     float brightness;
     float contrast;
     float saturation;
+    float padding;
+  };
+
+  struct SharpenUniforms {
+    uint width;
+    uint height;
+    float strength;
     float padding;
   };
 
@@ -158,6 +172,41 @@ private final class EditorMetalVerificationHarness {
     output[index] = float4(color, 1.0);
   }
 
+  kernel void pixelcraft_editor_sharpen_parity(
+    device const float4 *input [[buffer(0)]],
+    device float4 *output [[buffer(1)]],
+    constant SharpenUniforms &uniforms [[buffer(2)]],
+    uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= uniforms.width || gid.y >= uniforms.height) return;
+
+    int width = int(uniforms.width);
+    int height = int(uniforms.height);
+    int x = int(gid.x);
+    int y = int(gid.y);
+
+    int leftX = max(x - 1, 0);
+    int rightX = min(x + 1, width - 1);
+    int upY = max(y - 1, 0);
+    int downY = min(y + 1, height - 1);
+
+    int centerIndex = y * width + x;
+    int leftIndex = y * width + leftX;
+    int rightIndex = y * width + rightX;
+    int upIndex = upY * width + x;
+    int downIndex = downY * width + x;
+
+    float strength = clamp(uniforms.strength, 0.0, 2.0);
+    float3 center = input[centerIndex].rgb;
+    float3 color = center * (1.0 + 4.0 * strength)
+      - strength * (
+        input[leftIndex].rgb +
+        input[rightIndex].rgb +
+        input[upIndex].rgb +
+        input[downIndex].rgb
+      );
+    output[centerIndex] = float4(clamp(color, 0.0, 1.0), 1.0);
+  }
+
   kernel void pixelcraft_editor_latency(
     texture2d<float, access::write> output [[texture(0)]],
     texture3d<float> lut [[texture(1)]],
@@ -185,6 +234,7 @@ private final class EditorMetalVerificationHarness {
   private let device: MTLDevice
   private let commandQueue: MTLCommandQueue
   private let parityPipeline: MTLComputePipelineState
+  private let sharpenPipeline: MTLComputePipelineState
   private let latencyPipeline: MTLComputePipelineState
   private let lutLoader: MetalFilmLutLoader
 
@@ -198,6 +248,7 @@ private final class EditorMetalVerificationHarness {
     let library = try device.makeLibrary(source: Self.shaderSource, options: nil)
     guard
       let parityFunction = library.makeFunction(name: "pixelcraft_editor_adjustment_parity"),
+      let sharpenFunction = library.makeFunction(name: "pixelcraft_editor_sharpen_parity"),
       let latencyFunction = library.makeFunction(name: "pixelcraft_editor_latency")
     else {
       throw Self.error("Editor verification Metal functions are unavailable")
@@ -206,6 +257,7 @@ private final class EditorMetalVerificationHarness {
     self.device = device
     self.commandQueue = commandQueue
     self.parityPipeline = try device.makeComputePipelineState(function: parityFunction)
+    self.sharpenPipeline = try device.makeComputePipelineState(function: sharpenFunction)
     self.latencyPipeline = try device.makeComputePipelineState(function: latencyFunction)
     self.lutLoader = MetalFilmLutLoader(device: device)
   }
@@ -257,9 +309,49 @@ private final class EditorMetalVerificationHarness {
       ])
     }
 
+    let spatialWidth = 5
+    let spatialHeight = 5
+    let spatial = spatialFixture()
+    for strength: Float in [0.50, 1.00, 1.50] {
+      let gpu = try runSharpenCase(
+        samples: spatial,
+        width: spatialWidth,
+        height: spatialHeight,
+        strength: strength
+      )
+      let expected = rustSharpenReference(
+        spatial,
+        width: spatialWidth,
+        height: spatialHeight,
+        strength: strength
+      )
+      var maxError = 0.0
+      for index in spatial.indices {
+        let actual = gpu[index]
+        let reference = expected[index]
+        let rgbError = max(
+          Double(abs(actual.x - reference.x)),
+          max(
+            Double(abs(actual.y - reference.y)),
+            Double(abs(actual.z - reference.z))
+          )
+        )
+        maxError = max(maxError, rgbError)
+      }
+      let passed = maxError <= tolerance
+      overallMax = max(overallMax, maxError)
+      overallPassed = overallPassed && passed
+      results.append([
+        "name": String(format: "sharpen_%.2f", strength),
+        "samples": spatial.count,
+        "maxChannelError": maxError,
+        "passed": passed,
+      ])
+    }
+
     return [
       "backend": "iosMetal",
-      "reference": "rust/src/filters.rs u8 semantics",
+      "reference": "rust/src/filters.rs u8 + filter3x3 continuity semantics",
       "tolerance": tolerance,
       "overallMaxChannelError": overallMax,
       "passed": overallPassed,
@@ -368,6 +460,46 @@ private final class EditorMetalVerificationHarness {
     return Array(UnsafeBufferPointer(start: pointer, count: samples.count))
   }
 
+  private func runSharpenCase(
+    samples: [SIMD4<Float>],
+    width: Int,
+    height: Int,
+    strength: Float
+  ) throws -> [SIMD4<Float>] {
+    let byteCount = samples.count * MemoryLayout<SIMD4<Float>>.stride
+    guard
+      let input = device.makeBuffer(bytes: samples, length: byteCount, options: .storageModeShared),
+      let output = device.makeBuffer(length: byteCount, options: .storageModeShared),
+      let commandBuffer = commandQueue.makeCommandBuffer(),
+      let encoder = commandBuffer.makeComputeCommandEncoder()
+    else {
+      throw Self.error("Unable to allocate sharpen parity Metal resources")
+    }
+
+    var uniforms = SharpenUniforms(
+      width: UInt32(width),
+      height: UInt32(height),
+      strength: strength
+    )
+    encoder.setComputePipelineState(sharpenPipeline)
+    encoder.setBuffer(input, offset: 0, index: 0)
+    encoder.setBuffer(output, offset: 0, index: 1)
+    encoder.setBytes(&uniforms, length: MemoryLayout<SharpenUniforms>.stride, index: 2)
+    let threadWidth = sharpenPipeline.threadExecutionWidth
+    let threadHeight = max(1, sharpenPipeline.maxTotalThreadsPerThreadgroup / threadWidth)
+    encoder.dispatchThreads(
+      MTLSize(width: width, height: height, depth: 1),
+      threadsPerThreadgroup: MTLSize(width: threadWidth, height: threadHeight, depth: 1)
+    )
+    encoder.endEncoding()
+    commandBuffer.commit()
+    commandBuffer.waitUntilCompleted()
+    if let error = commandBuffer.error { throw error }
+
+    let pointer = output.contents().bindMemory(to: SIMD4<Float>.self, capacity: samples.count)
+    return Array(UnsafeBufferPointer(start: pointer, count: samples.count))
+  }
+
   private func submitLatencyWork(
     output: MTLTexture,
     lut: MTLTexture,
@@ -426,6 +558,51 @@ private final class EditorMetalVerificationHarness {
       b = quantize255(luminance + (b255 - luminance) * testCase.saturation)
     }
     return SIMD4<Float>(r, g, b, 1)
+  }
+
+  private func rustSharpenReference(
+    _ input: [SIMD4<Float>],
+    width: Int,
+    height: Int,
+    strength: Float
+  ) -> [SIMD4<Float>] {
+    var output = Array(repeating: SIMD4<Float>(0, 0, 0, 1), count: input.count)
+    let clampedStrength = max(0, min(2, strength))
+
+    for y in 0..<height {
+      for x in 0..<width {
+        let center = input[y * width + x]
+        let left = input[y * width + max(x - 1, 0)]
+        let right = input[y * width + min(x + 1, width - 1)]
+        let up = input[max(y - 1, 0) * width + x]
+        let down = input[min(y + 1, height - 1) * width + x]
+
+        let r = (center.x * (1 + 4 * clampedStrength)
+          - clampedStrength * (left.x + right.x + up.x + down.x)) * 255
+        let g = (center.y * (1 + 4 * clampedStrength)
+          - clampedStrength * (left.y + right.y + up.y + down.y)) * 255
+        let b = (center.z * (1 + 4 * clampedStrength)
+          - clampedStrength * (left.z + right.z + up.z + down.z)) * 255
+
+        output[y * width + x] = SIMD4<Float>(
+          quantize255(r),
+          quantize255(g),
+          quantize255(b),
+          1
+        )
+      }
+    }
+    return output
+  }
+
+  private func spatialFixture() -> [SIMD4<Float>] {
+    [
+      rgba(12, 24, 36), rgba(48, 64, 80), rgba(96, 112, 128), rgba(144, 160, 176), rgba(192, 208, 224),
+      rgba(220, 40, 60), rgba(180, 80, 100), rgba(140, 120, 140), rgba(100, 160, 180), rgba(60, 200, 220),
+      rgba(10, 240, 80), rgba(50, 200, 120), rgba(90, 160, 160), rgba(130, 120, 200), rgba(170, 80, 240),
+      rgba(250, 230, 30), rgba(210, 190, 70), rgba(170, 150, 110), rgba(130, 110, 150), rgba(90, 70, 190),
+      rgba(8, 16, 240), rgba(56, 72, 200), rgba(104, 128, 160), rgba(152, 184, 120), rgba(200, 240, 80),
+    ]
   }
 
   private func quantize255(_ value: Float) -> Float {
