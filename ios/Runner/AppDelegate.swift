@@ -4,6 +4,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var gpuPreviewPlugin: GpuPreviewPlugin?
+  private var gpuEditorPreviewPlugin: GpuEditorPreviewPlugin?
 
   override func application(
     _ application: UIApplication,
@@ -21,6 +22,7 @@ import UIKit
       return
     }
     gpuPreviewPlugin = GpuPreviewPlugin(registrar: registrar)
+    gpuEditorPreviewPlugin = GpuEditorPreviewPlugin(registrar: registrar)
     GpuFramePacingDiagnostics.shared.register(messenger: registrar.messenger())
   }
 }
