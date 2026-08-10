@@ -150,7 +150,8 @@ class _AdjustPanel extends StatelessWidget {
       state.selectedFilter == 'brightness' ||
       state.selectedFilter == 'contrast' ||
       state.selectedFilter == 'saturation' ||
-      state.selectedFilter == 'sharpen';
+      state.selectedFilter == 'sharpen' ||
+      state.selectedFilter == 'gaussian_blur';
 
   @override
   Widget build(BuildContext context) {
