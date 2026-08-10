@@ -96,7 +96,7 @@ creative-luts: ## Materialize photon-rs creative filters as canonical 33^3 .cube
 
 gpu-luts: film-luts creative-luts ## Generate deterministic RGBA8 33^3 LUT atlases for native GPU preview
 	python3 tool/generate_gpu_lut_atlas.py --output "$(GPU_LUT_DIR)"
-	python3 tool/generate_gpu_creative_lut_atlas.py --output "$(GPU_LUT_DIR)/creative"
+	python3 tool/generate_gpu_creative_lut_atlas.py --output "$(GPU_LUT_DIR)"
 	python3 tool/generate_gpu_native_parity_fixture.py --output "$(GPU_LUT_DIR)/native_parity.json"
 
 gpu-lut-verify: film-luts creative-luts ## Verify Film and Creative GPU atlas sampling parity
