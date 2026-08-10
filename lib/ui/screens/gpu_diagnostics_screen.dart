@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../gpu/gpu_preview_renderer.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
+import 'gpu_color_characterization_screen.dart';
 import 'gpu_frame_pacing_screen.dart';
 
 class GpuDiagnosticsScreen extends StatefulWidget {
@@ -215,6 +216,18 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
             icon: const Icon(Icons.speed_rounded),
             label: const Text('Measure iOS Metal FPS / Frame Pacing'),
           ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: canMeasureMetal
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const GpuColorCharacterizationScreen(),
+                      ),
+                    )
+                : null,
+            icon: const Icon(Icons.color_lens_outlined),
+            label: const Text('Characterize Camera ↔ Rust Color'),
+          ),
           const SizedBox(height: 16),
           if (_hasCompleteRun)
             Card(
@@ -240,7 +253,7 @@ class _GpuDiagnosticsScreenState extends State<GpuDiagnosticsScreen> {
           ...['identity', ..._profiles].map(_buildResultCard),
           const SizedBox(height: 24),
           Text(
-            'LUT parity uses deterministic offscreen fixtures. Frame pacing uses a live native Metal camera preview and timestamps MTKView draw cadence; no live camera pixels cross Dart.',
+            'LUT parity uses deterministic offscreen fixtures. Pipeline metrics and color characterization use live native camera statistics; no live camera frame buffer crosses Dart.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
