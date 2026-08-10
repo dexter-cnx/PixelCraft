@@ -79,7 +79,7 @@ class _InteractiveCropOverlayState extends State<InteractiveCropOverlay> {
 
   void _start(_CropHandle handle, DragStartDetails details) {
     _handle = handle;
-    _startPoint = details.localPosition;
+    _startPoint = details.globalPosition;
     _startDraft = widget.draft;
   }
 
@@ -89,8 +89,8 @@ class _InteractiveCropOverlayState extends State<InteractiveCropOverlay> {
     final initial = _startDraft;
     if (handle == null || start == null || initial == null) return;
 
-    final dx = (details.localPosition.dx - start.dx) / math.max(size.width, 1);
-    final dy = (details.localPosition.dy - start.dy) / math.max(size.height, 1);
+    final dx = (details.globalPosition.dx - start.dx) / math.max(size.width, 1);
+    final dy = (details.globalPosition.dy - start.dy) / math.max(size.height, 1);
 
     if (handle == _CropHandle.move) {
       widget.onChanged(initial.copyWith(
