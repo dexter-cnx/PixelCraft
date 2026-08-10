@@ -40,8 +40,10 @@ class EditorScreen extends ConsumerStatefulWidget {
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
   static const _fileService = ExportFileService();
-  static const _gpuEditorIntegration =
-      bool.fromEnvironment('GPU_EDITOR_INTEGRATION');
+  static const _gpuEditorIntegration = bool.fromEnvironment(
+    'GPU_EDITOR_INTEGRATION',
+    defaultValue: true,
+  );
   static const _gpuBridge = GpuEditorPreviewBridge();
 
   bool _isSavingExport = false;
