@@ -4,6 +4,7 @@ import CoreVideo
 import Foundation
 import Metal
 import MetalKit
+import QuartzCore
 import UIKit
 
 final class MetalCameraPreviewRenderer: NSObject {
@@ -93,7 +94,10 @@ final class MetalCameraPreviewRenderer: NSObject {
   private let renderQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.metal", qos: .userInteractive)
   private let frameLock = NSLock()
   private var latestPixelBuffer: CVPixelBuffer?
+  private var latestFrameSerial: UInt64 = 0
+  private var lastScheduledFrameSerial: UInt64 = 0
   private var textureCache: CVMetalTextureCache?
+  private var diagnosticsMonitor: GpuFramePacingMonitor?
 
   private weak var outputView: MTKView?
   private var currentInput: AVCaptureDeviceInput?
@@ -148,6 +152,12 @@ final class MetalCameraPreviewRenderer: NSObject {
 
   static func makeLibrary(device: MTLDevice) throws -> MTLLibrary {
     try device.makeLibrary(source: shaderSource, options: nil)
+  }
+
+  func setDiagnosticsMonitor(_ monitor: GpuFramePacingMonitor?) {
+    frameLock.lock()
+    diagnosticsMonitor = monitor
+    frameLock.unlock()
   }
 
   func attach(view: MTKView, orientation: UIInterfaceOrientation) {
@@ -284,6 +294,7 @@ final class MetalCameraPreviewRenderer: NSObject {
     videoOutput.setSampleBufferDelegate(nil, queue: nil)
     frameLock.lock()
     latestPixelBuffer = nil
+    diagnosticsMonitor = nil
     frameLock.unlock()
     sessionQueue.async { [weak self] in
       guard let self else { return }
@@ -367,16 +378,25 @@ final class MetalCameraPreviewRenderer: NSObject {
     }
   }
 
-  private func latestFrame() -> CVPixelBuffer? {
+  private func latestFrameForRender() -> (pixelBuffer: CVPixelBuffer, isUnique: Bool)? {
     frameLock.lock()
-    defer { frameLock.unlock() }
-    return latestPixelBuffer
+    guard let pixelBuffer = latestPixelBuffer else {
+      frameLock.unlock()
+      return nil
+    }
+    let isUnique = latestFrameSerial != lastScheduledFrameSerial
+    if isUnique {
+      lastScheduledFrameSerial = latestFrameSerial
+    }
+    frameLock.unlock()
+    return (pixelBuffer, isUnique)
   }
 
   private func render(
     pixelBuffer: CVPixelBuffer,
     drawable: CAMetalDrawable,
-    drawableSize: CGSize
+    drawableSize: CGSize,
+    isUniqueFrame: Bool
   ) {
     guard !released, let cache = textureCache else { return }
 
@@ -428,6 +448,16 @@ final class MetalCameraPreviewRenderer: NSObject {
     encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     encoder.endEncoding()
     commandBuffer.present(drawable)
+
+    let committedAt = CACurrentMediaTime()
+    let monitor = diagnosticsMonitor
+    commandBuffer.addCompletedHandler { [weak monitor] _ in
+      guard let monitor else { return }
+      monitor.recordCommandCompletion(
+        latencyMs: (CACurrentMediaTime() - committedAt) * 1000.0,
+        uniqueFrame: isUniqueFrame
+      )
+    }
     commandBuffer.commit()
   }
 
@@ -490,9 +520,26 @@ extension MetalCameraPreviewRenderer: AVCaptureVideoDataOutputSampleBufferDelega
     from connection: AVCaptureConnection
   ) {
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
     frameLock.lock()
+    let overwrotePending = latestPixelBuffer != nil && latestFrameSerial != lastScheduledFrameSerial
+    latestFrameSerial &+= 1
     latestPixelBuffer = pixelBuffer
+    let monitor = diagnosticsMonitor
     frameLock.unlock()
+
+    monitor?.recordCaptureFrame(overwrotePending: overwrotePending)
+  }
+
+  func captureOutput(
+    _ output: AVCaptureOutput,
+    didDrop sampleBuffer: CMSampleBuffer,
+    from connection: AVCaptureConnection
+  ) {
+    frameLock.lock()
+    let monitor = diagnosticsMonitor
+    frameLock.unlock()
+    monitor?.recordDroppedCaptureFrame()
   }
 }
 
@@ -503,16 +550,17 @@ extension MetalCameraPreviewRenderer: MTKViewDelegate {
     guard
       !released,
       outputView === view,
-      let pixelBuffer = latestFrame(),
+      let frame = latestFrameForRender(),
       let drawable = view.currentDrawable
     else { return }
 
     let drawableSize = view.drawableSize
     renderQueue.async { [weak self] in
       self?.render(
-        pixelBuffer: pixelBuffer,
+        pixelBuffer: frame.pixelBuffer,
         drawable: drawable,
-        drawableSize: drawableSize
+        drawableSize: drawableSize,
+        isUniqueFrame: frame.isUnique
       )
     }
   }
