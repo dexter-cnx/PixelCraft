@@ -17,14 +17,15 @@ Recommended new-chat prompt:
 # 1. Repository and architectural invariants
 
 - Repository: `dexter-cnx/PixelCraft`
-- G2 working branch: `feature/camera-film-preview`
+- Completed G2 branch: `feature/camera-film-preview`
+- Planned G3 branch: `feature/editor-gpu-production`
 - Primary app: Flutter
 - Authoritative image engine: Rust
 - iOS realtime GPU backend: Metal
 - Android realtime camera-preview backend: OpenGL ES
 - Flutter/Dart is the UI/control plane.
 
-These are hard contracts unless an explicit architecture decision changes them:
+Hard contracts unless an explicit architecture decision changes them:
 
 1. Rust is authoritative for committed edit semantics, history, checkpoints, session recipe and full-resolution export.
 2. GPU/compositor rendering is a low-latency interactive preview path, not the final-render source of truth.
@@ -57,7 +58,7 @@ full-resolution Rust export
 
 ```text
 G1  Camera GPU Preview                          CLOSED
-G2  Editor GPU Preview Foundation               CLOSING / merge gate
+G2  Editor GPU Preview Foundation               CLOSED / MERGE-READY
 G3  Production Rendering Pipeline               NEXT
 G4  Product Editor UX / Session Workflow        PLANNED
 G5  Editing Feature Completeness                PLANNED
@@ -80,11 +81,7 @@ A reasonable MVP-product gate is after G4 plus the selected MVP subset of G5 and
 
 # 3. G1 — Camera GPU Preview — CLOSED
 
-Camera preview architecture is established on Android and iOS.
-
 ## Android
-
-Pipeline:
 
 ```text
 Camera2
@@ -99,8 +96,6 @@ Camera2
 Film LUT parity passed on physical Android for all six LUTs with recorded max errors around `0.0017-0.0019`, below `2/255`.
 
 ## iOS
-
-Pipeline:
 
 ```text
 AVCaptureSession
@@ -119,18 +114,18 @@ Recorded iOS physical-device evidence includes:
 
 - Original preview around 59.74 FPS, p95 ~16.78 ms.
 - Velvia preview around 58.57 FPS, p95 ~16.83 ms.
-- Metal command completion p95 ~1.31 ms in the recorded pipeline run.
-- Camera/still color-path characterization recorded source max delta ~0.0113 and Film max delta ~0.0121; this is characterization, not pixel-perfect parity.
+- Metal command completion p95 ~1.31 ms.
+- Camera/still color-path characterization source max delta ~0.0113 and Film max delta ~0.0121; characterization, not pixel-perfect parity.
 
-Relevant document:
-
-- `docs/G1_IOS_VERIFICATION.md`
+Relevant document: `docs/G1_IOS_VERIFICATION.md`.
 
 ---
 
-# 4. G2 — Editor GPU Preview Foundation — CLOSING
+# 4. G2 — Editor GPU Preview Foundation — CLOSED / MERGE-READY
 
-G2 implementation is functionally complete. The branch should not receive new product scope after the final gate.
+G2 is fully closed. Final consolidated host gate and final physical-device smoke both passed on 2026-08-11.
+
+Primary closure record: `docs/G2_FINAL_VERIFICATION.md`.
 
 ## G2.0 Editor Metal lab
 
@@ -139,14 +134,6 @@ Static image -> Metal editor rendering path established.
 ## G2.1 Editor integration
 
 Realtime iOS Metal draft integrated into the actual Editor.
-
-Supported live paths include:
-
-- Brightness
-- Contrast
-- Saturation
-- Film strength
-- later Sharpen / Gaussian Blur / Creative support
 
 Transaction rule:
 
@@ -164,41 +151,24 @@ Recorded adjustment + Film benchmark on Apple A13:
 - p50 ~1.121 ms
 - p95 ~1.930 ms
 - p99/max ~2.560 ms
-
-Target p95 <= 16.67 ms: PASS.
-
-Adjustment numeric parity passed with overall max delta approximately `0.00192630` under tolerance `1/255`.
+- target p95 <= 16.67 ms: PASS
+- adjustment numeric parity overall max delta ~`0.00192630` under `1/255` tolerance
 
 ## G2.2 Sharpen
 
-Rust semantics:
-
-```text
-0, -s, 0
--s, 1 + 4s, -s
-0, -s, 0
-```
-
-Physical-device parity cases passed:
-
-- 0.5 -> max delta `0.00000012`
-- 1.0 -> max delta `0.00000024`
-- 1.5 -> max delta `0.00000048`
+Rust 3x3 cross-kernel semantics remain authoritative. Physical-device parity passed at strengths `0.5`, `1.0`, `1.5` with recorded max deltas below tolerance.
 
 ## G2.3 Gaussian Blur
 
-Rust uses `imageproc 0.23` Gaussian semantics. Important compatibility detail: parity must follow the exact dependency behavior, including its historical unnormalized 1D Gaussian kernel semantics and u8 intermediate quantization.
+Deterministic parity passed at values `.25, .5, 1, 1.5, 2` with overall max delta `0.00000000`.
 
-Deterministic fixture parity passed with overall max delta `0.00000000` for values `.25, .5, 1, 1.5, 2`.
-
-Realtime benchmark on A13, 1024^2, blur value 2 / sigma 5:
+A13 1024^2 blur value 2 / sigma 5:
 
 - avg 7.778 ms
 - p50 7.856 ms
 - p95 9.007 ms
 - p99/max 9.776 ms
-
-Target p95 <= 16.67 ms: PASS.
+- target p95 <= 16.67 ms: PASS
 
 ## G2.4 Creative Filters
 
@@ -213,29 +183,24 @@ Creative filters:
 - golden
 - pastel_pink
 
-`grayscale` and `invert` use verified native Metal compute semantics.
+`grayscale` and `invert` use verified Metal compute semantics. The other six use Rust/photon-rs generated canonical 33^3 LUTs and the verified Metal LUT runtime.
 
-The other six presets use Rust/photon-rs generated canonical 33^3 LUTs and reuse the already-verified Metal 3D LUT runtime.
+Do not claim a direct Rust-Photon-vs-interpolated-33^3-LUT numeric max delta; that explicit measurement was not performed.
 
-Do not claim a direct Rust-Photon-vs-interpolated-33^3-LUT numeric max delta; that explicit measurement was not performed. G2.4 was closed by verification composition of the canonical LUT generation, deterministic atlas verification, verified 3D LUT sampler and physical-device functional validation.
-
-Relevant document:
-
-- `docs/G2_4_CREATIVE_LUT_CONTRACT.md`
+Relevant document: `docs/G2_4_CREATIVE_LUT_CONTRACT.md`.
 
 ## G2.5 Transform Preview
 
-Implemented:
+Implemented and device-validated:
 
 - realtime Straighten via Flutter compositor during drag
-- Rust authoritative `RotateDegrees` commit on release
+- Rust authoritative `RotateDegrees` on release
 - interactive crop overlay
 - move + corner resize
 - Free / 1:1 / 4:3 / 3:4 / 16:9 / 9:16
 - exact BoxFit.contain mapping
-- crop aspect locking in source-pixel space
-- duplicate crop preset controls removed
-- crop geometry regression tests
+- aspect locking in source-pixel space
+- rotate-90 and flips as discrete Rust operations
 
 Critical crop formula:
 
@@ -245,19 +210,11 @@ pixelCropAspect
     * sourceImageAspect
 ```
 
-Therefore:
-
-```text
-normalizedRatio = targetPixelAspect / sourceImageAspect
-```
-
-Relevant document:
-
-- `docs/G2_5_TRANSFORM_PREVIEW_CONTRACT.md`
+Relevant document: `docs/G2_5_TRANSFORM_PREVIEW_CONTRACT.md`.
 
 ## G2.6 GPU/session hardening
 
-Implemented:
+Implemented and stress-validated:
 
 - stale GPU activation cancellation
 - renderer generation/epoch guard
@@ -268,11 +225,7 @@ Implemented:
 - stale checkpoint protection
 - async native error capture and Rust fallback
 
-Physical-device stress validation passed for rapid tool switching, slider use, Original view, Apply/Undo/Redo/Crop/Straighten and repeated live GPU activation. No stale Metal overlay or reported unhandled MethodChannel/Future error remained during the validated run.
-
-Relevant document:
-
-- `docs/G2_6_EDITOR_GPU_HARDENING.md`
+Relevant document: `docs/G2_6_EDITOR_GPU_HARDENING.md`.
 
 ## Draft composition contract
 
@@ -282,7 +235,7 @@ Before editor-level Apply:
 - multiple Adjust slots may coexist
 - one Creative slot may coexist with Adjust
 - one Film slot may coexist with Adjust and Creative
-- changing tool is not Apply and not Cancel
+- changing tool is neither Apply nor Cancel
 - control values are remembered while still in the active draft
 
 Example:
@@ -297,77 +250,61 @@ Velvia     0.70
 
 Revisiting Brightness must still show 1.20 until Apply/Cancel/history semantics change the draft.
 
-Relevant document:
+Relevant document: `docs/EDITOR_DRAFT_COMPOSITION.md`.
 
-- `docs/EDITOR_DRAFT_COMPOSITION.md`
+## G2 final closure evidence
+
+```text
+recorded device parity/latency gates  PASS
+G2.5 transform device validation      PASS
+G2.6 stress validation                PASS
+draft-control memory validation       PASS
+bash tool/verify_g2.sh                 PASS on 2026-08-11
+final manual smoke                     PASS on 2026-08-11
+```
+
+Final host gate covered analyzer, Dart unit/widget tests, Golden tests, Rust fmt/clippy/tests, and Film + Creative LUT verification. Final device smoke covered Camera Film -> clean capture -> multi-adjust -> Creative -> Film -> Sharpen/Blur -> Crop/Straighten/Rotate/Flip -> Undo/Redo -> Cancel -> edit again -> Apply -> full-resolution export.
+
+**Decision: G2 CLOSED / MERGE-READY.** Do not add G3 scope to the G2 branch.
 
 ---
 
-# 5. G2 final closure gate
+# 5. Immediate post-G2 transition
 
-Primary closure record:
-
-- `docs/G2_FINAL_VERIFICATION.md`
-
-Host gate:
+Perform the repository transition before G3 coding:
 
 ```bash
+git status
 git pull
-bash tool/verify_g2.sh
 ```
 
-Expected ending:
+Confirm there are no local uncommitted changes that must be preserved. Then merge `feature/camera-film-preview` into `main` using the project's normal Git/PR workflow.
 
-```text
-[Pixel Craft] G2 HOST GATE: PASS
+After merge:
+
+```bash
+git switch main
+git pull
+git switch -c feature/editor-gpu-production
 ```
 
-The gate covers analyzer, Dart unit/widget tests, Golden tests, Rust fmt/clippy/tests and GPU LUT verification.
+Run a clean baseline on the new G3 branch before changing behavior:
 
-Final physical-device smoke sequence:
-
-```text
-Camera Film preview
- -> capture clean image
- -> Adjust several controls without Apply
- -> revisit controls and verify remembered values
- -> Creative
- -> Film
- -> Sharpen
- -> Gaussian Blur
- -> Crop
- -> Straighten
- -> Rotate / Flip
- -> Undo / Redo
- -> Cancel
- -> create edits again
- -> Apply
- -> Export
+```bash
+flutter analyze
+make test
+make golden-test
+make rust-fmt
+make rust-clippy
+make rust-test
+make gpu-lut-verify
 ```
 
-Acceptance conditions:
-
-- host gate passes on latest HEAD
-- no stale GPU overlay
-- Adjust control memory works before Apply
-- Apply/Cancel semantics remain correct
-- Undo/Redo remain Rust-recipe authoritative
-- Camera Film stays preview-only
-- Export comes from Rust full-resolution render
-
-When these conditions are met, mark G2 CLOSED and merge `feature/camera-film-preview`.
-
-Do not add G3 scope to the G2 branch after closure.
+The first implementation target after baseline is **G3.1 Multi-adjustment GPU composition**.
 
 ---
 
 # 6. G3 — Production Rendering Pipeline
-
-Suggested branch after G2 merge:
-
-```text
-feature/editor-gpu-production
-```
 
 Goal: convert the proven Editor GPU preview path into a production rendering/runtime architecture.
 
@@ -380,12 +317,13 @@ Tasks:
 3. Record analyzer/test/golden/Rust baseline.
 4. Preserve G2 diagnostics in debug builds.
 5. Do not alter Rust edit semantics during branch setup.
+6. Create `docs/G3_FINAL_VERIFICATION.md` early and append evidence as work progresses.
 
 Exit gate: clean G3 branch with verified G2 behavior.
 
 ## G3.1 Multi-adjustment GPU composition — highest priority
 
-Problem: Rust draft semantics allow multiple Adjust nodes to coexist. GPU preview must represent the full active Adjust state, not only the currently dragged slider.
+Problem: Rust draft semantics allow multiple Adjust nodes to coexist, but GPU live preview must represent the full active Adjust state rather than only the currently dragged control.
 
 Target:
 
@@ -402,7 +340,7 @@ GpuEditorAdjustmentState
 Metal composed realtime preview
 ```
 
-Example:
+Example active Rust draft:
 
 ```text
 Brightness 1.20
@@ -418,13 +356,16 @@ Brightness 1.25 + Contrast 1.30 + Saturation 0.85
 
 Tasks:
 
-- expose the complete active Adjust state from controller/presentation state
+- inspect current `EditorState`/controller and expose complete active Adjust state without creating a second semantic graph
 - build `GpuEditorAdjustmentState` from all active Adjust values
 - override only the currently dragged value transiently
 - preserve Rust commit-on-release
-- add controller/state regression coverage
+- keep unsupported state on Rust preview instead of partially lying about composition
+- add state/controller regression coverage
 - add deterministic multi-adjust parity cases against Rust
+- test order-sensitive combinations
 - benchmark representative multi-adjust combinations
+- verify Sharpen + Blur composition remains within realtime budget
 
 Exit gate: GPU live preview matches Rust semantics for simultaneous Adjust slots within agreed parity and latency gates.
 
@@ -441,17 +382,20 @@ Brightness 1.20
 + Velvia 0.70
 ```
 
-Important: renderer order must follow authoritative Rust recipe order. Do not assume a fixed order without inspecting Rust session/edit-graph semantics.
+Critical rule: renderer order must follow authoritative Rust recipe order. Do not hard-code an order based only on UI categories.
 
 Tasks:
 
 - define GPU draft representation for the complete supported draft
-- define authoritative operation-order mapping from Rust recipe
-- update native renderer state atomically where practical
-- support creative compute and creative-LUT paths
+- obtain authoritative operation order from Rust recipe/edit graph
+- map supported operations into one ordered native render plan
+- update renderer state atomically where practical
+- support Creative compute and Creative-LUT paths
 - support Film LUT in the same composed draft
-- implement explicit fallback when any active node cannot be represented by GPU preview
-- add parity cases for representative combinations
+- handle multiple Adjust + Creative + Film together
+- implement explicit fallback when any active node cannot be represented faithfully
+- add parity cases for representative combinations and operation orders
+- preserve Rust full-resolution export as authority
 
 Exit gate: supported cross-tool compositions match authoritative Rust draft behavior.
 
@@ -464,12 +408,20 @@ Cover:
 - editor reopen/close loops
 - orientation/layout resize
 - source/checkpoint replacement
-- native renderer failure
+- renderer creation/update failure
 - memory pressure where observable
 - stale renderer cleanup
+- repeated Camera -> Editor transitions
 - deterministic Rust fallback
 
-Debug `GPU READY` / `GPU LIVE` indicators should be debug-only or removed from product UI after lifecycle stabilization.
+Requirements:
+
+- stale renderer must never become visible after a newer checkpoint/source
+- renderer failure must not mutate Rust semantic state
+- returning from background must either restore a valid GPU renderer or show Rust preview
+- renderer destruction/recreation must be idempotent
+
+Debug `GPU READY` / `GPU LIVE` indicators should remain debug-only and eventually disappear from product UI.
 
 Exit gate: renderer lifecycle is transparent to normal editing and cannot corrupt semantic state.
 
@@ -477,25 +429,29 @@ Exit gate: renderer lifecycle is transparent to normal editing and cannot corrup
 
 G2 grew incrementally. Consolidate ad-hoc GPU fields into an explicit presentation model without duplicating the Rust graph.
 
-Possible model:
+Candidate model:
 
 ```text
 GpuEditorDraftState
   checkpointGeneration
+  rendererGeneration
+  activationGeneration
+  orderedSupportedOperations
   adjustments
   creative
   film
-  activationGeneration
-  rendererGeneration
   status
+  fallbackReason
 ```
 
 Goals:
 
 - reduce `_gpuDraftKind/_gpuDraftKey/_gpuDraftValue` style state
 - centralize invalidation/fallback rules
+- separate semantic state from presentation state
 - make stale-work behavior unit-testable
-- retain Rust as semantic source of truth
+- keep Rust as semantic source of truth
+- make diagnostics consume the model instead of scattered fields
 
 ## G3.5 G3 verification / closure
 
@@ -507,14 +463,15 @@ Required gates:
 - existing G2 single-adjust parity remains passing
 - multi-adjust parity passes
 - representative Adjust + Creative + Film parity passes
+- operation-order cases pass
 - reference-device p95 remains within realtime budget
-- background/foreground and editor reopen stress pass
+- background/foreground stress passes
+- editor reopen/recreate stress passes
 - no stale native overlay/error across repeated sessions
+- failure fallback returns to valid Rust preview
 - export remains Rust-authoritative
 
-Create:
-
-- `docs/G3_FINAL_VERIFICATION.md`
+Create/maintain: `docs/G3_FINAL_VERIFICATION.md`.
 
 Exit definition: Editor GPU runtime is production-grade, though the overall application is not yet product-complete.
 
@@ -526,55 +483,48 @@ Goal: turn the technically correct editor into a coherent user-facing product wo
 
 ## G4.1 Tool-state UX
 
-Implement clear visual state for edited parameters:
+Implement:
 
 - changed/active indicator on each Adjust control
-- one-tap Reset for current parameter
+- Reset current parameter
 - Reset section/tool
-- optionally Reset All Draft
+- optional Reset All Draft
 - correct neutral/default markers
 - preserve remembered values across tool switching
 - clearly distinguish active draft from applied checkpoint
 
-Acceptance:
-
-- user can tell what has been changed without manually opening every slider
-- Reset operations produce deterministic Rust recipe changes
+Acceptance: user can tell what changed without opening every slider, and Reset operations produce deterministic Rust recipe changes.
 
 ## G4.2 Before/After comparison
 
 Improve current Original comparison:
 
 - press-and-hold Before/After
-- optional split view or compare gesture if UX justifies it
+- optional split view if justified
 - compare against current checkpoint/source using Rust-authoritative state
-- no stale GPU overlay when entering comparison
-
-Acceptance: comparison is immediate, stable and semantically unambiguous.
+- no stale GPU overlay during compare
 
 ## G4.3 History UX
-
-Current Undo/Redo mechanics exist, but product UX should expose understandable edit history.
 
 Potential scope:
 
 - history sheet/list
 - operation names + values
 - checkpoint boundary visibility
-- jump-to-history-position if Rust recipe/session supports it safely
-- preserve existing Undo/Redo as baseline
+- jump-to-history-position only if Rust semantics support it safely
+- preserve Undo/Redo as baseline
 
-Do not build UI that suggests history behavior Rust cannot guarantee.
+Do not create UI that promises history behavior Rust cannot guarantee.
 
 ## G4.4 Session recovery / autosave
 
-Strengthen existing session persistence:
+Strengthen:
 
 - autosave after authoritative semantic changes
 - restore after app termination/relaunch
 - source-image identity/version validation
-- stale/corrupt recipe handling
-- safe migration when recipe schema changes
+- corrupt/stale recipe handling
+- schema migration
 - recovery UX when a previous session exists
 
 Acceptance: interrupted editing does not silently lose or corrupt the session.
@@ -583,51 +533,45 @@ Acceptance: interrupted editing does not silently lose or corrupt the session.
 
 Define behavior when leaving Editor with unapplied draft:
 
-- Apply / Discard / Continue Editing decision when necessary
+- Apply / Discard / Continue Editing where needed
 - avoid accidental data loss
 - distinguish editor-level Apply from Export
 
 ## G4.6 Product export UX
 
-Improve export surface:
+Improve:
 
 - format and quality
-- output dimensions / resolution summary
-- file size estimate if cheap and useful
+- dimensions/resolution summary
+- file size estimate if useful
 - Save to Photos/Gallery
 - Share
-- clear export success/failure messaging
-- preserve metadata policy explicitly
-- no product UI leakage of internal temp-file paths unless debug build
+- clear success/failure messaging
+- explicit metadata policy
+- hide internal temp paths outside debug builds
 
 ## G4.7 Remove engineering-only UI
 
-Production UI must not expose diagnostic labels such as `GPU READY`, `GPU LIVE`, internal renderer IDs or parity tooling.
-
-Keep diagnostic screens accessible only in debug/developer builds.
+Production UI must not expose `GPU READY`, `GPU LIVE`, renderer IDs, parity tooling, or other engineering labels. Keep diagnostic screens debug/developer-only.
 
 ## G4 final gate
 
-Create `docs/G4_PRODUCT_UX_VERIFICATION.md` and verify at minimum:
+Create `docs/G4_PRODUCT_UX_VERIFICATION.md` and verify:
 
-- complete edit session from import/camera to export without debug concepts
+- complete camera/import -> edit -> export flow without debug concepts
 - parameter state is understandable
-- Apply/Cancel/Undo/Redo behavior is understandable
-- app restart session recovery works
-- navigation cannot silently lose an active draft
-- export UX succeeds on both platforms
+- Apply/Cancel/Undo/Redo are understandable
+- app restart recovery works
+- navigation cannot silently lose active draft
+- export UX works on both platforms
 
-Exit definition: editor workflow feels like an actual product rather than an engineering prototype.
+Exit definition: editor workflow feels like a product rather than an engineering prototype.
 
 ---
 
 # 8. G5 — Editing Feature Completeness
 
-Goal: select and implement the editing capability set needed for PixelCraft MVP/product positioning, then build user-created Film Profiles on top of stable semantic editing primitives.
-
-Do not implement every possible photo-editor feature blindly. Prioritize according to product scope and measurable user value.
-
-The Film Profile Creator belongs in G5 rather than G4. G3 must first stabilize production GPU composition/runtime, while G4 should make the existing editor/session workflow coherent. G5 is where new image semantics and reusable creative capabilities are intentionally introduced.
+Goal: implement the agreed MVP editing set and user-created Film Profiles on top of stable semantics.
 
 Recommended dependency order:
 
@@ -641,13 +585,11 @@ G5.1 Tone controls
  -> G5.7 Advanced Film Lab / Curves / HSL
 ```
 
-This order prevents the Film Profile schema from being defined around unstable or UI-only parameters.
+Do not start with Film Profile Creator UI before tone/color/texture semantics and the Film Profile schema are stable.
 
-## G5.0 Feature-priority decision
+## G5.0 MVP boundary
 
-Before coding, define MVP vs post-MVP.
-
-Recommended MVP candidate set beyond existing capabilities:
+Recommended MVP candidates beyond current features:
 
 - Exposure
 - Highlights
@@ -656,11 +598,11 @@ Recommended MVP candidate set beyond existing capabilities:
 - Tint
 - Vignette
 - Grain
-- improved crop/rotate/straighten controls
-- Film Profile system foundation
-- user-created Film Profile Creator V1 if Film customization is part of MVP positioning
+- improved crop/rotate/straighten UX
+- Film Profile foundation
+- Film Profile Creator V1 if customization is part of MVP positioning
 
-Candidates for a richer v1/post-MVP:
+Post-MVP candidates:
 
 - Curves
 - HSL / Color Mixer
@@ -669,92 +611,45 @@ Candidates for a richer v1/post-MVP:
 - clarity / texture
 - advanced grain response
 - halation / bloom
-- recipe-text import
-- QR/share-link profile transfer
-- profile variants/version history
+- recipe text import
+- QR/share-link transfer
 - community profiles / marketplace
 
 For every new effect:
 
 1. define Rust semantics first
-2. add authoritative Rust test
+2. add authoritative Rust tests
 3. decide whether realtime GPU implementation is justified
-4. add parity/latency gate for GPU path if implemented
+4. add parity/latency gates if GPU path exists
 5. keep export Rust-authoritative
 
 ## G5.1 Tone controls
 
-Candidate controls:
-
-- Exposure
-- Highlights
-- Shadows
-- Blacks/Whites if product scope needs them
-
-Define ranges, neutral values and operation ordering explicitly.
-
-These operations should become reusable semantic primitives that Film Profiles can reference later rather than embedding UI slider values or rendered output.
+Candidates: Exposure, Highlights, Shadows, optional Blacks/Whites. Define ranges, neutral values and operation ordering explicitly.
 
 ## G5.2 White balance / color controls
 
-Candidate controls:
+Candidates: Temperature, Tint, optional Vibrance, optional Color Density.
 
-- Temperature
-- Tint
-- optional Vibrance distinct from Saturation
-- optional Color Density as a Film-oriented control distinct from Saturation
-
-Need color-space contract before claiming professional color accuracy.
-
-Distinguish capture/input white balance from Film Profile color bias. A profile must not silently overwrite camera WB semantics when its intent is only to add a creative warm/cool or green/magenta bias.
-
-Conceptual pipeline:
-
-```text
-input/camera white balance
-        +
-Film Profile color bias
-        ↓
-creative / Film response
-```
+Need an explicit color-space contract before claiming professional color accuracy. Distinguish input/camera white balance from Film Profile color bias.
 
 ## G5.3 Finish / texture controls
 
-Candidate controls:
-
-- Vignette
-- Grain
-- optional clarity/texture
-
-Film Grain should be deterministic for recipe/export reproducibility; store/generate a stable seed if stochastic behavior is used.
-
-Keep schema extensible for future advanced Film characteristics such as:
-
-- grain amount / size / roughness
-- luma-dependent grain response
-- halation
-- bloom / glow
-- diffusion / lens character
-
-These advanced controls do not need to block Film Profile Creator V1.
+Candidates: Vignette, Grain, optional clarity/texture. Grain must be deterministic for recipe/export reproducibility; persist a stable seed if stochastic behavior is used.
 
 ## G5.4 Film Profile system foundation
 
-Goal: define a reusable Film Profile contract before exposing profile creation UI.
+A Film Profile is reusable creative-look data, not captured GPU pixels and not the same thing as per-image session state.
 
-A Film Profile is a reusable creative-look definition. It is not a captured GPU frame and it is not the same thing as per-image editing state.
-
-Supported profile sources should use one common model:
+One model should support:
 
 ```text
 Built-in Profile
 User-created Profile
 Imported Profile
 Future Community Profile
-        │
         ↓
       FilmProfile
-        │
         ├── Camera Preview
         ├── Editor Preview
         └── Rust Full-resolution Export
@@ -762,49 +657,21 @@ Future Community Profile
 
 Core invariants:
 
-1. Rust semantic operations remain authoritative for reproducible output.
-2. GPU paths preview a Film Profile but do not become its source of truth.
-3. Built-in profiles are immutable; users edit them by duplication.
-4. User profiles are data/configuration and must not require recompiling shaders or the app.
-5. A profile may contain only reusable look parameters; capture state such as ISO/shutter/focus and image-specific operations such as crop/rotation do not belong in the Film Profile by default.
-6. The format must be vendor-neutral. Do not make the core schema depend on Fujifilm or another camera brand's terminology.
-7. Profile schema/version and engine compatibility must be explicit so saved profiles can be migrated safely.
+- Rust semantic operations are authoritative
+- GPU previews profile semantics but is not source of truth
+- built-ins are immutable; edit by duplication
+- user profiles are data/configuration, not compiled shader code
+- crop/rotation/capture state do not belong in a reusable Film Profile by default
+- schema is vendor-neutral
+- schema version and engine compatibility are explicit
 
-Conceptual categories:
+Reserve metadata for ID, name, description, author, source, timestamps, tags/favorites, schema version, minimum/compatible engine version.
 
-```text
-FilmProfile
- |- Identity / metadata
- |- Base Look
- |- Profile strength
- |- Tone
- |- Color / WB bias
- |- Film response
- |- Texture / detail
- |- Optical effects
- `- optional advanced color controls
-```
-
-Metadata should reserve at least:
-
-- stable profile ID
-- name / description
-- author where applicable
-- source: built-in / user / imported / future community
-- created/modified time
-- tags/favorites metadata where appropriate
-- profile schema version
-- minimum/compatible engine version
-
-Do not confuse Film Profile with an Adjustment Preset. Image-specific exposure correction, crop, geometry and local edits should remain in the image/session recipe unless the user explicitly chooses a future preset type that includes them.
-
-Exit gate: stable Film Profile schema/contract exists, can represent built-in and user profiles, has migration/version rules, and can resolve to authoritative Rust operations for final render.
+Exit gate: stable profile schema resolves deterministically to Rust operations and supports migration/version checks.
 
 ## G5.5 Film Profile Creator V1
 
-Goal: allow users to create, duplicate, edit, preview and save their own Film Profiles without touching code or rebuilding the application.
-
-Recommended creation entry points:
+Entry points:
 
 ```text
 Create Film Profile
@@ -813,356 +680,151 @@ Create Film Profile
  `- Film Recipe style setup
 ```
 
-The initial Creator should use one underlying Film Profile model with different UI views rather than separate incompatible profile formats.
-
-Recommended V1 editor modes:
-
-### Simple
-
-Expose only high-value controls such as:
+Recommended Simple controls:
 
 - Base Look
 - Profile Strength
 - Contrast
 - Highlights
 - Shadows
-- Saturation / Color
+- Saturation/Color
 - Temperature bias
 - Tint bias
-- Grain amount
-- Grain size
+- Grain amount/size
 - Sharpness
-- optional Clarity if semantics already exist
 
-### Recipe
+Recipe mode may expose a discrete camera-recipe-like workflow but storage must remain PixelCraft/vendor-neutral. Do not claim proprietary third-party camera processing is reproduced 1:1 unless verified.
 
-Provide a discrete recipe-oriented workflow familiar to users of camera Film recipes while keeping PixelCraft terminology and storage vendor-neutral.
+Creator UX:
 
-Candidate fields:
-
-- Base Look
-- Dynamic-range / highlight-response choice if PixelCraft defines an equivalent semantic contract
-- Highlight Tone
-- Shadow Tone
-- Color
-- White Balance preset or temperature
-- WB/color shift
-- Sharpness
-- Noise Reduction if supported
-- Clarity if supported
-- Grain strength / size
-- future Chrome-like color effects only if PixelCraft has its own defined semantics
-
-Do not claim that a third-party camera recipe reproduces proprietary camera processing 1:1. Imported or manually recreated recipes should be treated as PixelCraft-compatible approximations unless verified otherwise.
-
-### Advanced
-
-Advanced mode is intentionally post-V1 unless the corresponding semantics are already implemented. It can later expose:
-
-- RGB/master curves
-- HSL / Color Mixer
-- toe / shoulder
-- highlight roll-off
-- shadow response
-- color density
-- advanced grain response
-- halation
-- bloom
-- monochrome channel mixer / filters
-
-Creator UX requirements:
-
-- realtime preview through the production GPU path when supported
-- deterministic Rust-authoritative commit/render path
-- hold-to-compare Before/After
-- optional split compare later
-- Reset current parameter
-- Reset section
-- Save
-- Save as Copy
-- Duplicate built-in or user profile
-- Delete user profile only
-- Favorite user/built-in profiles
+- realtime production GPU preview where supported
+- deterministic Rust final path
+- Before/After
+- Reset parameter/section
+- Save / Save as Copy
+- Duplicate
+- delete user profiles only
+- Favorites
 - global Profile Strength
-- clear changed-from-base indicators where useful
+- changed-from-base indicators
 
-Recommended Camera integration after the Creator is stable:
+Camera integration after Creator stabilizes:
 
 ```text
 Camera
  -> quick Film Profile selector
  -> Built-in + Favorites + My Profiles
  -> realtime profile preview
- -> clean capture source remains unchanged
+ -> clean capture remains unchanged
 ```
 
-The existing hard contract still applies: Camera Film/Profile is preview-only; capture source stays clean unless a future explicit architecture/product decision changes that policy.
+## G5.6 Film Recipe import/export compatibility
 
-Exit gate:
+Potential inputs: `.pixelcraftprofile`, structured JSON/package, pasted recipe text, QR/share link later.
 
-- user can create a Film Profile from blank or by duplicating an existing profile
-- user can edit supported V1 look parameters with realtime preview
-- saved profile can be reopened without semantic drift
-- same profile can be applied in Editor and selected for Camera preview where supported
-- final export is reproduced from Rust semantic data, not captured GPU output
-- built-in profiles cannot be overwritten accidentally
-- profile persistence survives restart and schema compatibility is validated
+Importer must show fields mapped exactly, approximated or unsupported; never silently discard unsupported settings.
 
-## G5.6 Film Recipe import/export compatibility — optional richer v1 / post-MVP
+## G5.7 Curves / HSL / Advanced Film Lab
 
-After Film Profile Creator V1 is stable, add profile portability rather than coupling import logic to the first profile schema.
-
-Potential inputs:
-
-- `.pixelcraftprofile` file
-- structured JSON/package format
-- pasted recipe text
-- QR code / share link later
-
-Recipe conversion flow should be explicit:
-
-```text
-external/manual recipe
-        ↓
-parser / mapper
-        ↓
-PixelCraft FilmProfile
-        ↓
-conversion preview
-        ↓
-user reviews approximations / unsupported fields
-        ↓
-save as user profile
-```
-
-Requirements:
-
-- never silently discard unsupported recipe fields
-- show which settings were mapped exactly, approximated or unsupported
-- import creates a local editable profile rather than mutating a built-in source
-- export includes schema version and compatibility metadata
-- do not store proprietary LUT/process data copied from a third-party system unless licensing explicitly permits it
-
-Sharing/community discovery can be added later without changing the local Film Profile semantics.
-
-## G5.7 Curves / HSL / Advanced Film Lab — optional richer v1 / post-MVP
-
-If included:
-
-- Curves need compact serializable control points and stable interpolation semantics.
-- HSL/Color Mixer needs explicit hue-sector definitions and parity tests.
-- Film-response controls such as toe, shoulder, highlight roll-off, shadow response and color density need explicit operation ordering and range contracts.
-- Halation and bloom should remain separate effects; preview may use an optimized approximation while final render remains Rust-authoritative.
-
-These should not block MVP unless advanced Film Profile creation is core product positioning.
+Curves require stable interpolation/control-point semantics. HSL requires explicit hue-sector definitions. Toe/shoulder/highlight roll-off/color density need operation-order contracts. Halation and bloom remain separate effects.
 
 ## G5 final gate
 
-Before closing G5, document the selected MVP boundary and verify:
-
-- all included new effects have authoritative Rust semantics/tests
-- GPU previews that exist have parity/latency evidence appropriate to their effect
-- user-created Film Profiles serialize/restore deterministically
-- built-in/user/imported profile ownership rules are enforced
-- Camera profile preview still preserves clean capture
-- Editor and full-resolution export resolve the same Film Profile semantics
-- unsupported profile/recipe versions fail safely with useful UX
-
-Exit definition: agreed MVP editing feature set and selected Film Profile capabilities are implemented, tested and documented.
+Verify all selected MVP effects have Rust semantics/tests, GPU paths have appropriate parity/latency evidence, Film Profiles serialize/restore deterministically, ownership rules are enforced, Camera capture remains clean, and Editor/export resolve the same profile semantics.
 
 ---
 
 # 9. G6 — Reliability, Performance and Device Matrix
 
-Goal: prove the product survives real-world device/image/session conditions.
-
-This is mandatory before broad release because PixelCraft spans Flutter, Rust and platform GPU APIs.
+Goal: prove the product survives real-world devices, image sizes and long sessions.
 
 ## G6.1 Image-size matrix
 
-Test representative sources such as:
+Test small image, ~12MP, ~24MP, ~48MP where supported, portrait/landscape/square, JPEG/PNG/WebP path, EXIF orientation, alpha where applicable.
 
-- small web image
-- ~12 MP phone image
-- ~24 MP image
-- ~48 MP image where supported
-- portrait / landscape / square
-- JPEG / PNG / supported WebP path
-- images with EXIF orientation
-- alpha images where applicable
+Measure editor startup, preview memory, operation latency, Apply latency, export time and peak RSS where practical.
 
-Measure:
+## G6.2 Long-session / soak
 
-- editor startup time
-- preview memory
-- operation latency
-- Apply latency
-- export time
-- peak RSS where practical
+Stress repeated slider edits, Apply/Cancel, Undo/Redo, crop/straighten, exports, editor reopen, camera-editor loops, lifecycle loops and Film Profile edit/save cycles if included.
 
-## G6.2 Long-session / soak testing
-
-Stress scenarios:
-
-- repeated slider edits
-- repeated Apply/Cancel
-- many Undo/Redo operations
-- repeated crop/straighten
-- multiple exports
-- open/close Editor repeatedly
-- camera -> editor -> camera loops
-- background/foreground loops
-- repeated Film Profile switching/edit/save cycles if Creator is included in MVP
-
-Watch for:
-
-- memory growth
-- renderer leaks
-- stale temp files
-- native crashes
-- recipe/profile corruption
-- progressive slowdown
+Watch for memory growth, renderer leaks, stale temp files, native crashes, recipe/profile corruption and progressive slowdown.
 
 ## G6.3 iOS matrix
 
-At minimum cover multiple performance tiers when devices are available:
+Cover multiple performance tiers when available: A13 reference device, newer iPhone tier, lower-memory/older supported tier.
 
-- reference A13 device
-- newer Apple Silicon iPhone tier
-- lower-memory/older supported tier if product minimum supports it
+## G6.4 Android matrix
 
-Verify Metal feature assumptions and memory behavior.
-
-## G6.4 Android GPU/vendor matrix
-
-Test across materially different GPU/device families when possible:
-
-- Mali
-- Adreno
-- different Android API levels within supported range
-
-Pay attention to:
-
-- OpenGL shader behavior
-- texture formats
-- camera lifecycle
-- surface recreation
-- vendor-specific driver issues
+Cover materially different GPU families such as Mali and Adreno plus supported API-level spread. Verify shader behavior, texture formats, camera lifecycle and surface recreation.
 
 ## G6.5 Thermal / sustained workload
 
-For long editing sessions and repeated blur/export:
-
-- observe thermal throttling behavior
-- ensure responsiveness degrades gracefully
-- avoid runaway frame rendering when UI is idle
+Observe thermal throttling and ensure responsiveness degrades gracefully. Avoid unnecessary continuous rendering while idle.
 
 ## G6.6 Failure injection
 
-Test graceful failure for:
-
-- missing/corrupt LUT asset
-- renderer creation failure
-- source file unavailable
-- corrupt recovery recipe
-- corrupt/incompatible saved Film Profile if Creator is included
-- export write failure
-- gallery permission/write failure
-- camera permission denied
-- app lifecycle interruption during async processing
+Test missing/corrupt LUT, renderer failure, unavailable source file, corrupt recovery recipe/profile, export failure, gallery write failure, permission denied and lifecycle interruption.
 
 ## G6 final gate
 
-Create `docs/G6_RELIABILITY_MATRIX.md` containing tested devices, OS versions, image matrix, metrics and known limitations.
+Create `docs/G6_RELIABILITY_MATRIX.md` with devices, OS versions, image matrix, metrics and known limitations.
 
-Exit definition: no known blocker-class crash/data-corruption issue; supported device classes meet agreed responsiveness and memory budgets.
+Exit definition: no blocker-class crash/data-corruption issue and supported device classes meet agreed responsiveness/memory budgets.
 
 ---
 
 # 10. G7 — Release / Beta / Store Readiness
 
-Goal: package the verified product for real users.
-
 ## G7.1 Production build hygiene
 
-- remove or compile-gate diagnostics
-- verify release mode native libraries
+- compile-gate diagnostics
+- verify release native libraries
 - verify Android ABI packaging
 - verify iOS signing/build settings
 - verify min/target OS policy
-- verify app identifiers/versioning
-- strip accidental debug logging where appropriate
+- verify identifiers/versioning
+- remove accidental debug logging
 
 ## G7.2 Privacy and permissions
 
-Document and validate:
+Document Camera and Photos/Gallery purposes, local image-processing behavior, analytics/crash policy and the invariant that image pixels are not sent to telemetry unless a future explicit product decision changes it.
 
-- Camera permission purpose
-- Photos/Gallery permission behavior
-- image processing location (device-local unless later architecture changes)
-- analytics/crash-reporting data policy
-- no image pixels sent to telemetry unless an explicit future product decision changes that contract
+## G7.3 Crash/diagnostic telemetry
 
-Prepare privacy-policy text appropriate for distribution requirements.
+If added, collect only necessary app/device/error context; avoid photo pixels and sensitive paths/content.
 
-## G7.3 Crash and diagnostic telemetry
+## G7.4 CI/CD
 
-If telemetry is added:
-
-- collect app/version/device/OS/error context
-- do not collect photo pixels or private image content
-- redact file paths/user-sensitive data where possible
-- separate debug diagnostic data from production analytics
-
-## G7.4 CI/CD and release gates
-
-Automate as much as practical:
-
-- Flutter analyze/test/golden
-- Rust fmt/clippy/test
-- LUT generation/verification
-- Android release build + native library verification
-- iOS build validation where signing environment allows
-- version/tag generation policy
+Automate Flutter analyze/test/golden, Rust fmt/clippy/test, LUT verification, Android release/native-lib checks, iOS build validation where possible and version/tag policy.
 
 ## G7.5 Beta distribution
 
-Suggested sequence:
+```text
+internal developer build
+ -> small closed beta
+ -> collect crash/performance/UX issues
+ -> fix blocker/severe issues
+ -> wider beta
+ -> store submission candidate
+```
 
-1. internal developer build
-2. small closed beta
-3. collect crash/performance/UX issues
-4. fix blocker/severe issues
-5. wider beta
-6. store submission candidate
+## G7.6 Store assets/polish
 
-Platforms may use TestFlight / appropriate Android beta distribution when account/configuration is ready.
-
-## G7.6 Store assets and product polish
-
-- app icon final
-- screenshots
-- onboarding/help
-- store description
-- privacy disclosure
-- support/contact path
-- known limitations
-- release notes
+Finalize app icon, screenshots, onboarding/help, store copy, privacy disclosure, support path, known limitations and release notes.
 
 ## G7.7 Release candidate gate
-
-Run a clean RC checklist on the exact release commit/tag:
 
 ```text
 clean checkout
  -> dependency resolution
  -> full host verification
  -> release builds
- -> install on real devices
+ -> real-device install
  -> camera/import/edit/export smoke
  -> recovery smoke
  -> permissions smoke
- -> background/foreground smoke
+ -> lifecycle smoke
  -> final crash/log review
 ```
 
@@ -1170,17 +832,14 @@ Exit definition: PixelCraft is ready for controlled public distribution.
 
 ---
 
-# 11. Product scope after G7 / future candidates
+# 11. Future candidates after G7
 
-These are intentionally not required for the initial product unless prioritized later:
+Not required for initial product unless reprioritized:
 
-- cloud sync
-- account system
+- cloud sync/account system
 - cross-device project library
-- preset marketplace/sharing
-- Film Profile community discovery / ratings / creator pages
-- profile variants and cross-device profile sync
-- RAW/DNG development pipeline
+- preset marketplace/community
+- RAW/DNG pipeline
 - masking/local adjustments
 - AI segmentation/object editing
 - batch processing
@@ -1193,49 +852,60 @@ Do not let these expand MVP scope before G3-G7 gates are completed.
 
 # 12. Verification and evidence rules
 
-When continuing development:
-
-1. Never claim a test, benchmark or device result passed unless it was actually run and reported.
-2. Keep recorded numeric evidence unchanged unless a new benchmark intentionally supersedes it.
+1. Never claim a test, benchmark or device result passed unless actually run/reported.
+2. Keep recorded numeric evidence unchanged unless a new benchmark supersedes it.
 3. Distinguish numeric parity from visual/functional validation.
 4. Distinguish characterization from parity.
-5. Record device/OS/backend for performance results.
+5. Record device/OS/backend for performance evidence.
 6. Prefer deterministic fixtures for renderer parity.
 7. Keep Rust authoritative even when GPU preview appears visually correct.
 
-Important known evidence limitation:
-
-- No direct numeric Photon-preset vs interpolated creative-33^3-LUT maximum error was measured in G2. Do not invent one.
+Known evidence limitation: no direct numeric Photon-preset vs interpolated creative-33^3-LUT maximum error was measured in G2. Do not invent one.
 
 ---
 
 # 13. Current next action
 
-At the time this handoff was created, G2 implementation and physical-device functional/stress validation had been completed, but the final consolidated host gate still needed to be run on the latest HEAD before declaring the branch fully CLOSED/MERGED.
+**G2 is CLOSED / MERGE-READY as of 2026-08-11.** Both final gates passed:
+
+```text
+bash tool/verify_g2.sh   PASS
+physical-device smoke   PASS
+```
+
+Do not continue feature work on `feature/camera-film-preview`.
 
 Start here:
 
-```bash
-git status
-git pull
-bash tool/verify_g2.sh
-```
-
-If that passes, perform the final physical-device smoke from Section 5.
-
-Then:
-
 ```text
-mark G2 CLOSED
- -> merge feature/camera-film-preview
- -> update main
- -> create feature/editor-gpu-production
- -> start G3.0
- -> then G3.1 Multi-adjustment GPU composition
+1. inspect git status / confirm all desired local work is committed
+2. merge feature/camera-film-preview into main using normal project workflow
+3. update local main
+4. create feature/editor-gpu-production from updated main
+5. run clean G3 baseline
+6. start G3.1 Multi-adjustment GPU composition
 ```
+
+Suggested commands after the merge is complete:
+
+```bash
+git switch main
+git pull
+git switch -c feature/editor-gpu-production
+
+flutter analyze
+make test
+make golden-test
+make rust-fmt
+make rust-clippy
+make rust-test
+make gpu-lut-verify
+```
+
+After the baseline is green, inspect the current Editor/GPU integration and implement G3.1 so live GPU rendering composes **all active Adjust slots** while Rust remains authoritative on release/history/export.
 
 Do not begin G4/G5 product-scope additions until G3 production-rendering architecture is stable.
 
-When G5 begins, do not start with Film Profile Creator UI first. Establish the required tone/color/texture semantics and the Film Profile schema/contract before exposing user-created profiles.
+When G5 begins, establish tone/color/texture semantics and the Film Profile schema/contract before exposing user-created Film Profile UI.
 
-The highest-value implementation after G2 merge is **G3.1 Multi-adjustment GPU composition**.
+The highest-value implementation now is **G3.1 Multi-adjustment GPU composition**.
