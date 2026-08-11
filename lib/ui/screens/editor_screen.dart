@@ -11,6 +11,7 @@ import '../../gpu/gpu_editor_preview_bridge.dart';
 import '../../gpu/gpu_editor_render_plan.dart';
 import '../../gpu/ios_gpu_editor_preview.dart';
 import '../../state/editor_controller.dart';
+import '../../state/editor_recipe_summary.dart';
 import '../widgets/editor_tool_panel.dart';
 import '../widgets/image_preview.dart';
 
@@ -50,7 +51,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
 
   bool _isSavingExport = false;
   bool _isPreparingSource = true;
+  bool _exitApproved = false;
   String? _sourceError;
+  EditorRecipeSummary _recipeSummary = const EditorRecipeSummary();
+  int _recipeRefreshGeneration = 0;
 
   final _gpuSession = GpuEditorDraftSession();
   String? _gpuRendererId;
@@ -76,8 +80,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     if (!_gpuIntegrationEligible) return;
     switch (state) {
       case AppLifecycleState.resumed:
-        // A new renderer is created lazily on the next gesture. Until then the
-        // authoritative Rust preview remains visible.
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
@@ -102,6 +104,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _recipeRefreshGeneration++;
     _gpuSession.invalidate(dropRenderer: true, reason: 'editor disposed');
     final rendererId = _gpuRendererId;
     _gpuRendererId = null;
@@ -131,6 +134,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
       } else {
         await controller.load(bytes);
       }
+      await _refreshRecipeSummary();
 
       if (!mounted) return;
       setState(() => _isPreparingSource = false);
@@ -143,15 +147,74 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     }
   }
 
+  Future<void> _refreshRecipeSummary() async {
+    final generation = ++_recipeRefreshGeneration;
+    try {
+      final recipe =
+          await ref.read(imageEngineProvider).exportSessionRecipeInBackground();
+      final summary = EditorRecipeSummary.fromRecipeJson(recipe);
+      if (!mounted || generation != _recipeRefreshGeneration) return;
+      setState(() => _recipeSummary = summary);
+    } catch (error) {
+      debugPrint('[G4 editor] recipe summary unavailable: $error');
+    }
+  }
+
+  Future<void> _rewriteDraftRecipe(
+    String Function(String recipeJson) rewrite, {
+    String? keepSelectedAdjustment,
+  }) async {
+    final state = ref.read(editorProvider);
+    final original = state.originalBytes;
+    if (original == null || state.isBusy || state.isPreviewProcessing) return;
+
+    _invalidateGpuPreview(reason: 'G4 draft reset');
+    try {
+      final recipe =
+          await ref.read(imageEngineProvider).exportSessionRecipeInBackground();
+      final rewritten = rewrite(recipe);
+      await ref.read(editorProvider.notifier).restore(original, rewritten);
+      if (keepSelectedAdjustment != null) {
+        ref
+            .read(editorProvider.notifier)
+            .selectFilter(keepSelectedAdjustment);
+      }
+      await ref.read(editorSessionStoreProvider).save(
+            originalBytes: original,
+            recipeJson: rewritten,
+          );
+      await _refreshRecipeSummary();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Reset failed: $error')),
+      );
+    }
+  }
+
+  Future<void> _resetAdjustment(String filter) => _rewriteDraftRecipe(
+        (recipe) => EditorRecipeSummary.resetDraftAdjustment(recipe, filter),
+        keepSelectedAdjustment: filter,
+      );
+
+  Future<void> _resetAdjustments() => _rewriteDraftRecipe(
+        EditorRecipeSummary.resetDraftAdjustments,
+        keepSelectedAdjustment: ref.read(editorProvider).selectedFilter,
+      );
+
+  Future<void> _resetCreative() =>
+      _rewriteDraftRecipe(EditorRecipeSummary.resetDraftCreative);
+
+  Future<void> _resetFilm() =>
+      _rewriteDraftRecipe(EditorRecipeSummary.resetDraftFilm);
+
   bool _canUseGpuDraft(EditorState state, String kind, String key) {
     if (!_gpuIntegrationEligible || state.isBusy || state.isPreviewProcessing) {
       return false;
     }
     if (state.originalPreviewBytes == null || state.showOriginal) return false;
 
-    if (kind == 'adjust') {
-      return gpuCoreAdjustmentKeys.contains(key);
-    }
+    if (kind == 'adjust') return gpuCoreAdjustmentKeys.contains(key);
     if (kind == 'creative') {
       return gpuCreativeFilterKeys.contains(key) &&
           state.selectedCreativeFilter == key;
@@ -424,12 +487,135 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
         await controller.updateFilmProfileStrength(value);
       }
       await _waitForRustPreviewSettled();
+      await _refreshRecipeSummary();
     } finally {
       if (_gpuSession.isCurrent(generation)) {
         _gpuSession.finish(generation);
         if (mounted && wasGpuActive) setState(() {});
       }
     }
+  }
+
+  Future<void> _showHistory() async {
+    await _refreshRecipeSummary();
+    if (!mounted) return;
+    final state = ref.read(editorProvider);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final entries = _recipeSummary.history;
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.65,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Edit History',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text(
+                              '${_recipeSummary.checkpointCursor} applied · '
+                              '${_recipeSummary.cursor - _recipeSummary.checkpointCursor} draft',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Undo',
+                        onPressed: state.canUndo
+                            ? () async {
+                                Navigator.pop(context);
+                                await ref.read(editorProvider.notifier).undo();
+                                await _refreshRecipeSummary();
+                              }
+                            : null,
+                        icon: const Icon(Icons.undo),
+                      ),
+                      IconButton(
+                        tooltip: 'Redo',
+                        onPressed: state.canRedo
+                            ? () async {
+                                Navigator.pop(context);
+                                await ref.read(editorProvider.notifier).redo();
+                                await _refreshRecipeSummary();
+                              }
+                            : null,
+                        icon: const Icon(Icons.redo),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: entries.isEmpty
+                      ? const Center(child: Text('No edits yet'))
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: entries.length,
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            final startsDraft = index ==
+                                    _recipeSummary.checkpointCursor &&
+                                _recipeSummary.checkpointCursor > 0;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (startsDraft)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      20,
+                                      10,
+                                      20,
+                                      6,
+                                    ),
+                                    child: Text(
+                                      'CURRENT DRAFT',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                          ),
+                                    ),
+                                  ),
+                                ListTile(
+                                  dense: true,
+                                  leading: Icon(
+                                    entry.isApplied
+                                        ? Icons.check_circle_outline
+                                        : Icons.edit_outlined,
+                                  ),
+                                  title: Text(entry.label),
+                                  subtitle: Text(
+                                    entry.isApplied
+                                        ? 'Applied checkpoint'
+                                        : 'Unapplied draft',
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _showExportDialog() async {
@@ -444,7 +630,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Pixel Craft replays active edits against the original image.'),
+              const Text(
+                'Rust replays the complete active recipe against the untouched original source.',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                ref.read(editorProvider).hasUnappliedEdits
+                    ? 'Current draft edits are included in the export.'
+                    : 'Export uses the latest applied checkpoint.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 initialValue: format,
@@ -453,17 +648,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                   border: OutlineInputBorder(),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'png', child: Text('PNG')),
-                  DropdownMenuItem(value: 'jpeg', child: Text('JPEG')),
+                  DropdownMenuItem(value: 'png', child: Text('PNG · lossless')),
+                  DropdownMenuItem(value: 'jpeg', child: Text('JPEG · smaller')),
                   DropdownMenuItem(value: 'webp', child: Text('WEBP')),
                 ],
                 onChanged: (value) {
                   if (value != null) setDialogState(() => format = value);
                 },
               ),
-              if (format == 'jpeg') ...[
+              if (format != 'png') ...[
                 const SizedBox(height: 16),
-                Text('Quality ${quality.round()}'),
+                Text('Quality ${quality.round()}%'),
                 Slider(
                   value: quality,
                   min: 40,
@@ -472,6 +667,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                   onChanged: (value) => setDialogState(() => quality = value),
                 ),
               ],
+              const SizedBox(height: 8),
+              const Row(
+                children: [
+                  Icon(Icons.photo_size_select_large_outlined, size: 18),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Resolution: original source dimensions')),
+                ],
+              ),
             ],
           ),
           actions: [
@@ -505,24 +708,29 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
       final share = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(file.savedToGallery ? 'Saved to Gallery' : 'Export complete'),
+          title: Text(
+            file.savedToGallery ? 'Saved to Gallery' : 'Export complete',
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (file.savedToGallery) ...[
-                const Text('The exported image was added to your device photo gallery.'),
-                const SizedBox(height: 8),
-                const Text('Android album: Pictures/PixelCraft'),
-              ] else ...[
-                const Text('The image was exported, but Pixel Craft could not add it to the device gallery.'),
+              if (file.savedToGallery)
+                const Text('The full-resolution export was saved to your device.')
+              else ...[
+                const Text(
+                  'The export completed, but Pixel Craft could not add it to the device gallery.',
+                ),
                 if (file.galleryError != null) ...[
                   const SizedBox(height: 8),
                   Text(file.galleryError!),
                 ],
               ],
               const SizedBox(height: 12),
-              Text('App backup: ${file.path}', style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                'App backup: ${file.path}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
           actions: [
@@ -549,6 +757,58 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     }
   }
 
+  Future<void> _confirmExit() async {
+    final state = ref.read(editorProvider);
+    if (state.isBusy || state.isPreviewProcessing || _isSavingExport) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Finish the current operation before leaving.')),
+      );
+      return;
+    }
+    if (!state.hasUnappliedEdits) {
+      setState(() => _exitApproved = true);
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+
+    final choice = await showDialog<_ExitChoice>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unapplied edits'),
+        content: const Text(
+          'Apply the current draft before leaving, or discard it and return to the last checkpoint.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, _ExitChoice.continueEditing),
+            child: const Text('Continue Editing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, _ExitChoice.discard),
+            child: const Text('Discard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _ExitChoice.apply),
+            child: const Text('Apply & Exit'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || choice == null || choice == _ExitChoice.continueEditing) {
+      return;
+    }
+    final controller = ref.read(editorProvider.notifier);
+    if (choice == _ExitChoice.apply) {
+      await controller.applyEdits();
+    } else {
+      await controller.cancelEdits();
+    }
+    if (!mounted || ref.read(editorProvider).error != null) return;
+    setState(() => _exitApproved = true);
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(editorProvider);
@@ -564,6 +824,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
       final enteredOriginal = !previous.showOriginal && next.showOriginal;
       final becameBusy = !previous.isBusy && next.isBusy;
       final failed = next.error != null && next.error != previous.error;
+      final recipeMayHaveChanged = previous.cursor != next.cursor ||
+          previous.operationCount != next.operationCount ||
+          checkpointChanged;
+
+      if (recipeMayHaveChanged && !next.isPreviewProcessing && !next.isBusy) {
+        unawaited(_refreshRecipeSummary());
+      }
+
       if (!toolChanged &&
           !checkpointChanged &&
           !enteredOriginal &&
@@ -579,16 +847,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
             : toolChanged
                 ? 'editor tool changed'
                 : enteredOriginal
-                    ? 'original preview requested'
+                    ? 'before preview requested'
                     : becameBusy
                         ? 'editor entered busy state'
                         : 'editor reported an error',
       );
     });
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
-        title: Text('Editor · ${state.cursor}/${state.operationCount} edits'),
+        title: Text(
+          state.hasUnappliedEdits
+              ? 'Editor · Draft ${state.cursor} edits'
+              : 'Editor · Applied',
+        ),
         actions: [
           if (_gpuIntegrationEligible && kDebugMode)
             Padding(
@@ -598,6 +870,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                 label: Text(_gpuPreviewActive ? 'GPU LIVE' : 'GPU READY'),
               ),
             ),
+          IconButton(
+            onPressed: actionsBlocked ? null : _showHistory,
+            tooltip: 'History',
+            icon: const Icon(Icons.history_rounded),
+          ),
           IconButton(
             onPressed: state.canUndo && !actionsBlocked ? controller.undo : null,
             tooltip: 'Undo',
@@ -647,12 +924,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                           final tools = EditorToolPanel(
                             state: state,
                             controller: controller,
+                            recipeSummary: _recipeSummary,
                             onGpuPreviewStart:
                                 _gpuIntegrationEligible ? _onGpuPreviewStart : null,
                             onGpuPreviewChanged:
                                 _gpuIntegrationEligible ? _onGpuPreviewChanged : null,
                             onGpuPreviewCommit:
                                 _gpuIntegrationEligible ? _onGpuPreviewCommit : null,
+                            onResetAdjustment: _resetAdjustment,
+                            onResetAdjustments: _resetAdjustments,
+                            onResetCreative: _resetCreative,
+                            onResetFilm: _resetFilm,
                           );
                           final content = constraints.maxWidth >= 900
                               ? Padding(
@@ -699,12 +981,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                                               children: [
                                                 const SizedBox.square(
                                                   dimension: 20,
-                                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
                                                 ),
                                                 const SizedBox(width: 12),
                                                 Text(
                                                   _isSavingExport
-                                                      ? 'Saving to Gallery…'
+                                                      ? 'Exporting full resolution…'
                                                       : 'Processing image…',
                                                 ),
                                               ],
@@ -721,8 +1005,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                       ),
       ),
     );
+
+    return PopScope(
+      canPop: _exitApproved || !state.hasUnappliedEdits,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_confirmExit());
+      },
+      child: scaffold,
+    );
   }
 }
+
+enum _ExitChoice { continueEditing, discard, apply }
 
 class _PreparingPhotoView extends StatelessWidget {
   const _PreparingPhotoView({
@@ -736,29 +1030,12 @@ class _PreparingPhotoView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final image = _sourceImage(context);
-
     return Stack(
       fit: StackFit.expand,
       children: [
         ColoredBox(
           color: Theme.of(context).colorScheme.surfaceContainerLowest,
           child: image,
-        ),
-        const IgnorePointer(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0x00000000),
-                  Color(0x00000000),
-                  Color(0x66000000),
-                ],
-                stops: [0, 0.55, 1],
-              ),
-            ),
-          ),
         ),
         const Positioned(
           left: 16,
@@ -781,23 +1058,9 @@ class _PreparingPhotoView extends StatelessWidget {
                     ),
                     SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Preparing photo…',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Your photo is ready. Setting up editing tools.',
-                            style: TextStyle(color: Color(0xCCFFFFFF)),
-                          ),
-                        ],
+                      child: Text(
+                        'Preparing photo and editing tools…',
+                        style: TextStyle(color: Colors.white),
                       ),
                     ),
                   ],
@@ -815,7 +1078,8 @@ class _PreparingPhotoView extends StatelessWidget {
     if (path != null) {
       final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
       final logicalWidth = MediaQuery.sizeOf(context).width;
-      final cacheWidth = (logicalWidth * devicePixelRatio).round().clamp(720, 1440);
+      final cacheWidth =
+          (logicalWidth * devicePixelRatio).round().clamp(720, 1440);
       return Image.file(
         File(path),
         fit: BoxFit.contain,
@@ -837,7 +1101,6 @@ class _PreparingPhotoView extends StatelessWidget {
         errorBuilder: (context, error, stackTrace) => const SizedBox.expand(),
       );
     }
-
     return const SizedBox.expand();
   }
 }
@@ -862,12 +1125,10 @@ class _EditorCanvas extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPressStart: state.isBusy
-          ? null
-          : (_) => controller.setShowOriginal(true),
-      onLongPressEnd: state.isBusy
-          ? null
-          : (_) => controller.setShowOriginal(false),
+      onLongPressStart:
+          state.isBusy ? null : (_) => controller.setShowOriginal(true),
+      onLongPressEnd:
+          state.isBusy ? null : (_) => controller.setShowOriginal(false),
       onLongPressCancel:
           state.isBusy ? null : () => controller.setShowOriginal(false),
       child: Stack(
@@ -898,7 +1159,10 @@ class _EditorCanvas extends StatelessWidget {
             child: AnimatedOpacity(
               opacity: state.showOriginal ? 1 : 0,
               duration: const Duration(milliseconds: 120),
-              child: const Chip(label: Text('Original')),
+              child: const Chip(
+                avatar: Icon(Icons.compare_rounded, size: 16),
+                label: Text('Before'),
+              ),
             ),
           ),
         ],
