@@ -161,13 +161,16 @@ class EditorRecipeSummary {
     final checkpoint = rawCheckpoint.clamp(0, cursor).toInt();
     final applied = List<dynamic>.from(rawOperations.take(checkpoint));
     final draft = <dynamic>[];
-    for (final operation in rawOperations.skip(checkpoint).take(cursor - checkpoint)) {
+    for (final operation
+        in rawOperations.skip(checkpoint).take(cursor - checkpoint)) {
       if (operation is Map && remove(operation)) continue;
       draft.add(operation);
     }
-    final redoTail = List<dynamic>.from(rawOperations.skip(cursor));
 
-    decoded['operations'] = <dynamic>[...applied, ...draft, ...redoTail];
+    // Reset is a new semantic branch. Like any edit after Undo, it must drop
+    // a stale redo tail rather than allow Redo to resurrect operations that
+    // were intentionally reset from the current draft.
+    decoded['operations'] = <dynamic>[...applied, ...draft];
     decoded['cursor'] = applied.length + draft.length;
     decoded['checkpoint_cursor'] = checkpoint;
     return jsonEncode(decoded);
