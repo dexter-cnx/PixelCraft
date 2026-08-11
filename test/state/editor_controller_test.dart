@@ -103,6 +103,27 @@ void main() {
       expect(engine.commitCalls + engine.replaceFilterCalls, lessThanOrEqualTo(3));
     });
 
+    test('adjust controls remember independent values before Apply', () async {
+      final engine = FakeImageEngine();
+      final controller = controllerFor(engine);
+      await controller.load(Uint8List.fromList([1]));
+
+      controller.selectFilter('brightness');
+      controller.commitFilterValue(1.2);
+      await settlePreview(controller);
+
+      controller.selectFilter('contrast');
+      controller.commitFilterValue(1.3);
+      await settlePreview(controller);
+
+      controller.selectFilter('brightness');
+      expect(controller.state.value, 1.2);
+
+      controller.selectFilter('contrast');
+      expect(controller.state.value, 1.3);
+      expect(controller.state.operationCount, 2);
+    });
+
     test('transform does not cancel an in-flight preview result', () async {
       final engine = FakeImageEngine()
         ..previewDelay = const Duration(milliseconds: 20);
@@ -151,6 +172,7 @@ void main() {
       expect(engine.lastValue, 1);
       expect(controller.state.operationCount, 1);
       expect(controller.state.selectedCreativeFilter, 'oceanic');
+      expect(engine.operations.single['name'], 'oceanic');
     });
 
     test('film profile selection and strength use one replaceable draft', () async {
@@ -161,16 +183,19 @@ void main() {
 
       controller.selectFilmProfile('provia_inspired');
       await settlePreview(controller);
-      expect(engine.applyFilmProfileCalls, 1);
+      expect(engine.restoreSessionCalls, 1);
       expect(controller.state.operationCount, 1);
       expect(controller.state.selectedFilmProfile, 'provia_inspired');
 
       controller.updateFilmProfileStrength(0.55);
       await settlePreview(controller);
-      expect(engine.replaceFilmProfileCalls, 1);
+      expect(engine.restoreSessionCalls, 2);
+      expect(engine.activeFilmProfile, 'provia_inspired');
       expect(engine.lastValue, 0.55);
       expect(controller.state.operationCount, 1);
       expect(controller.state.filmProfileStrength, 0.55);
+      expect(engine.operations.single['type'], 'film_profile');
+      expect(engine.operations.single['strength'], 0.55);
     });
 
     test('film preview queue also uses latest request wins', () async {
