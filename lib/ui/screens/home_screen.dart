@@ -11,6 +11,7 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.recoverLostPickerData = true,
+    this.showGpuDiagnostics = kDebugMode,
   });
 
   /// Android can recreate the app while the external camera is open. Keep
@@ -18,6 +19,11 @@ class HomeScreen extends StatefulWidget {
   /// image_picker. Tests that are not exercising that platform handoff can
   /// disable it to stay deterministic and avoid a real platform-channel call.
   final bool recoverLostPickerData;
+
+  /// Debug-only diagnostics entry point. It defaults to [kDebugMode] in the
+  /// real app but can be disabled by deterministic/product-oriented tests so
+  /// visual baselines do not encode debug-only chrome.
+  final bool showGpuDiagnostics;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -103,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openGpuDiagnostics() async {
-    if (!kDebugMode || !mounted) return;
+    if (!widget.showGpuDiagnostics || !mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const GpuDiagnosticsScreen()),
     );
@@ -250,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Pixel Craft'),
         actions: [
-          if (kDebugMode)
+          if (widget.showGpuDiagnostics)
             IconButton(
               tooltip: 'GPU Diagnostics',
               onPressed: blocked ? null : _openGpuDiagnostics,
