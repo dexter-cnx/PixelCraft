@@ -84,7 +84,10 @@ void main() {
       MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: lightTheme(),
-        home: const HomeScreen(recoverLostPickerData: false),
+        home: const HomeScreen(
+          recoverLostPickerData: false,
+          showGpuDiagnostics: false,
+        ),
       ),
     );
     await tester.pumpAndSettle();
