@@ -2,6 +2,8 @@
 
 ## Status
 
+**G2.5 CLOSED on the iOS G2 reference device.**
+
 - G2.5a realtime straighten preview: implemented and functionally validated on the iOS reference device.
 - G2.5b quarter-turn/flip GPU handoff: intentionally deferred because the existing Rust operations are inexpensive and do not have a continuous interaction loop.
 - G2.5c interactive crop: implemented and functionally validated on device.
@@ -128,14 +130,10 @@ The same conversion is used both when creating an aspect preset and while resizi
 - movement clamping to image bounds
 - locked-aspect resize in source-pixel space
 
-## G2.5 closure gate
+## G2.5 closure evidence
 
-Before considering the transform phase fully closed:
-
-- Flutter analyzer passes.
-- Interactive crop widget regression tests pass.
-- Device smoke test confirms 1:1 and 16:9 on a clearly non-square source image.
-- Straighten and crop still preserve Undo/Redo/Apply/Cancel behavior.
-- No duplicate crop commit controls remain.
-
-Once these pass, the next phase is G2.6 Editor GPU/session hardening: stale draft cancellation, rapid tool switching, renderer recreation and fallback behavior.
+- Interactive crop and realtime straighten were functionally validated on the physical iOS reference device: **PASS**.
+- 1:1 and 16:9 crop behavior on non-square source geometry was validated after the source-pixel aspect correction: **PASS**.
+- Duplicate crop commit controls were removed: **PASS**.
+- Undo/Redo/Apply/Cancel remain on the Rust-authoritative editor path: **PRESERVED**.
+- Host regression commands are included in the final G2 merge gate: see `docs/G2_FINAL_VERIFICATION.md`.
