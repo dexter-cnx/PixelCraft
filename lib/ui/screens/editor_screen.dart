@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/export_file_service.dart';
+import '../../gpu/gpu_editor_adjustment_draft.dart';
 import '../../gpu/gpu_editor_preview_bridge.dart';
 import '../../gpu/ios_gpu_editor_preview.dart';
 import '../../state/editor_controller.dart';
@@ -67,6 +68,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   String? _gpuDraftKind;
   String? _gpuDraftKey;
   double _gpuDraftValue = 1;
+  String? _gpuAdjustmentRecipeJson;
   String? _gpuOwnedDraftKind;
   String? _gpuOwnedDraftKey;
   int _gpuActivationSerial = 0;
@@ -134,17 +136,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (state.originalPreviewBytes == null || state.showOriginal) return false;
 
     if (kind == 'adjust') {
-      final supported =
-          key == 'brightness' ||
-          key == 'contrast' ||
-          key == 'saturation' ||
-          key == 'sharpen' ||
-          key == 'gaussian_blur';
-      if (!supported) return false;
-      if (state.cursor == 0) return true;
-      return state.cursor == 1 &&
-          _gpuOwnedDraftKind == kind &&
-          _gpuOwnedDraftKey == key;
+      return gpuAdjustFilterKeys.contains(key);
     }
 
     if (kind == 'creative') {
@@ -170,7 +162,48 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _gpuDraftKey = key;
     _gpuDraftValue = value;
     final serial = ++_gpuActivationSerial;
-    unawaited(_activateGpuPreview(state, serial));
+
+    if (kind == 'adjust') {
+      unawaited(_prepareAdjustGpuPreview(state, serial));
+    } else {
+      _gpuAdjustmentRecipeJson = null;
+      unawaited(_activateGpuPreview(state, serial));
+    }
+  }
+
+  Future<void> _prepareAdjustGpuPreview(EditorState state, int serial) async {
+    try {
+      final recipe =
+          await ref.read(imageEngineProvider).exportSessionRecipeInBackground();
+      if (!mounted || serial != _gpuActivationSerial) return;
+
+      final key = _gpuDraftKey;
+      if (key == null) return;
+      final draft = GpuEditorAdjustmentDraft.fromRecipeJson(
+        recipe,
+        transientKey: key,
+        transientValue: _gpuDraftValue,
+      );
+      if (!draft.isRepresentable) {
+        debugPrint(
+          '[G3 editor GPU] adjust fallback: ${draft.fallbackReason ?? 'unrepresentable draft'}',
+        );
+        _gpuAdjustmentRecipeJson = null;
+        _gpuDraftKind = null;
+        _gpuDraftKey = null;
+        return;
+      }
+
+      _gpuAdjustmentRecipeJson = recipe;
+      await _activateGpuPreview(state, serial);
+    } catch (error) {
+      debugPrint('[G3 editor GPU] adjust recipe unavailable: $error');
+      if (mounted && serial == _gpuActivationSerial) {
+        _gpuAdjustmentRecipeJson = null;
+        _gpuDraftKind = null;
+        _gpuDraftKey = null;
+      }
+    }
   }
 
   void _onGpuPreviewChanged(String kind, String key, double value) {
@@ -195,6 +228,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _gpuActivationSerial++;
     _gpuDraftKind = null;
     _gpuDraftKey = null;
+    _gpuAdjustmentRecipeJson = null;
     if (clearOwnership) {
       _gpuOwnedDraftKind = null;
       _gpuOwnedDraftKey = null;
@@ -301,15 +335,21 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final value = _gpuDraftValue;
 
     if (kind == 'adjust') {
-      var adjustments = const GpuEditorAdjustmentState();
-      adjustments = switch (key) {
-        'brightness' => adjustments.copyWith(brightness: value),
-        'contrast' => adjustments.copyWith(contrast: value),
-        'saturation' => adjustments.copyWith(saturation: value),
-        'sharpen' => adjustments.copyWith(sharpen: value),
-        'gaussian_blur' => adjustments.copyWith(gaussianBlur: value),
-        _ => adjustments,
-      };
+      final recipe = _gpuAdjustmentRecipeJson;
+      if (recipe == null) {
+        throw StateError('No authoritative Adjust recipe is available');
+      }
+      final draft = GpuEditorAdjustmentDraft.fromRecipeJson(
+        recipe,
+        transientKey: key,
+        transientValue: value,
+      );
+      if (!draft.isRepresentable) {
+        throw StateError(
+          'Adjust draft is not GPU-representable: ${draft.fallbackReason}',
+        );
+      }
+
       await _gpuBridge.setCreative(
         rendererId,
         filterId: '',
@@ -320,7 +360,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         profileId: '',
         strength: 0,
       );
-      await _gpuBridge.setAdjustments(rendererId, adjustments);
+      await _gpuBridge.setAdjustments(rendererId, draft.adjustments);
       return;
     }
 
@@ -410,6 +450,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       if (serial == _gpuActivationSerial) {
         _gpuDraftKind = null;
         _gpuDraftKey = null;
+        _gpuAdjustmentRecipeJson = null;
       }
     }
   }
