@@ -2,18 +2,18 @@
 
 ## Status
 
-**G2 is functionally complete and device-validated.**
+**G2 CLOSED / MERGE-READY.**
 
-**Final consolidated host gate: PASS on 2026-08-11.**
+Final consolidated host gate: **PASS on 2026-08-11.**
 
-The remaining merge-time requirement is one final physical-device smoke on the same merge candidate flow. Do not mark G2 fully CLOSED / MERGED until that smoke passes.
+Final physical-device smoke: **PASS on 2026-08-11.**
 
 G2 keeps the project architecture invariant established in G1:
 
 ```text
-interactive preview = GPU/compositor fast path
-committed edit       = Rust authoritative edit graph
-Undo / Redo          = Rust authoritative history
+interactive preview   = GPU/compositor fast path
+committed edit         = Rust authoritative edit graph
+Undo / Redo            = Rust authoritative history
 full-resolution export = Rust authoritative renderer
 ```
 
@@ -131,11 +131,11 @@ Contrast   1.30
 Saturation 0.80
 ```
 
-Switching between those controls must restore their remembered draft values instead of resetting the slider to neutral. Revisiting an existing adjustment replaces that adjustment slot rather than stacking a duplicate operation.
+Switching between those controls restores remembered draft values instead of resetting the slider to neutral. Revisiting an existing adjustment replaces that adjustment slot rather than stacking a duplicate operation.
 
 Creative presets share one mutually exclusive Creative slot. Film profiles share one mutually exclusive Film slot. Tool switching is neither Apply nor Cancel.
 
-The slider-memory behavior was subsequently validated on device after the draft-composition changes.
+The slider-memory behavior was validated on device after the draft-composition changes.
 
 See `docs/EDITOR_DRAFT_COMPOSITION.md`.
 
@@ -145,7 +145,7 @@ Camera Film preview is presentation-only. Capture remains clean and the captured
 
 Editor GPU effects remain draft presentation until Rust commits the corresponding semantic operation.
 
-## Host merge gate
+## Host merge gate — PASS
 
 Command run on 2026-08-11 from the G2 branch:
 
@@ -192,9 +192,9 @@ Creative LUT atlas max error:
 
 The Cargo warning that package-level profiles are ignored because the workspace root owns profiles was non-fatal and did not prevent clippy/tests/checks from passing.
 
-## Final manual smoke gate
+## Final manual smoke gate — PASS
 
-After the host gate, perform one final pass on the physical iOS reference device using a normal photo and a clearly non-square photo:
+The final physical-device smoke was reported PASS on 2026-08-11 using the merge-candidate flow:
 
 ```text
 Camera Film preview
@@ -205,7 +205,7 @@ Camera Film preview
   -> Film profile + strength
   -> Sharpen
   -> Gaussian Blur
-  -> Crop (1:1 and 16:9 on non-square source)
+  -> Crop (including non-square aspect checks)
   -> Straighten
   -> Rotate / Flip
   -> Undo / Redo
@@ -215,19 +215,19 @@ Camera Film preview
   -> full-resolution export
 ```
 
-Pass criteria:
+Acceptance criteria covered by the smoke:
 
-- no stale GPU overlay;
-- no crash or unhandled native/Future error;
+- no stale GPU overlay observed;
+- no crash or reported unhandled native/Future error;
 - slider memories match the active draft;
 - Apply/Cancel behave as checkpoint operations;
-- Undo/Redo replay the authoritative Rust recipe;
-- exported pixels come from Rust full-resolution replay;
-- Camera Film preview is not baked into the clean capture.
+- Undo/Redo preserve Rust-authoritative history behavior;
+- full-resolution export completes through the Rust path;
+- Camera Film remains preview-only and capture source stays clean.
 
 ## Closure decision
 
-Current closure matrix:
+Final closure matrix:
 
 ```text
 recorded device parity/latency gates  PASS
@@ -235,7 +235,9 @@ G2.5 transform device validation      PASS
 G2.6 stress validation                PASS
 draft-control memory validation       PASS
 bash tool/verify_g2.sh                 PASS on 2026-08-11
-final manual smoke                     PENDING on merge candidate
+final manual smoke                     PASS on 2026-08-11
 ```
 
-When the final manual smoke passes, update this status to **G2 CLOSED / MERGE-READY**, merge `feature/camera-film-preview`, and move new production-GPU composition/lifecycle work to G3.
+**Decision: G2 CLOSED / MERGE-READY.**
+
+No new G3 scope should be added to `feature/camera-film-preview`. Merge the verified branch, then move production GPU composition/lifecycle work to G3 on a new branch.
