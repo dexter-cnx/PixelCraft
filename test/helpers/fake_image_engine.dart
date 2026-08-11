@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pixelcraft/core/image_engine.dart';
+import 'package:pixelcraft/state/editor_controller.dart';
 
 final Uint8List testPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -34,9 +35,12 @@ class FakeImageEngine implements ImageEngine {
   int transformCalls = 0;
   int cursor = 0;
   int operationCount = 0;
+  int checkpointCursor = 0;
   String? activeFilter;
   String? activeFilmProfile;
   double? lastValue;
+
+  final List<Map<String, dynamic>> operations = [];
 
   final List<int> bins = List<int>.generate(768, (index) => index % 256);
   final List<EngineFilmProfile> profiles = const [
@@ -76,8 +80,13 @@ class FakeImageEngine implements ImageEngine {
   void loadImage(Uint8List bytes) {
     loadCalls++;
     if (failLoad) throw StateError('decode failed');
+    operations.clear();
     cursor = 0;
     operationCount = 0;
+    checkpointCursor = 0;
+    activeFilter = null;
+    activeFilmProfile = null;
+    lastValue = null;
   }
 
   @override
@@ -96,9 +105,39 @@ class FakeImageEngine implements ImageEngine {
     String recipeJson,
   ) async {
     restoreSessionCalls++;
-    loadImage(bytes);
-    cursor = recipeJson.contains('draft') ? 1 : 0;
-    operationCount = cursor;
+
+    if (failLoad) throw StateError('decode failed');
+
+    final decoded = jsonDecode(recipeJson);
+    if (decoded is Map<String, dynamic> && decoded['operations'] is List) {
+      operations
+        ..clear()
+        ..addAll(
+          (decoded['operations'] as List)
+              .whereType<Map>()
+              .map((operation) => Map<String, dynamic>.from(operation)),
+        );
+      final requestedCursor = decoded['cursor'];
+      cursor = requestedCursor is int
+          ? requestedCursor.clamp(0, operations.length)
+          : operations.length;
+      final requestedCheckpoint = decoded['checkpoint_cursor'];
+      checkpointCursor = requestedCheckpoint is int
+          ? requestedCheckpoint.clamp(0, cursor)
+          : 0;
+      operationCount = operations.length;
+      _syncActiveOperationState();
+    } else {
+      // Preserve the legacy minimal fixture used by the restore smoke test.
+      operations.clear();
+      cursor = recipeJson.contains('draft') ? 1 : 0;
+      operationCount = cursor;
+      checkpointCursor = 0;
+      activeFilter = null;
+      activeFilmProfile = null;
+      lastValue = null;
+    }
+
     return _loadResult();
   }
 
@@ -112,7 +151,122 @@ class FakeImageEngine implements ImageEngine {
   @override
   Future<String> exportSessionRecipeInBackground() async {
     exportSessionRecipeCalls++;
-    return '{"version":1,"cursor":$cursor}';
+    return jsonEncode(<String, dynamic>{
+      'version': 3,
+      'operations': operations,
+      'cursor': cursor,
+      'checkpoint_cursor': checkpointCursor,
+    });
+  }
+
+  void _truncateRedoTail() {
+    if (cursor < operations.length) {
+      operations.removeRange(cursor, operations.length);
+    }
+  }
+
+  int _findFilterSlot(String filter) {
+    for (var index = checkpointCursor; index < cursor; index++) {
+      final operation = operations[index];
+      if (operation['type'] == 'filter' && operation['name'] == filter) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  int _findCreativeSlot() {
+    for (var index = checkpointCursor; index < cursor; index++) {
+      final operation = operations[index];
+      if (operation['type'] == 'filter' &&
+          operation['name'] is String &&
+          creativeFilters.contains(operation['name'])) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  int _findFilmSlot() {
+    for (var index = checkpointCursor; index < cursor; index++) {
+      if (operations[index]['type'] == 'film_profile') return index;
+    }
+    return -1;
+  }
+
+  void _upsertFilter(String filter, double value) {
+    _truncateRedoTail();
+    final replacement = <String, dynamic>{
+      'type': 'filter',
+      'name': filter,
+      'value': value,
+    };
+    final slot = _findFilterSlot(filter);
+    if (slot >= 0) {
+      operations[slot] = replacement;
+    } else {
+      operations.add(replacement);
+      cursor = operations.length;
+    }
+    operationCount = operations.length;
+  }
+
+  void _upsertCreative(String filter, double value) {
+    _truncateRedoTail();
+    final replacement = <String, dynamic>{
+      'type': 'filter',
+      'name': filter,
+      'value': value,
+    };
+    final slot = _findCreativeSlot();
+    if (slot >= 0) {
+      operations[slot] = replacement;
+    } else {
+      operations.add(replacement);
+      cursor = operations.length;
+    }
+    operationCount = operations.length;
+  }
+
+  void _upsertFilm(String id, double strength) {
+    _truncateRedoTail();
+    final replacement = <String, dynamic>{
+      'type': 'film_profile',
+      'id': id,
+      'strength': strength,
+    };
+    final slot = _findFilmSlot();
+    if (slot >= 0) {
+      operations[slot] = replacement;
+    } else {
+      operations.add(replacement);
+      cursor = operations.length;
+    }
+    operationCount = operations.length;
+  }
+
+  void _syncActiveOperationState() {
+    activeFilter = null;
+    activeFilmProfile = null;
+    lastValue = null;
+    for (var index = checkpointCursor; index < cursor; index++) {
+      final operation = operations[index];
+      if (operation['type'] == 'filter') {
+        final name = operation['name'];
+        final value = operation['value'];
+        if (name is String && value is num) {
+          activeFilter = name;
+          lastValue = value.toDouble();
+        }
+      } else if (operation['type'] == 'film_profile') {
+        final id = operation['id'];
+        final strength = operation['strength'];
+        if (id is String && strength is num) {
+          activeFilmProfile = id;
+          lastValue = strength.toDouble();
+        }
+      }
+    }
   }
 
   @override
@@ -141,7 +295,7 @@ class FakeImageEngine implements ImageEngine {
   @override
   Uint8List commitFilter() {
     commitCalls++;
-    return _commitTransform();
+    return output;
   }
 
   @override
@@ -186,9 +340,9 @@ class FakeImageEngine implements ImageEngine {
   Future<EngineCommitResult> applyFilmProfile(String id, double strength) async {
     await _waitPreview();
     applyFilmProfileCalls++;
+    _upsertFilm(id, strength);
     activeFilmProfile = id;
     lastValue = strength;
-    _commitTransform();
     return _result(elapsedMicros: BigInt.from(9000));
   }
 
@@ -196,11 +350,9 @@ class FakeImageEngine implements ImageEngine {
   Future<EngineCommitResult> replaceFilmProfile(String id, double strength) async {
     await _waitPreview();
     replaceFilmProfileCalls++;
-    if (cursor > 0) cursor--;
+    _upsertFilm(id, strength);
     activeFilmProfile = id;
     lastValue = strength;
-    operationCount = cursor + 1;
-    cursor = operationCount;
     return _result(elapsedMicros: BigInt.from(9000));
   }
 
@@ -213,7 +365,7 @@ class FakeImageEngine implements ImageEngine {
     beginFilter(filter);
     updateFilterPreview(filter, value);
     commitCalls++;
-    _commitTransform();
+    _upsertFilter(filter, value);
     return _result(elapsedMicros: BigInt.from(12500));
   }
 
@@ -224,20 +376,20 @@ class FakeImageEngine implements ImageEngine {
   ) async {
     await _waitPreview();
     replaceFilterCalls++;
-    if (cursor > 0) cursor--;
     beginFilter(filter);
     updateFilterPreview(filter, value);
     commitCalls++;
-    operationCount = cursor + 1;
-    cursor = operationCount;
+    _upsertFilter(filter, value);
     return _result(elapsedMicros: BigInt.from(12500));
   }
 
   @override
   Future<EngineCommitResult> applyEditsInBackground() async {
     applyEditsCalls++;
+    operations.clear();
     cursor = 0;
     operationCount = 0;
+    checkpointCursor = 0;
     activeFilter = null;
     activeFilmProfile = null;
     lastValue = null;
@@ -247,18 +399,21 @@ class FakeImageEngine implements ImageEngine {
   @override
   Future<EngineCommitResult> discardEditsInBackground() async {
     discardEditsCalls++;
-    cursor = 0;
-    operationCount = 0;
-    activeFilter = null;
-    activeFilmProfile = null;
-    lastValue = null;
+    if (checkpointCursor < operations.length) {
+      operations.removeRange(checkpointCursor, operations.length);
+    }
+    cursor = checkpointCursor;
+    operationCount = operations.length;
+    _syncActiveOperationState();
     return _result();
   }
 
-  Uint8List _commitTransform() {
+  Uint8List _commitTransform([String type = 'transform']) {
+    _truncateRedoTail();
+    operations.add(<String, dynamic>{'type': type});
+    cursor = operations.length;
+    operationCount = operations.length;
     transformCalls++;
-    operationCount = cursor + 1;
-    cursor = operationCount;
     return output;
   }
 
@@ -269,8 +424,8 @@ class FakeImageEngine implements ImageEngine {
         session: sessionInfo(),
       );
 
-  Future<EngineCommitResult> _backgroundTransform() async {
-    _commitTransform();
+  Future<EngineCommitResult> _backgroundTransform([String type = 'transform']) async {
+    _commitTransform(type);
     return _result();
   }
 
@@ -281,30 +436,30 @@ class FakeImageEngine implements ImageEngine {
     required double width,
     required double height,
   }) =>
-      _backgroundTransform();
+      _backgroundTransform('crop');
 
   @override
   Future<EngineCommitResult> rotateQuarterTurnsInBackground(int turns) =>
-      _backgroundTransform();
+      _backgroundTransform('rotate90');
 
   @override
   Future<EngineCommitResult> straightenInBackground(double degrees) =>
-      _backgroundTransform();
+      _backgroundTransform('rotate_degrees');
 
   @override
   Future<EngineCommitResult> flipHorizontalInBackground() =>
-      _backgroundTransform();
+      _backgroundTransform('flip_horizontal');
 
   @override
   Future<EngineCommitResult> flipVerticalInBackground() =>
-      _backgroundTransform();
+      _backgroundTransform('flip_vertical');
 
   @override
   Future<EngineCommitResult> resizeCommittedInBackground({
     required int width,
     required int height,
   }) =>
-      _backgroundTransform();
+      _backgroundTransform('resize');
 
   @override
   Future<EngineCommitResult> undoInBackground() async {
@@ -332,28 +487,29 @@ class FakeImageEngine implements ImageEngine {
     required double width,
     required double height,
   }) =>
-      _commitTransform();
+      _commitTransform('crop');
 
   @override
-  Uint8List rotateQuarterTurns(int turns) => _commitTransform();
+  Uint8List rotateQuarterTurns(int turns) => _commitTransform('rotate90');
 
   @override
-  Uint8List straighten(double degrees) => _commitTransform();
+  Uint8List straighten(double degrees) => _commitTransform('rotate_degrees');
 
   @override
-  Uint8List flipHorizontal() => _commitTransform();
+  Uint8List flipHorizontal() => _commitTransform('flip_horizontal');
 
   @override
-  Uint8List flipVertical() => _commitTransform();
+  Uint8List flipVertical() => _commitTransform('flip_vertical');
 
   @override
   Uint8List resizeCommitted({required int width, required int height}) =>
-      _commitTransform();
+      _commitTransform('resize');
 
   @override
   Uint8List undo() {
     undoCalls++;
     if (cursor > 0) cursor--;
+    _syncActiveOperationState();
     return output;
   }
 
@@ -361,6 +517,7 @@ class FakeImageEngine implements ImageEngine {
   Uint8List redo() {
     redoCalls++;
     if (cursor < operationCount) cursor++;
+    _syncActiveOperationState();
     return output;
   }
 
