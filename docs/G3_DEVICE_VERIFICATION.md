@@ -11,25 +11,44 @@ This checklist closes the device-only evidence required after host CI for G3.1-G
 
 ## Automated device gate
 
-Run:
+Run either:
+
+```bash
+DEVICE=<ios-device-id> make g3-device-verify
+```
+
+or directly:
 
 ```bash
 DEVICE=<ios-device-id> bash tool/verify_g3_device.sh
 ```
 
-This executes:
+The verification runner deliberately does **not** use the normal development bundle id. Before the test it temporarily changes only the Runner build configurations from:
 
-1. `integration_test/gpu_preview_harness_test.dart`
-   - native Metal capability
-   - identity LUT parity
-   - all six Film Profile Pack v2 LUT parity cases
-2. `integration_test/g3_editor_gpu_verification_test.dart`
-   - G3.1 adjustment parity against Rust reference semantics
-   - Gaussian Blur parity
-   - G3.2 Creative compute parity
-   - representative adjustment + Film latency benchmark
-   - representative heavy Blur latency benchmark
-   - 12 renderer destroy/recreate cycles
+```text
+dev.cnxdev.pixelcraft
+```
+
+to:
+
+```text
+dev.cnxdev.pixelcraft.g3verify
+```
+
+It then restores `ios/Runner.xcodeproj/project.pbxproj` byte-for-byte through a shell trap, including when the test fails or is interrupted. The normal PixelCraft development install therefore remains a separate app and is not the integration-test uninstall target.
+
+The runner uses one consolidated Flutter integration-test invocation, so the device sees one verification-app install/test session instead of the previous two install/uninstall cycles.
+
+The single suite `integration_test/g3_editor_gpu_verification_test.dart` executes:
+
+1. native Metal capability and identity LUT parity
+2. all six Film Profile Pack v2 LUT parity cases
+3. G3.1 adjustment parity against Rust reference semantics
+4. Gaussian Blur parity
+5. G3.2 Creative compute parity
+6. representative adjustment + Film latency benchmark
+7. representative heavy Blur latency benchmark
+8. 12 renderer destroy/recreate cycles
 
 ### Automated acceptance gates
 
@@ -41,6 +60,8 @@ This executes:
 - Blur p95 `<= targetMs`.
 - All 12 renderer recreation cycles complete without native error.
 - All six Film LUT parity cases remain below their existing native tolerance.
+
+Note: Flutter may still uninstall the temporary `dev.cnxdev.pixelcraft.g3verify` verification app after the integration test. That is expected and does not remove the normal `dev.cnxdev.pixelcraft` development install.
 
 Copy the significant `[G3...]` output lines into `docs/G3_FINAL_VERIFICATION.md` when closing the milestone.
 
