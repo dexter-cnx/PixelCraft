@@ -1,5 +1,11 @@
 # G2.6 Editor GPU / Session Hardening
 
+## Status
+
+**G2.6 CLOSED on the iOS G2 reference device.**
+
+The rapid-switching / repeated-slider stress gate passed without stale Metal overlays or reported unhandled async errors. Host-wide regression commands remain part of the final G2 merge gate in `docs/G2_FINAL_VERIFICATION.md`.
+
 ## Goal
 
 G2.6 does not add new image effects. It hardens the existing iOS Metal live-draft path so asynchronous native work can never override a newer editor state.
@@ -80,4 +86,14 @@ On the physical G2 reference device:
 6. Repeat rapid slider gestures for at least 30-60 seconds. No unhandled MethodChannel/Future error should appear in the Flutter log.
 7. Normal G2 parity/latency diagnostics must remain unaffected.
 
-G2.6 is closed when these stress cases pass without stale overlays, editor-state corruption, crashes or unhandled async errors.
+## Closure evidence
+
+The physical-device stress sequence above was performed and reported PASS. In particular:
+
+- rapid tool switching did not resurrect a stale GPU overlay;
+- repeated slider interaction remained stable;
+- no editor-state corruption was observed;
+- no unhandled MethodChannel/Future error was reported during the stress pass;
+- Rust remained the visible fallback/authority whenever the GPU draft was invalidated.
+
+G2.6 is therefore closed. The final branch-wide analyzer/test/Rust/LUT gate is tracked separately by `tool/verify_g2.sh` and `docs/G2_FINAL_VERIFICATION.md`.
