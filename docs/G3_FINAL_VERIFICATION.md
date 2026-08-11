@@ -19,26 +19,27 @@ Rust remains authoritative for committed edit semantics, history, checkpoints, s
 - [x] G2 merged into `main` via PR #5.
 - [x] Created `feature/editor-gpu-production` from updated `main`.
 - [x] Created this verification record before behavior changes.
-- [ ] Flutter analyzer baseline recorded.
-- [ ] Flutter state/widget baseline recorded.
-- [ ] Golden baseline recorded.
-- [ ] Rust fmt/clippy/tests baseline recorded.
-- [ ] Film + Creative LUT verification baseline recorded.
-- [ ] Confirm G2 diagnostics remain available in debug builds.
+- [x] Flutter analyzer baseline recorded.
+- [x] Flutter state/widget baseline recorded.
+- [x] Golden baseline recorded.
+- [x] Rust fmt/clippy/tests baseline recorded.
+- [x] Film + Creative LUT verification baseline recorded.
+- [x] Confirm G2 diagnostics remain available in debug builds.
 
-### Baseline commands
+### Baseline evidence
 
-```bash
-flutter analyze
-make test
-make golden-test
-make rust-fmt
-make rust-clippy
-make rust-test
-make gpu-lut-verify
-```
+GitHub Actions `Pixel Craft CI` run #21 for the initial G3 branch commit completed successfully on 2026-08-11. The workflow covered Flutter analyze, state/widget tests, macOS Golden tests, Rust fmt/clippy/tests, generated bridge verification, and GPU LUT verification.
 
-No G3 behavior should be changed until the baseline is clean or any pre-existing failure is explicitly recorded here.
+Baseline result: **PASS**.
+
+---
+
+## Branch-level product hardening added during G3
+
+- [x] Android main activity locked to portrait.
+- [x] iOS/iPad supported orientations reduced to portrait.
+- [x] Flutter runtime requests `DeviceOrientation.portraitUp` before app startup.
+- [x] Removed accidental empty root files `__tmp_noop__`, `__tmp_noop2__`, and `__tmp_noop3__`.
 
 ---
 
@@ -65,15 +66,26 @@ cannot yet be represented faithfully while dragging Brightness to 1.25; the GPU 
 - If active draft state cannot be represented faithfully, keep the Rust preview instead of partially composing it.
 - Preserve operation semantics for Sharpen and Gaussian Blur.
 
+### Implementation progress
+
+- [x] Added `GpuEditorAdjustmentDraft` recipe-backed composer.
+- [x] Composer reads only active operations between `checkpoint_cursor` and `cursor`.
+- [x] Composer keeps the active adjustment operation order for later renderer-order validation.
+- [x] Transient slider value overrides only the currently dragged adjustment.
+- [x] Unsupported Creative/Film/transform nodes fail closed instead of generating a partial Adjust state.
+- [x] Added regression tests for Brightness + Contrast + Saturation, Sharpen + Blur, checkpoint bounds, malformed recipes, and unsupported active nodes.
+- [ ] Wire the composer into `EditorScreen` GPU activation/update path.
+- [ ] Validate renderer operation ordering against authoritative Rust semantics before widening GPU eligibility beyond the current single-node rule.
+
 ### Verification checklist
 
-- [ ] State/controller regression coverage for simultaneous Adjust slots.
-- [ ] Brightness + Contrast + Saturation deterministic parity.
-- [ ] Sharpen + Blur deterministic parity.
+- [x] Composition-unit regression coverage for simultaneous Adjust slots.
+- [ ] Brightness + Contrast + Saturation deterministic image parity.
+- [ ] Sharpen + Blur deterministic image parity.
 - [ ] Order-sensitive cases recorded where applicable.
 - [ ] Representative multi-adjust latency benchmark recorded.
 - [ ] Reference-device p95 remains within realtime budget.
-- [ ] Existing G2 single-adjust parity remains passing.
+- [ ] Existing G2 single-adjust parity remains passing after live-path wiring.
 
 ---
 
@@ -110,9 +122,9 @@ cannot yet be represented faithfully while dragging Brightness to 1.25; the GPU 
 
 ## G3 closure gate
 
-- [ ] Flutter analyzer/test/golden pass.
-- [ ] Rust fmt/clippy/tests pass.
-- [ ] LUT verification pass.
+- [ ] Flutter analyzer/test/golden pass on final G3 head.
+- [ ] Rust fmt/clippy/tests pass on final G3 head.
+- [ ] LUT verification pass on final G3 head.
 - [ ] G2 single-adjust parity retained.
 - [ ] Multi-adjust parity pass.
 - [ ] Adjust + Creative + Film parity pass.
