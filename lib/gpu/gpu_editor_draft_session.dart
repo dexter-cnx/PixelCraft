@@ -100,6 +100,20 @@ class GpuEditorDraftSession {
     return true;
   }
 
+  bool updatePlan(int generation, GpuEditorRenderPlan plan) {
+    if (!isCurrent(generation)) return false;
+    if (!plan.isRepresentable) {
+      fallback(
+        generation,
+        plan.fallbackReason ?? 'GPU render plan is not representable',
+      );
+      return false;
+    }
+    _plan = plan;
+    _fallbackReason = null;
+    return true;
+  }
+
   bool activate(int generation) {
     if (!isCurrent(generation) || _plan == null) return false;
     _status = GpuEditorPresentationStatus.active;
