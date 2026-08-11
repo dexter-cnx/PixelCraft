@@ -371,6 +371,12 @@ class _OutOfOrderRecipeEngine extends FakeImageEngine {
     if (call == 0) {
       await Future<void>.delayed(const Duration(milliseconds: 25));
     }
-    return '{"version":1,"cursor":$capturedCursor}';
+    final operations = List.generate(
+      capturedCursor,
+      (index) =>
+          '{"type":"filter","name":"brightness","value":${1 + index / 10}}',
+    ).join(',');
+    return '{"version":1,"preview_max_edge":1024,"operations":[$operations],'
+        '"cursor":$capturedCursor,"checkpoint_cursor":0}';
   }
 }
