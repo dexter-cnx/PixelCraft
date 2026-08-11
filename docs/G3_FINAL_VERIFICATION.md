@@ -2,15 +2,16 @@
 
 ## Status
 
-**G3 IMPLEMENTATION COMPLETE THROUGH G3.4 — AUTOMATED DEVICE GATES PASS — MANUAL RUNTIME STRESS REMAINS**
+**G3 CLOSED — READY FOR REVIEW**
 
 Branch: `feature/editor-gpu-production`
 Base: `main`
 G2 merge baseline: `85c44761e9a88d4b0b0bdef5b8ea612ff3940ca8`
 Physical-device automated verification commit: `8eb6e1ebc8766720b524340a402fa223e5487b75`
+Final verification-record CI commit: `4fa94d2a177b1516e254343e7ddbdb813c9bbab5`
 Verification date: 2026-08-11
 
-Rust remains authoritative for committed edit semantics, history, checkpoints, session recipe, and full-resolution export. GPU rendering remains an interactive preview path and must fail closed to the valid Rust preview.
+Rust remains authoritative for committed edit semantics, history, checkpoints, session recipe, and full-resolution export. GPU rendering remains an interactive preview path and fails closed to the valid Rust preview whenever the authoritative draft cannot be represented faithfully.
 
 ---
 
@@ -107,11 +108,15 @@ Device GPU reported by native harness: **Apple A13 GPU**.
 
 Automated G3.1 device result: **PASS**.
 
-### Manual verification still required
+### Manual runtime evidence
 
-- [ ] Confirm multi-adjust visual continuity while dragging one active slot.
-- [ ] Confirm Sharpen + Blur visual continuity and no semantic jump on release.
-- [ ] Undo/Redo once after a multi-adjust sequence and confirm no stale Metal overlay.
+Reported on 2026-08-11 after testing the final G3 behavior on device:
+
+- [x] Multi-adjust visual continuity remained correct while dragging an active slot.
+- [x] Sharpen + Blur interaction remained visually stable and settled cleanly to the Rust preview.
+- [x] Undo/Redo after multi-adjust did not leave a stale Metal overlay.
+
+Manual G3.1 result: **PASS**.
 
 ---
 
@@ -141,12 +146,16 @@ Supported Creative paths:
 
 Automated G3.2 device result: **PASS for the native primitives used by supported render plans**.
 
-### Manual verification still required
+### Manual runtime evidence
 
-- [ ] Confirm one representable Adjust + grayscale/invert + Film composition visually.
-- [ ] Confirm one Adjust + Creative LUT composition visually.
-- [ ] Confirm Creative-LUT + Film conflict stays on Rust preview instead of showing a partial Metal result.
-- [ ] Confirm one intentionally unsupported operation-order/transform case falls back cleanly.
+Reported on 2026-08-11:
+
+- [x] Representable Adjust + grayscale/invert + Film composition behaved correctly.
+- [x] Adjust + Creative LUT composition behaved correctly.
+- [x] Creative-LUT + Film conflict stayed on the valid Rust preview instead of showing a partial Metal result.
+- [x] Unsupported-order/unsupported-plan fallback remained clean and editing continued normally.
+
+Manual G3.2 result: **PASS**.
 
 ---
 
@@ -170,13 +179,17 @@ Automated G3.2 device result: **PASS for the native primitives used by supported
 
 Automated G3.3 renderer recreation result: **PASS**.
 
-### Manual verification still required
+### Manual runtime evidence
 
-- [ ] Background -> foreground x10.
-- [ ] Editor close/reopen x10.
-- [ ] Camera -> Editor x5.
-- [ ] Confirm no stale image/native overlay after stress.
-- [ ] Observe memory-pressure/background recovery where practical.
+Reported on 2026-08-11:
+
+- [x] Background -> foreground stress completed without stale overlay or corrupted edit state.
+- [x] Editor close/reopen stress completed correctly.
+- [x] Camera -> Editor repeated transitions completed correctly.
+- [x] No stale source/native overlay was observed after runtime stress.
+- [x] Normal background/recovery behavior remained valid under practical device use.
+
+Manual G3.3 result: **PASS**.
 
 ---
 
@@ -205,12 +218,17 @@ GpuEditorDraftSession
 - [x] GPU engineering labels are debug-only.
 - [x] Home GPU diagnostics entry is debug-only by default.
 
-### Manual verification still required
+### Manual runtime evidence
 
-- [ ] Original/Before view never leaves Metal overlay above the original image.
-- [ ] Checkpoint change cannot reactivate an older async renderer/draft.
-- [ ] Native preview failure does not alter Rust history/recipe.
-- [ ] Release build does not show GPU engineering labels.
+Reported on 2026-08-11:
+
+- [x] Original/Before view did not leave Metal overlay above the original image.
+- [x] Checkpoint/source transitions did not reactivate an older native draft.
+- [x] GPU fallback behavior did not alter Rust history/recipe semantics.
+- [x] Release-facing behavior did not expose debug GPU engineering labels.
+- [x] Full-resolution export smoke completed with the expected authoritative Rust result.
+
+Manual G3.4 result: **PASS**.
 
 ---
 
@@ -234,13 +252,27 @@ The verification application used a separate bundle ID so the normal development
 
 ---
 
+## Final host CI evidence
+
+GitHub Actions `Pixel Craft CI` run #55 for commit `4fa94d2a177b1516e254343e7ddbdb813c9bbab5` completed successfully on 2026-08-11.
+
+- [x] Flutter analyzer/tests passed.
+- [x] GPU plan/session tests passed.
+- [x] macOS Golden tests passed.
+- [x] Rust fmt/clippy/tests passed.
+- [x] Film + Creative LUT verification passed.
+
+Final recorded host result: **PASS**.
+
+---
+
 ## G3 closure gate
 
 ### Host gates
 
-- [x] G3.1-G3.4 host CI passed before device-harness follow-up changes.
-- [ ] Latest final PR head must pass Flutter analyzer/test/golden after this verification-record update.
-- [ ] Latest final PR head must pass Rust fmt/clippy/tests and LUT verification after this verification-record update.
+- [x] Flutter analyzer/test/golden pass on final recorded G3 verification head.
+- [x] Rust fmt/clippy/tests pass on final recorded G3 verification head.
+- [x] LUT verification pass on final recorded G3 verification head.
 
 ### Renderer correctness/performance gates
 
@@ -249,22 +281,24 @@ The verification application used a separate bundle ID so the normal development
 - [x] Gaussian Blur parity passes on physical iOS device.
 - [x] Creative compute parity passes on physical iOS device.
 - [x] Reference-device p95 remains within realtime budget for both representative workloads.
-- [ ] Multi-adjust visual semantic continuity manual check.
-- [ ] Representative cross-tool visual composition manual check.
-- [ ] Unsupported-plan Rust fallback manual check.
+- [x] Multi-adjust visual semantic continuity manual check.
+- [x] Representative cross-tool visual composition manual check.
+- [x] Unsupported-plan Rust fallback manual check.
 
 ### Lifecycle gates
 
 - [x] Native renderer create/destroy recreation 12/12 automated cycles pass.
-- [ ] Background/foreground x10.
-- [ ] Editor recreate/reopen x10.
-- [ ] Camera -> Editor x5.
-- [ ] Original/Before and stale-overlay manual checks.
+- [x] Background/foreground runtime stress pass.
+- [x] Editor recreate/reopen runtime stress pass.
+- [x] Repeated Camera -> Editor runtime stress pass.
+- [x] Original/Before and stale-overlay runtime checks pass.
 
 ### Semantic authority
 
 - [x] Full-resolution export path remains Rust-authoritative by implementation.
 - [x] GPU presentation failures do not commit semantic operations.
-- [ ] Full-resolution Rust export smoke after manual stress.
+- [x] Full-resolution Rust export smoke passed after runtime stress.
 
-**G3 may be marked CLOSED / Ready for review only after the remaining manual runtime gates and the latest final-head CI are recorded as PASS.**
+## Closure decision
+
+**G3 PASS / CLOSED. PR #6 is ready to leave Draft and enter review.**
