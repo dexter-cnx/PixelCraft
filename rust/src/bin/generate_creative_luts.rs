@@ -27,13 +27,9 @@ fn main() {
 
     let source = build_rgb_grid();
     for filter in CREATIVE_FILTERS {
-        let effected = photon_filters::apply(
-            DynamicImage::ImageRgba8(source.clone()),
-            filter,
-            1.0,
-        )
-        .unwrap_or_else(|error| panic!("Unable to generate {filter} LUT: {error}"))
-        .to_rgba8();
+        let effected = photon_filters::apply(DynamicImage::ImageRgba8(source.clone()), filter, 1.0)
+            .unwrap_or_else(|error| panic!("Unable to generate {filter} LUT: {error}"))
+            .to_rgba8();
 
         let cube = build_cube(filter, &effected);
         let path = output_root.join(filter).join("lut.cube");

@@ -200,7 +200,8 @@ impl EngineState {
 
         self.operations.truncate(self.cursor);
         let existing_index = match &operation {
-            EditOperation::Filter { name, .. } => self.operations[self.checkpoint_cursor..self.cursor]
+            EditOperation::Filter { name, .. } => self.operations
+                [self.checkpoint_cursor..self.cursor]
                 .iter()
                 .position(|candidate| filter_operation_matches_slot(candidate, name))
                 .map(|offset| self.checkpoint_cursor + offset),
@@ -393,13 +394,15 @@ fn filter_operation_matches_slot(operation: &EditOperation, incoming_name: &str)
 
 fn same_replaceable_slot(previous: &EditOperation, next: &EditOperation) -> bool {
     match (previous, next) {
+        (EditOperation::FilmProfile { .. }, EditOperation::FilmProfile { .. }) => true,
         (
-            EditOperation::FilmProfile { .. },
-            EditOperation::FilmProfile { .. },
-        ) => true,
-        (
-            EditOperation::Filter { name: previous_name, .. },
-            EditOperation::Filter { name: next_name, .. },
+            EditOperation::Filter {
+                name: previous_name,
+                ..
+            },
+            EditOperation::Filter {
+                name: next_name, ..
+            },
         ) => {
             if photon_filters::is_photon_filter(next_name) {
                 photon_filters::is_photon_filter(previous_name)
