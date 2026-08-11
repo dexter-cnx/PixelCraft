@@ -4,7 +4,9 @@
 
 **G2 is functionally complete and device-validated.**
 
-The only merge-time requirement is that the host verification gate in `tool/verify_g2.sh` passes on the current branch HEAD. Do not mark a host command PASS in this document unless it has actually been run on that HEAD.
+**Final consolidated host gate: PASS on 2026-08-11.**
+
+The remaining merge-time requirement is one final physical-device smoke on the same merge candidate flow. Do not mark G2 fully CLOSED / MERGED until that smoke passes.
 
 G2 keeps the project architecture invariant established in G1:
 
@@ -145,23 +147,50 @@ Editor GPU effects remain draft presentation until Rust commits the correspondin
 
 ## Host merge gate
 
-Run from repository root on the exact commit intended for merge:
+Command run on 2026-08-11 from the G2 branch:
 
 ```bash
 bash tool/verify_g2.sh
 ```
 
-The script requires all of the following to pass:
+Result:
 
-1. `flutter analyze`
-2. Dart unit + widget tests (`make test`)
-3. golden tests (`make golden-test`)
-4. `cargo fmt --check`
-5. strict Rust clippy
-6. Rust unit tests
-7. Film + Creative canonical GPU LUT verification
+```text
+[Pixel Craft] G2 HOST GATE: PASS
+```
 
-If any command fails, G2 remains functionally complete but the branch is **not merge-ready** until that regression is fixed and the entire host gate is rerun.
+Verified stages:
+
+1. `flutter analyze` — PASS, no issues found
+2. Dart unit/state tests — PASS (`42` tests reported in `test/state`)
+3. Dart UI/widget tests excluding goldens — PASS (`20` tests reported)
+4. golden tests — PASS (`8` tests reported)
+5. `cargo fmt --check` — PASS
+6. strict Rust clippy — PASS
+7. Rust unit tests — PASS (`18` tests, `0` failures)
+8. canonical Film + Creative LUT verification — PASS
+
+Recorded LUT verification from this final host run:
+
+```text
+Film atlas max error:
+  provia_inspired   0.001778
+  velvia_inspired   0.001892
+  astia_inspired    0.001906
+  e100_inspired     0.001796
+  ektar_inspired    0.001732
+  chrome64_inspired 0.001921
+
+Creative LUT atlas max error:
+  vintage      0.000000
+  oceanic      0.000000
+  lofi         0.000000
+  dramatic     0.000000
+  golden       0.000000
+  pastel_pink  0.000000
+```
+
+The Cargo warning that package-level profiles are ignored because the workspace root owns profiles was non-fatal and did not prevent clippy/tests/checks from passing.
 
 ## Final manual smoke gate
 
@@ -198,15 +227,15 @@ Pass criteria:
 
 ## Closure decision
 
-G2 may be merged when:
+Current closure matrix:
 
 ```text
 recorded device parity/latency gates  PASS
 G2.5 transform device validation      PASS
 G2.6 stress validation                PASS
 draft-control memory validation       PASS
-bash tool/verify_g2.sh                 PASS on merge HEAD
-final manual smoke                     PASS on merge HEAD
+bash tool/verify_g2.sh                 PASS on 2026-08-11
+final manual smoke                     PENDING on merge candidate
 ```
 
-After merge, new production-GPU composition/lifecycle work belongs to G3 rather than extending the G2 closure scope.
+When the final manual smoke passes, update this status to **G2 CLOSED / MERGE-READY**, merge `feature/camera-film-preview`, and move new production-GPU composition/lifecycle work to G3.
