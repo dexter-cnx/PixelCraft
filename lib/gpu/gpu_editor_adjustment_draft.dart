@@ -23,6 +23,13 @@ class GpuEditorAdjustmentDraft {
   final bool isRepresentable;
   final String? fallbackReason;
 
+  GpuEditorAdjustmentState withTransient(String key, double value) {
+    if (!isRepresentable || !gpuAdjustFilterKeys.contains(key)) {
+      return adjustments;
+    }
+    return _withAdjustment(adjustments, key, value);
+  }
+
   factory GpuEditorAdjustmentDraft.fromRecipeJson(
     String recipeJson, {
     String? transientKey,
