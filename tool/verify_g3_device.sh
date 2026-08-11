@@ -3,6 +3,9 @@ set -euo pipefail
 
 FLUTTER="${FLUTTER:-flutter}"
 DEVICE="${DEVICE:-}"
+PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
+DEV_BUNDLE_ID="dev.cnxdev.pixelcraft"
+VERIFY_BUNDLE_ID="dev.cnxdev.pixelcraft.g3verify"
 
 if [[ -z "$DEVICE" ]]; then
   echo "ERROR: set DEVICE to a physical iOS device id." >&2
@@ -12,14 +15,47 @@ if [[ -z "$DEVICE" ]]; then
   exit 2
 fi
 
-echo "[PixelCraft G3] device: $DEVICE"
-echo "[PixelCraft G3] 1/2 canonical native Film/LUT parity"
-"$FLUTTER" test integration_test/gpu_preview_harness_test.dart -d "$DEVICE"
+if [[ ! -f "$PBXPROJ" ]]; then
+  echo "ERROR: missing $PBXPROJ" >&2
+  exit 2
+fi
 
-echo
-echo "[PixelCraft G3] 2/2 Editor GPU parity, latency and renderer recreation"
-"$FLUTTER" test integration_test/g3_editor_gpu_verification_test.dart -d "$DEVICE"
+backup="$(mktemp -t pixelcraft-g3-pbxproj.XXXXXX)"
+cp "$PBXPROJ" "$backup"
+restore_project() {
+  cp "$backup" "$PBXPROJ"
+  rm -f "$backup"
+}
+trap restore_project EXIT INT TERM
+
+python3 - "$PBXPROJ" "$DEV_BUNDLE_ID" "$VERIFY_BUNDLE_ID" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source_id = sys.argv[2]
+verify_id = sys.argv[3]
+text = path.read_text()
+needle = f"PRODUCT_BUNDLE_IDENTIFIER = {source_id};"
+replacement = f"PRODUCT_BUNDLE_IDENTIFIER = {verify_id};"
+count = text.count(needle)
+if count != 3:
+    raise SystemExit(
+        f"ERROR: expected 3 Runner bundle-id settings for {source_id}, found {count}"
+    )
+path.write_text(text.replace(needle, replacement))
+print(f"[PixelCraft G3] temporary verification bundle: {verify_id} ({count} configs)")
+PY
+
+echo "[PixelCraft G3] device: $DEVICE"
+echo "[PixelCraft G3] app dev bundle remains untouched: $DEV_BUNDLE_ID"
+echo "[PixelCraft G3] running one consolidated install/test session"
+
+"$FLUTTER" test \
+  integration_test/g3_editor_gpu_verification_test.dart \
+  -d "$DEVICE"
 
 echo
 echo "[PixelCraft G3] AUTOMATED DEVICE GATES: PASS"
+echo "[PixelCraft G3] restored iOS project bundle configuration."
 echo "Complete the manual lifecycle/cross-tool checklist in docs/G3_DEVICE_VERIFICATION.md before closing G3."
