@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/bridge.dart';
@@ -11,8 +12,11 @@ import 'ui/screens/home_screen.dart';
 
 const _launchGpuEditorLab = bool.fromEnvironment('GPU_EDITOR_LAB');
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
 
   FlutterError.onError = (details) {
     FlutterError.presentError(details);

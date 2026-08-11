@@ -15,8 +15,8 @@ GPU_LUT_DIR ?= build/gpu_luts
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
-        setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test run run-release clean clean-all \
-        analyze test test-unit test-widget golden-test golden-update native-test profile-native test-full \
+        setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test g3-device-verify run run-release clean clean-all \
+        analyze test test-unit test-gpu test-widget golden-test golden-update native-test profile-native test-full \
         rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
@@ -122,10 +122,13 @@ clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
 
-test: test-unit test-widget ## Run Dart unit and widget tests, excluding goldens
+test: test-unit test-gpu test-widget ## Run Dart unit, GPU plan/session and widget tests, excluding goldens
 
 test-unit: ## Run controller/state tests
 	$(FLUTTER) test test/state
+
+test-gpu: ## Run GPU presentation/render-plan unit tests
+	$(FLUTTER) test test/gpu
 
 test-widget: ## Run widget tests
 	$(FLUTTER) test test/ui --exclude-tags=golden
@@ -143,6 +146,10 @@ native-test: ensure-rust-plugin ## Run real Rust bridge smoke test on DEVICE
 gpu-native-test: ensure-rust-plugin ## Run Android OpenGL LUT shader harness on DEVICE
 	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
 	$(FLUTTER) test integration_test/gpu_preview_harness_test.dart -d $(DEVICE)
+
+g3-device-verify: ensure-rust-plugin ## Run isolated G3 iOS GPU verification app; DEVICE=<ios-device-id>
+	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<ios-device-id>" >&2; exit 1; }
+	DEVICE="$(DEVICE)" FLUTTER="$(FLUTTER)" bash tool/verify_g3_device.sh
 
 profile-native: ensure-rust-plugin ## Print device timing and RSS metrics; DEVICE=<id>
 	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }

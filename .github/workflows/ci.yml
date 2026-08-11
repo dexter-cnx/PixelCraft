@@ -68,6 +68,9 @@ jobs:
       - name: State tests
         run: flutter test test/state
 
+      - name: GPU plan/session tests
+        run: flutter test test/gpu
+
       - name: Widget tests
         run: flutter test test/ui --exclude-tags=golden
 
