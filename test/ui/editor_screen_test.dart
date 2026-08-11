@@ -52,7 +52,7 @@ void main() {
     final engine = FakeImageEngine();
     await pumpEditor(tester, engine);
 
-    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(find.text('Editor · Applied'), findsOneWidget);
     expect(find.text('brightness'), findsOneWidget);
     expect(find.text('Adjust'), findsOneWidget);
     expect(find.text('Film'), findsOneWidget);
@@ -62,7 +62,7 @@ void main() {
     expect(engine.beginCalls, 1);
     expect(engine.previewCalls, 1);
     expect(engine.commitCalls, 1);
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
     expect(find.byKey(const ValueKey('apply_edits_button')), findsOneWidget);
     expect(find.byKey(const ValueKey('cancel_edits_button')), findsOneWidget);
 
@@ -92,7 +92,7 @@ void main() {
     expect(engine.operations.single['name'], 'vintage');
     expect(find.text('vintage intensity'), findsOneWidget);
     expect(find.byType(Slider), findsOneWidget);
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
 
     await tester.tap(find.text('oceanic'));
     await tester.pumpAndSettle();
@@ -101,7 +101,7 @@ void main() {
     expect(engine.operations, hasLength(1));
     expect(engine.operations.single['name'], 'oceanic');
     expect(engine.filterPreviewGenerationCalls, 1);
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
   });
 
   testWidgets('film profiles use thumbnails and strength slider', (tester) async {
@@ -124,7 +124,7 @@ void main() {
     expect(engine.operations.single['id'], 'provia_inspired');
     expect(find.text('Provia Inspired strength'), findsOneWidget);
     expect(find.byType(Slider), findsOneWidget);
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
   });
 
   testWidgets('creative filter intensity processes only when slider is released', (tester) async {
@@ -147,7 +147,7 @@ void main() {
     expect(engine.operations, hasLength(1));
     expect(engine.operations.single['name'], 'vintage');
     expect(engine.operations.single['value'], isNot(1));
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
   });
 
   testWidgets('Apply promotes current draft and resets film selection', (tester) async {
@@ -164,7 +164,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(engine.applyEditsCalls, 1);
-    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(find.text('Editor · Applied'), findsOneWidget);
     expect(find.text('Provia Inspired strength'), findsNothing);
   });
 
@@ -180,7 +180,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(engine.discardEditsCalls, 1);
-    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
+    expect(find.text('Editor · Applied'), findsOneWidget);
     expect(tester.widget<OutlinedButton>(cancelButton).onPressed, isNull);
   });
 
@@ -195,18 +195,18 @@ void main() {
     expect(tester.widget<IconButton>(redoButton).onPressed, isNull);
 
     await commitContrastAdjustment(tester, engine);
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
     expect(tester.widget<IconButton>(undoButton).onPressed, isNotNull);
 
     await tester.tap(undoButton);
     await tester.pumpAndSettle();
     expect(engine.undoCalls, 1);
-    expect(find.textContaining('Editor · 0/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Applied'), findsOneWidget);
     expect(tester.widget<IconButton>(redoButton).onPressed, isNotNull);
 
     await tester.tap(redoButton);
     await tester.pumpAndSettle();
     expect(engine.redoCalls, 1);
-    expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
+    expect(find.text('Editor · Draft 1 edits'), findsOneWidget);
   });
 }
