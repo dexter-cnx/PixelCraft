@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::sync::Mutex;
 
-use crate::{film_profiles, filters};
+use crate::{film_profiles, filters, photon_filters};
 
 const DEFAULT_PREVIEW_MAX_EDGE: u32 = 1280;
 
@@ -151,16 +151,39 @@ impl EngineState {
         if self.active_filter.as_deref() != Some(filter) {
             return Err("Filter transaction was not started".to_string());
         }
-        let base = self
-            .preview_base
-            .clone()
-            .ok_or_else(|| "No preview base is available".to_string())?;
-        let filtered = filters::apply(base, filter, value)?;
-        let bytes = encode_png(&filtered)?;
-        self.pending_operation = Some(EditOperation::Filter {
+
+        let operation = EditOperation::Filter {
             name: filter.to_string(),
             value,
-        });
+        };
+        let existing_index = self.operations[self.checkpoint_cursor..self.cursor]
+            .iter()
+            .position(|candidate| filter_operation_matches_slot(candidate, filter))
+            .map(|offset| self.checkpoint_cursor + offset);
+
+        let filtered = if let Some(index) = existing_index {
+            let mut draft = self.operations[self.checkpoint_cursor..self.cursor].to_vec();
+            draft[index - self.checkpoint_cursor] = operation.clone();
+            let base = if let Some(checkpoint) = &self.checkpoint_preview {
+                checkpoint.clone()
+            } else {
+                let original = self
+                    .original
+                    .as_ref()
+                    .ok_or_else(|| "No image loaded".to_string())?;
+                resize_to_max_edge(decode(original)?, self.preview_max_edge)
+            };
+            replay_preview_operations(base, &draft, self.preview_max_edge)?
+        } else {
+            let base = self
+                .preview_base
+                .clone()
+                .ok_or_else(|| "No preview base is available".to_string())?;
+            filters::apply(base, filter, value)?
+        };
+
+        let bytes = encode_png(&filtered)?;
+        self.pending_operation = Some(operation);
         self.pending_preview = Some(bytes.clone());
         Ok(bytes)
     }
@@ -174,7 +197,22 @@ impl EngineState {
             .pending_preview
             .take()
             .ok_or_else(|| "No filter preview to commit".to_string())?;
-        self.push_operation(operation);
+
+        self.operations.truncate(self.cursor);
+        let existing_index = match &operation {
+            EditOperation::Filter { name, .. } => self.operations
+                [self.checkpoint_cursor..self.cursor]
+                .iter()
+                .position(|candidate| filter_operation_matches_slot(candidate, name))
+                .map(|offset| self.checkpoint_cursor + offset),
+            _ => None,
+        };
+
+        if let Some(index) = existing_index {
+            self.operations[index] = operation;
+        } else {
+            self.push_operation(operation);
+        }
         self.clear_transaction();
         Ok(bytes)
     }
@@ -185,21 +223,25 @@ impl EngineState {
         self.render_preview()
     }
 
-    /// Replaces only when the immediately previous draft operation belongs to
-    /// the same editor family. Switching Filter -> Film -> Filter therefore
-    /// appends a new Filter instead of accidentally deleting the Film step.
+    /// Upserts replaceable draft slots without disturbing nodes of other
+    /// families. Film is one slot per checkpoint. Core adjustments have one
+    /// slot per filter name, while all creative Photon presets share one slot.
     pub fn replace_last_draft_operation(
         &mut self,
         operation: EditOperation,
     ) -> Result<Vec<u8>, String> {
         self.clear_transaction();
-        let should_replace = self.cursor > self.checkpoint_cursor
-            && same_replaceable_family(&self.operations[self.cursor - 1], &operation);
-        if should_replace {
-            self.cursor -= 1;
-            self.operations.truncate(self.cursor);
+        self.operations.truncate(self.cursor);
+        let existing_index = self.operations[self.checkpoint_cursor..self.cursor]
+            .iter()
+            .position(|candidate| same_replaceable_slot(candidate, &operation))
+            .map(|offset| self.checkpoint_cursor + offset);
+
+        if let Some(index) = existing_index {
+            self.operations[index] = operation;
+        } else {
+            self.push_operation(operation);
         }
-        self.push_operation(operation);
         self.render_preview()
     }
 
@@ -337,15 +379,39 @@ impl EngineState {
     }
 }
 
-fn same_replaceable_family(previous: &EditOperation, next: &EditOperation) -> bool {
-    matches!(
-        (previous, next),
-        (EditOperation::Filter { .. }, EditOperation::Filter { .. })
-            | (
-                EditOperation::FilmProfile { .. },
-                EditOperation::FilmProfile { .. }
-            )
-    )
+fn filter_operation_matches_slot(operation: &EditOperation, incoming_name: &str) -> bool {
+    match operation {
+        EditOperation::Filter { name, .. } => {
+            if photon_filters::is_photon_filter(incoming_name) {
+                photon_filters::is_photon_filter(name)
+            } else {
+                name == incoming_name
+            }
+        }
+        _ => false,
+    }
+}
+
+fn same_replaceable_slot(previous: &EditOperation, next: &EditOperation) -> bool {
+    match (previous, next) {
+        (EditOperation::FilmProfile { .. }, EditOperation::FilmProfile { .. }) => true,
+        (
+            EditOperation::Filter {
+                name: previous_name,
+                ..
+            },
+            EditOperation::Filter {
+                name: next_name, ..
+            },
+        ) => {
+            if photon_filters::is_photon_filter(next_name) {
+                photon_filters::is_photon_filter(previous_name)
+            } else {
+                previous_name == next_name
+            }
+        }
+        _ => false,
+    }
 }
 
 pub fn replay_operations(
@@ -534,6 +600,12 @@ mod tests {
         encode_png(&image).unwrap()
     }
 
+    fn commit_filter(engine: &mut EngineState, name: &str, value: f32) {
+        engine.begin_filter(name.to_string()).unwrap();
+        engine.update_filter_preview(name, value).unwrap();
+        engine.commit_filter().unwrap();
+    }
+
     #[test]
     fn one_filter_commit_creates_one_operation() {
         let mut engine = EngineState::default();
@@ -554,6 +626,93 @@ mod tests {
                 value: 1.4,
             }
         );
+    }
+
+    #[test]
+    fn revisiting_filter_replaces_value_without_stacking_or_dropping_other_filters() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+
+        for (name, value) in [("brightness", 1.2), ("contrast", 1.3), ("brightness", 1.4)] {
+            commit_filter(&mut engine, name, value);
+        }
+
+        assert_eq!(engine.operations.len(), 2);
+        assert_eq!(engine.cursor, 2);
+        assert!(matches!(
+            engine.operations[0],
+            EditOperation::Filter { ref name, value }
+                if name == "brightness" && (value - 1.4).abs() < f32::EPSILON
+        ));
+        assert!(matches!(
+            engine.operations[1],
+            EditOperation::Filter { ref name, value }
+                if name == "contrast" && (value - 1.3).abs() < f32::EPSILON
+        ));
+    }
+
+    #[test]
+    fn creative_presets_share_one_slot_while_adjustments_remain_composed() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+
+        commit_filter(&mut engine, "vintage", 0.6);
+        commit_filter(&mut engine, "brightness", 1.2);
+        commit_filter(&mut engine, "oceanic", 0.8);
+
+        assert_eq!(engine.operations.len(), 2);
+        assert!(matches!(
+            engine.operations[0],
+            EditOperation::Filter { ref name, value }
+                if name == "oceanic" && (value - 0.8).abs() < f32::EPSILON
+        ));
+        assert!(matches!(
+            engine.operations[1],
+            EditOperation::Filter { ref name, value }
+                if name == "brightness" && (value - 1.2).abs() < f32::EPSILON
+        ));
+    }
+
+    #[test]
+    fn film_slot_replaces_across_intervening_adjust_and_creative_nodes() {
+        let mut engine = EngineState::default();
+        engine.reset(source_png());
+        engine.set_preview_max_edge(20);
+        engine.prepare_preview().unwrap();
+
+        engine
+            .apply_operation(EditOperation::FilmProfile {
+                id: "provia_inspired".to_string(),
+                strength: 0.7,
+            })
+            .unwrap();
+        commit_filter(&mut engine, "brightness", 1.2);
+        commit_filter(&mut engine, "vintage", 0.6);
+        engine
+            .replace_last_draft_operation(EditOperation::FilmProfile {
+                id: "velvia_inspired".to_string(),
+                strength: 0.8,
+            })
+            .unwrap();
+
+        assert_eq!(engine.operations.len(), 3);
+        assert!(matches!(
+            engine.operations[0],
+            EditOperation::FilmProfile { ref id, strength }
+                if id == "velvia_inspired" && (strength - 0.8).abs() < f32::EPSILON
+        ));
+        assert!(matches!(
+            engine.operations[1],
+            EditOperation::Filter { ref name, .. } if name == "brightness"
+        ));
+        assert!(matches!(
+            engine.operations[2],
+            EditOperation::Filter { ref name, .. } if name == "vintage"
+        ));
     }
 
     #[test]
@@ -712,19 +871,15 @@ mod tests {
         engine.reset(source_png());
         engine.prepare_preview().unwrap();
         for value in [1.1, 1.2] {
-            engine.begin_filter("brightness".to_string()).unwrap();
-            engine.update_filter_preview("brightness", value).unwrap();
-            engine.commit_filter().unwrap();
+            commit_filter(&mut engine, "brightness", value);
         }
         engine.undo().unwrap();
-        engine.begin_filter("contrast".to_string()).unwrap();
-        engine.update_filter_preview("contrast", 1.3).unwrap();
-        engine.commit_filter().unwrap();
+        commit_filter(&mut engine, "contrast", 1.3);
 
-        assert_eq!(engine.operations.len(), 2);
-        assert_eq!(engine.cursor, 2);
+        assert_eq!(engine.operations.len(), 1);
+        assert_eq!(engine.cursor, 1);
         assert!(matches!(
-            engine.operations[1],
+            engine.operations[0],
             EditOperation::Filter { ref name, .. } if name == "contrast"
         ));
     }

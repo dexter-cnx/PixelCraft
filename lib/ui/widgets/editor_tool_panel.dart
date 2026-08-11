@@ -7,15 +7,27 @@ import '../../state/editor_controller.dart';
 import 'filter_slider.dart';
 import 'histogram_widget.dart';
 
+typedef EditorGpuPreviewCallback = void Function(
+  String kind,
+  String key,
+  double value,
+);
+
 class EditorToolPanel extends StatelessWidget {
   const EditorToolPanel({
     super.key,
     required this.state,
     required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
   });
 
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
 
   @override
   Widget build(BuildContext context) {
@@ -57,10 +69,28 @@ class EditorToolPanel extends StatelessWidget {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
             child: switch (state.selectedTool) {
-              EditorTool.adjust => _AdjustPanel(state: state, controller: controller),
-              EditorTool.filters => _FilterPanel(state: state, controller: controller),
-              EditorTool.film => _FilmPanel(state: state, controller: controller),
-              EditorTool.crop => _CropPanel(controller: controller),
+              EditorTool.adjust => _AdjustPanel(
+                  state: state,
+                  controller: controller,
+                  onGpuPreviewStart: onGpuPreviewStart,
+                  onGpuPreviewChanged: onGpuPreviewChanged,
+                  onGpuPreviewCommit: onGpuPreviewCommit,
+                ),
+              EditorTool.filters => _FilterPanel(
+                  state: state,
+                  controller: controller,
+                  onGpuPreviewStart: onGpuPreviewStart,
+                  onGpuPreviewChanged: onGpuPreviewChanged,
+                  onGpuPreviewCommit: onGpuPreviewCommit,
+                ),
+              EditorTool.film => _FilmPanel(
+                  state: state,
+                  controller: controller,
+                  onGpuPreviewStart: onGpuPreviewStart,
+                  onGpuPreviewChanged: onGpuPreviewChanged,
+                  onGpuPreviewCommit: onGpuPreviewCommit,
+                ),
+              EditorTool.crop => const _CropPanel(),
               EditorTool.rotate => _RotatePanel(state: state, controller: controller),
               EditorTool.details => _DetailsPanel(state: state),
             },
@@ -108,12 +138,31 @@ class _DraftActionBar extends StatelessWidget {
 }
 
 class _AdjustPanel extends StatelessWidget {
-  const _AdjustPanel({required this.state, required this.controller});
+  const _AdjustPanel({
+    required this.state,
+    required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
+  });
+
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
+
+  bool get _gpuSupported =>
+      state.selectedFilter == 'brightness' ||
+      state.selectedFilter == 'contrast' ||
+      state.selectedFilter == 'saturation' ||
+      state.selectedFilter == 'sharpen' ||
+      state.selectedFilter == 'gaussian_blur';
 
   @override
   Widget build(BuildContext context) {
+    final filter = state.selectedFilter;
+    final useGpuCallbacks = _gpuSupported && onGpuPreviewChanged != null;
     return Column(
       key: const ValueKey('adjust'),
       children: [
@@ -130,7 +179,19 @@ class _AdjustPanel extends StatelessWidget {
           min: 0,
           max: 2,
           enabled: !state.isBusy,
-          onChangeEnd: controller.commitFilterValue,
+          onChangeStart: useGpuCallbacks
+              ? (value) => onGpuPreviewStart?.call('adjust', filter, value)
+              : null,
+          onChanged: useGpuCallbacks
+              ? (value) => onGpuPreviewChanged?.call('adjust', filter, value)
+              : null,
+          onChangeEnd: (value) {
+            if (useGpuCallbacks && onGpuPreviewCommit != null) {
+              onGpuPreviewCommit!.call('adjust', filter, value);
+            } else {
+              controller.commitFilterValue(value);
+            }
+          },
         ),
       ],
     );
@@ -138,13 +199,25 @@ class _AdjustPanel extends StatelessWidget {
 }
 
 class _FilterPanel extends StatelessWidget {
-  const _FilterPanel({required this.state, required this.controller});
+  const _FilterPanel({
+    required this.state,
+    required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
+  });
+
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
 
   @override
   Widget build(BuildContext context) {
     final selected = state.selectedCreativeFilter;
+    final gpuSupported = creativeFilters.contains(selected);
+    final useGpuCallbacks = gpuSupported && onGpuPreviewChanged != null;
     return Column(
       key: const ValueKey('filters'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,7 +253,19 @@ class _FilterPanel extends StatelessWidget {
             min: 0,
             max: 1,
             enabled: !state.isBusy,
-            onChangeEnd: controller.updateCreativeFilterValue,
+            onChangeStart: useGpuCallbacks
+                ? (value) => onGpuPreviewStart?.call('creative', selected, value)
+                : null,
+            onChanged: useGpuCallbacks
+                ? (value) => onGpuPreviewChanged?.call('creative', selected, value)
+                : null,
+            onChangeEnd: (value) {
+              if (useGpuCallbacks && onGpuPreviewCommit != null) {
+                onGpuPreviewCommit!.call('creative', selected, value);
+              } else {
+                controller.updateCreativeFilterValue(value);
+              }
+            },
           ),
         ],
       ],
@@ -189,9 +274,19 @@ class _FilterPanel extends StatelessWidget {
 }
 
 class _FilmPanel extends StatelessWidget {
-  const _FilmPanel({required this.state, required this.controller});
+  const _FilmPanel({
+    required this.state,
+    required this.controller,
+    this.onGpuPreviewStart,
+    this.onGpuPreviewChanged,
+    this.onGpuPreviewCommit,
+  });
+
   final EditorState state;
   final EditorController controller;
+  final EditorGpuPreviewCallback? onGpuPreviewStart;
+  final EditorGpuPreviewCallback? onGpuPreviewChanged;
+  final EditorGpuPreviewCallback? onGpuPreviewCommit;
 
   @override
   Widget build(BuildContext context) {
@@ -200,6 +295,7 @@ class _FilmPanel extends StatelessWidget {
           (profile) => profile?.id == selected,
           orElse: () => null,
         );
+    final useGpuCallbacks = selectedProfile != null && onGpuPreviewChanged != null;
 
     return Column(
       key: const ValueKey('film'),
@@ -238,7 +334,19 @@ class _FilmPanel extends StatelessWidget {
             min: 0,
             max: 1,
             enabled: !state.isBusy,
-            onChangeEnd: controller.updateFilmProfileStrength,
+            onChangeStart: useGpuCallbacks
+                ? (value) => onGpuPreviewStart?.call('film', selected, value)
+                : null,
+            onChanged: useGpuCallbacks
+                ? (value) => onGpuPreviewChanged?.call('film', selected, value)
+                : null,
+            onChangeEnd: (value) {
+              if (useGpuCallbacks && onGpuPreviewCommit != null) {
+                onGpuPreviewCommit!.call('film', selected, value);
+              } else {
+                controller.updateFilmProfileStrength(value);
+              }
+            },
           ),
         ],
       ],
@@ -344,23 +452,26 @@ class _PreviewCard extends StatelessWidget {
 }
 
 class _CropPanel extends StatelessWidget {
-  const _CropPanel({required this.controller});
-  final EditorController controller;
+  const _CropPanel();
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      key: const ValueKey('crop'),
-      spacing: 8,
-      runSpacing: 8,
-      alignment: WrapAlignment.center,
-      children: [
-        ActionChip(label: const Text('1:1'), onPressed: () => controller.applyCenteredCrop(1)),
-        ActionChip(label: const Text('4:3'), onPressed: () => controller.applyCenteredCrop(4 / 3)),
-        ActionChip(label: const Text('3:4'), onPressed: () => controller.applyCenteredCrop(3 / 4)),
-        ActionChip(label: const Text('16:9'), onPressed: () => controller.applyCenteredCrop(16 / 9)),
-        ActionChip(label: const Text('9:16'), onPressed: () => controller.applyCenteredCrop(9 / 16)),
-      ],
+    return const Card.filled(
+      key: ValueKey('crop'),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.touch_app_rounded),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Adjust the crop directly on the image. Choose an aspect ratio, drag or resize the frame, then tap Apply Crop.',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -10,13 +10,14 @@ DEVICE ?=
 APK ?= build/app/outputs/flutter-apk/app-debug.apk
 RUST_CRATE_DIR ?= rust
 RUST_BUILDER_DIR ?= rust_builder
+GPU_LUT_DIR ?= build/gpu_luts
 
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
-        setup repair patch-cargokit app-icon film-luts run run-release clean clean-all analyze test test-unit test-widget \
-        golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check \
-        build-apk build-apk-release verify-native adb-abi
+        setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test run run-release clean clean-all \
+        analyze test test-unit test-widget golden-test golden-update native-test profile-native test-full \
+        rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
 	@printf "Pixel Craft development commands\n\n"
@@ -82,6 +83,26 @@ film-luts: ## Materialize Film Profile Pack v2 as inspectable 33^3 .cube files
 	done
 	@echo "[Pixel Craft] Film Profile Pack v2 materialized: 6 x 33^3 LUTs"
 
+creative-luts: ## Materialize photon-rs creative filters as canonical 33^3 .cube files
+	$(CARGO) run --quiet --manifest-path $(RUST_CRATE_DIR)/Cargo.toml \
+		--bin generate_creative_luts -- --output "$(CURDIR)/$(RUST_CRATE_DIR)/creative_luts"
+	@for profile in vintage oceanic lofi dramatic golden pastel_pink; do \
+		file="$(RUST_CRATE_DIR)/creative_luts/$$profile/lut.cube"; \
+		test -f "$$file"; \
+		grep -q '^LUT_3D_SIZE 33$$' "$$file"; \
+		test "$$(grep -E '^[0-9.-]+[[:space:]]+[0-9.-]+[[:space:]]+[0-9.-]+$$' "$$file" | wc -l | tr -d ' ')" = "35937"; \
+	done
+	@echo "[Pixel Craft] Creative Filter LUTs materialized: 6 x 33^3 LUTs"
+
+gpu-luts: film-luts creative-luts ## Generate deterministic RGBA8 33^3 LUT atlases for native GPU preview
+	python3 tool/generate_gpu_lut_atlas.py --output "$(GPU_LUT_DIR)"
+	python3 tool/generate_gpu_creative_lut_atlas.py --output "$(GPU_LUT_DIR)"
+	python3 tool/generate_gpu_native_parity_fixture.py --output "$(GPU_LUT_DIR)/native_parity.json"
+
+gpu-lut-verify: film-luts creative-luts ## Verify Film and Creative GPU atlas sampling parity
+	python3 tool/generate_gpu_lut_atlas.py --verify-only
+	python3 tool/generate_gpu_creative_lut_atlas.py --verify-only
+
 setup: integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## First-time setup
 
 repair: doctor install-frb platforms integrate codegen clean-all pub-get ensure-rust-plugin app-icon ## Repair integration
@@ -119,6 +140,10 @@ native-test: ensure-rust-plugin ## Run real Rust bridge smoke test on DEVICE
 	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
 	$(FLUTTER) test integration_test/native_engine_smoke_test.dart -d $(DEVICE)
 
+gpu-native-test: ensure-rust-plugin ## Run Android OpenGL LUT shader harness on DEVICE
+	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
+	$(FLUTTER) test integration_test/gpu_preview_harness_test.dart -d $(DEVICE)
+
 profile-native: ensure-rust-plugin ## Print device timing and RSS metrics; DEVICE=<id>
 	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
 	$(FLUTTER) test integration_test/performance_profile_test.dart -d $(DEVICE)
@@ -132,7 +157,7 @@ rust-clippy: ## Run strict Rust lints
 rust-test: ## Run Rust unit tests
 	$(CARGO) test --manifest-path $(RUST_CRATE_DIR)/Cargo.toml
 
-test-full: analyze rust-fmt rust-clippy rust-test test golden-test ## Run complete host-side suite
+test-full: analyze rust-fmt rust-clippy rust-test gpu-lut-verify test golden-test ## Run complete host-side suite
 
 check: test-full ## Alias for the complete host-side suite
 

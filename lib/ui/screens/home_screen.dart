@@ -1,13 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/editor_session_store.dart';
+import 'camera_film_preview_screen.dart';
 import 'editor_screen.dart';
+import 'gpu_diagnostics_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.recoverLostPickerData = true,
+    this.showGpuDiagnostics = kDebugMode,
   });
 
   /// Android can recreate the app while the external camera is open. Keep
@@ -15,6 +19,11 @@ class HomeScreen extends StatefulWidget {
   /// image_picker. Tests that are not exercising that platform handoff can
   /// disable it to stay deterministic and avoid a real platform-channel call.
   final bool recoverLostPickerData;
+
+  /// Debug-only diagnostics entry point. It defaults to [kDebugMode] in the
+  /// real app but can be disabled by deterministic/product-oriented tests so
+  /// visual baselines do not encode debug-only chrome.
+  final bool showGpuDiagnostics;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -37,10 +46,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (widget.recoverLostPickerData) {
       _isRecoveringLostPickerData = true;
-      // Android may destroy the Flutter activity/process while the external
-      // camera app is open. Keep Home hidden until image_picker has had a
-      // chance to restore that accepted capture, so the user sees a short
-      // handoff screen instead of Home flashing before Editor opens.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _recoverLostPickerData();
       });
@@ -93,6 +98,21 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     await _refreshRecovery();
+  }
+
+  Future<void> _openFilmCamera() async {
+    if (_isRecovering || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CameraFilmPreviewScreen()),
+    );
+    await _refreshRecovery();
+  }
+
+  Future<void> _openGpuDiagnostics() async {
+    if (!widget.showGpuDiagnostics || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GpuDiagnosticsScreen()),
+    );
   }
 
   Future<void> _openBytes(Future<List<int>> bytesFuture) async {
@@ -171,9 +191,18 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.filter_vintage_outlined),
+              title: const Text('Film Camera'),
+              subtitle: const Text('Preview Film Profiles live before capture'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Future.microtask(_openFilmCamera);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
               title: const Text('Take a photo'),
-              subtitle: const Text('Fast capture, optimized for editing'),
+              subtitle: const Text('Fast system camera capture'),
               onTap: () => Navigator.of(context).pop(ImageSource.camera),
             ),
             ListTile(
@@ -224,7 +253,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final blocked = _isRecovering;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Pixel Craft')),
+      appBar: AppBar(
+        title: const Text('Pixel Craft'),
+        actions: [
+          if (widget.showGpuDiagnostics)
+            IconButton(
+              tooltip: 'GPU Diagnostics',
+              onPressed: blocked ? null : _openGpuDiagnostics,
+              icon: const Icon(Icons.developer_mode_rounded),
+            ),
+        ],
+      ),
       body: Stack(
         children: [
           CustomScrollView(

@@ -7,6 +7,8 @@ class FilterSlider extends StatefulWidget {
     required this.min,
     required this.max,
     required this.onChangeEnd,
+    this.onChangeStart,
+    this.onChanged,
     this.enabled = true,
   });
 
@@ -14,6 +16,8 @@ class FilterSlider extends StatefulWidget {
   final double min;
   final double max;
   final ValueChanged<double> onChangeEnd;
+  final ValueChanged<double>? onChangeStart;
+  final ValueChanged<double>? onChanged;
   final bool enabled;
 
   @override
@@ -43,8 +47,12 @@ class _FilterSliderState extends State<FilterSlider> {
               max: widget.max,
               divisions: 100,
               label: _value.toStringAsFixed(2),
+              onChangeStart: widget.enabled ? widget.onChangeStart : null,
               onChanged: widget.enabled
-                  ? (value) => setState(() => _value = value)
+                  ? (value) {
+                      setState(() => _value = value);
+                      widget.onChanged?.call(value);
+                    }
                   : null,
               onChangeEnd: widget.enabled ? widget.onChangeEnd : null,
             ),

@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/bridge.dart';
+import 'ui/screens/gpu_editor_preview_lab_screen.dart';
 import 'ui/screens/home_screen.dart';
+
+const _launchGpuEditorLab = bool.fromEnvironment('GPU_EDITOR_LAB');
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,7 +45,9 @@ class PixelCraftApp extends StatelessWidget {
           colorSchemeSeed: const Color(0xFF9D8CFF),
           brightness: Brightness.dark,
         ),
-        home: const RustBootstrapScreen(),
+        home: kDebugMode && _launchGpuEditorLab
+            ? const GpuEditorPreviewLabScreen()
+            : const RustBootstrapScreen(),
       );
 }
 

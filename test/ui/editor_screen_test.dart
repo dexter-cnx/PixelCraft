@@ -88,7 +88,8 @@ void main() {
 
     expect(engine.activeFilter, 'vintage');
     expect(engine.lastValue, 1);
-    expect(engine.commitCalls, 1);
+    expect(engine.operations, hasLength(1));
+    expect(engine.operations.single['name'], 'vintage');
     expect(find.text('vintage intensity'), findsOneWidget);
     expect(find.byType(Slider), findsOneWidget);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
@@ -96,8 +97,9 @@ void main() {
     await tester.tap(find.text('oceanic'));
     await tester.pumpAndSettle();
 
-    expect(engine.replaceFilterCalls, 1);
     expect(engine.activeFilter, 'oceanic');
+    expect(engine.operations, hasLength(1));
+    expect(engine.operations.single['name'], 'oceanic');
     expect(engine.filterPreviewGenerationCalls, 1);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });
@@ -116,8 +118,10 @@ void main() {
     await tester.tap(find.text('Provia Inspired'));
     await tester.pumpAndSettle();
 
-    expect(engine.applyFilmProfileCalls, 1);
     expect(engine.activeFilmProfile, 'provia_inspired');
+    expect(engine.operations, hasLength(1));
+    expect(engine.operations.single['type'], 'film_profile');
+    expect(engine.operations.single['id'], 'provia_inspired');
     expect(find.text('Provia Inspired strength'), findsOneWidget);
     expect(find.byType(Slider), findsOneWidget);
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
@@ -131,15 +135,18 @@ void main() {
     await tester.pumpAndSettle();
 
     final slider = find.byType(Slider);
-    final replaceCallsBeforeDrag = engine.replaceFilterCalls;
+    final restoreCallsBeforeDrag = engine.restoreSessionCalls;
     final gesture = await tester.startGesture(tester.getCenter(slider));
     await gesture.moveBy(const Offset(-50, 0));
     await tester.pump();
-    expect(engine.replaceFilterCalls, replaceCallsBeforeDrag);
+    expect(engine.restoreSessionCalls, restoreCallsBeforeDrag);
 
     await gesture.up();
     await tester.pumpAndSettle();
-    expect(engine.replaceFilterCalls, replaceCallsBeforeDrag + 1);
+    expect(engine.restoreSessionCalls, restoreCallsBeforeDrag + 1);
+    expect(engine.operations, hasLength(1));
+    expect(engine.operations.single['name'], 'vintage');
+    expect(engine.operations.single['value'], isNot(1));
     expect(find.textContaining('Editor · 1/1 edits'), findsOneWidget);
   });
 
