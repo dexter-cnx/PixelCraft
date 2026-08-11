@@ -187,7 +187,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 550));
 
-    expect(find.text('Original'), findsOneWidget);
+    expect(find.text('Before'), findsOneWidget);
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/editor_before_phone.png'),
