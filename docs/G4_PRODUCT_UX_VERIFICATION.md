@@ -199,11 +199,22 @@ Draft PR #7 runs repository CI against the actual G4 branch.
 
 ### Automated post-change gate
 
-Latest PR-head CI must be green before G4 is marked CLOSED.
+PR-head CI run #76 on commit `e6e9f84ce8d2eb9e50d6853db4c45913b245cb8a` established the following:
 
 ```text
-Pixel Craft CI    PENDING
+Generated bridge checks   PASS
+Rust format               PASS
+Rust clippy               PASS
+Rust tests                PASS
+GPU LUT parity            PASS
+Flutter analyze           PASS
+State tests               PASS
+GPU plan/session tests    PASS
+Widget tests              PASS
+Golden tests              BASELINE REFRESH REQUIRED
 ```
+
+The Golden job no longer reports layout-overflow or widget-behavior exceptions after the responsive G4 fixes. The remaining seven failures are pixel diffs against pre-G4 baseline PNGs and must be regenerated/reviewed on macOS before the automated gate is fully green.
 
 The pre-change baseline is not used as proof for the post-change implementation.
 
@@ -252,7 +263,16 @@ The pre-change baseline is not used as proof for the post-change implementation.
 - Added and finalized `docs/walkthrough/16_g4_editor_product_ux.md`.
 - Corrected G4 recovery test references to the CI-gated `test/state` path.
 
+### 2026-08-11 — Responsive and expectation cleanup
+
+- Made the draft action bar wrap on narrow/accessibility layouts.
+- Made the export format dropdown expand within dialog constraints.
+- Updated Before Golden semantics from `Original` to `Before`.
+- Updated file-source/editor widget-test expectations to G4 Applied/Draft terminology.
+
 ### 2026-08-11 — PR verification
 
 - Opened Draft PR #7.
-- Latest PR-head CI PASS is not yet recorded; physical/product smoke remains required for full G4 closure.
+- CI run #76 validate job PASS across generated bridge, Rust, LUT, Flutter analyze, state, GPU and widget gates.
+- Golden job still requires macOS baseline refresh for seven intentional G4 visual changes.
+- Physical/product smoke remains required for full G4 closure.
