@@ -1,6 +1,6 @@
 # PixelCraft Code Walkthrough
 
-เอกสารนี้อธิบาย architecture **ปัจจุบัน** ของ PixelCraft หลัง G3 Production Rendering Pipeline และ G4 Product Editor UX / Session Workflow
+เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft หลัง G3 Production Rendering Pipeline และ G4 Product Editor UX / Session Workflow
 
 สถานะ milestone ณ 2026-08-11:
 
@@ -14,20 +14,18 @@ G6  Reliability / Performance / Device Matrix   PLANNED
 G7  Release / Beta / Store Readiness            PLANNED
 ```
 
-> หลักการสำคัญ: Rust เป็น authoritative source สำหรับ semantic edit, recipe, history, checkpoint, session recovery และ full-resolution export ส่วน Flutter เป็น UI/control/presentation plane และ native GPU เป็น low-latency preview path เท่านั้น
+> Rust เป็น authoritative source สำหรับ semantic edits, recipe, history, checkpoint, recovery และ full-resolution export. Flutter เป็น UI/control/presentation plane. Native GPU เป็น faithful low-latency preview path เท่านั้น
 
 ---
 
-# 1. Architecture summary
-
-## Canonical editor flow
+# 1. Canonical architecture
 
 ```text
 Camera / imported image
         ↓
 clean source image
         ↓
-Flutter Editor product state
+Flutter product / control state
         ↓
 interactive GPU preview where faithfully representable
         ↓ gesture release / command
@@ -41,16 +39,16 @@ full-resolution Rust replay/export
 Hard contracts:
 
 1. Rust owns committed edit semantics.
-2. GPU preview cannot become final-render source of truth.
-3. Camera Film remains preview-only; capture source stays clean.
-4. Live camera frame buffers never cross Dart MethodChannel or FRB.
-5. Canonical Film / Creative LUT data is generated from Rust-owned authoring data.
-6. Unsupported GPU operation order fails closed to valid Rust preview.
-7. Flutter presentation state must not silently create a parallel semantic recipe.
+2. GPU preview never becomes final-render source of truth.
+3. Camera Film is preview-only; capture source remains clean.
+4. Live camera frames never cross Dart MethodChannel or FRB.
+5. Film/Creative LUT data is generated from Rust-owned canonical data.
+6. Unsupported GPU order or native failure falls back to valid Rust preview.
+7. Flutter presentation state must not become a parallel semantic recipe.
 
 ---
 
-# 2. Flutter application startup
+# 2. App startup and Home
 
 Entry point:
 
@@ -58,67 +56,47 @@ Entry point:
 lib/main.dart
 ```
 
-Startup:
+Startup flow:
 
 ```text
-WidgetsFlutterBinding.ensureInitialized()
-  -> portrait orientation policy
-  -> install Flutter / platform error handlers
-  -> ProviderScope
-  -> PixelCraftApp
-  -> RustBootstrapScreen
-  -> initializeRustBridge()
-  -> HomeScreen
+WidgetsFlutterBinding
+ -> portrait orientation policy
+ -> Flutter/platform error handlers
+ -> ProviderScope
+ -> RustBootstrapScreen
+ -> initializeRustBridge()
+ -> HomeScreen
 ```
 
-Rust initialization has a timeout and a visible retry path rather than leaving the app on an indefinite loading screen.
+`RustBootstrapScreen` has a startup timeout and visible Retry path.
 
-Production launches `HomeScreen`; the GPU editor lab is debug/build-flag gated.
-
----
-
-# 3. Home / source acquisition / recovery
-
-Primary screen:
+Home:
 
 ```text
 lib/ui/screens/home_screen.dart
 ```
 
-The user can enter Editor from:
+Editor entry sources:
 
-```text
-Film Camera
-system camera
-image gallery
-bundled sample image
-recovered Android image_picker capture
-saved editor recovery session
-```
+- Film Camera
+- system camera
+- gallery
+- bundled sample
+- recovered Android image_picker capture
+- saved editor recovery session
 
-## Recovery entry
-
-`HomeScreen` loads `EditorSessionStore` and explicitly surfaces an existing session:
+Recovery is explicit:
 
 ```text
 Resume last edit
 [Discard] [Resume]
 ```
 
-Resume passes both source bytes and recipe into `EditorScreen`:
-
-```text
-EditorScreen(
-  imageBytes: session.originalBytes,
-  recoveryRecipe: session.recipeJson,
-)
-```
-
-Recovery is therefore explicit rather than silently replacing a new session.
+Resume passes stored source bytes and the authoritative recipe into `EditorScreen`.
 
 ---
 
-# 4. Rust image engine and session recipe
+# 3. Rust image engine and recipe
 
 Flutter adapter:
 
@@ -126,26 +104,26 @@ Flutter adapter:
 lib/core/image_engine.dart
 ```
 
-Rust implementation:
+Rust authority:
 
 ```text
 rust/src/engine.rs
 rust/src/api.rs
 ```
 
-Heavy synchronous FRB calls are dispatched with `Isolate.run()` by `RustImageEngine`.
+Heavy synchronous FRB work is dispatched with `Isolate.run()`.
 
-The Rust engine retains:
+Rust retains:
 
 - untouched source bytes
 - reduced editor preview
 - Apply checkpoint preview
-- complete semantic operation list
+- complete operation list
 - cursor
 - checkpoint cursor
 - undo/redo state
 
-Conceptually:
+Recipe model:
 
 ```text
 operations = [ ... semantic edits ... ]
@@ -153,76 +131,77 @@ cursor
 checkpoint_cursor
 ```
 
-The active draft is:
+Active draft:
 
 ```text
 operations[checkpoint_cursor .. cursor]
 ```
 
-Operations before `checkpoint_cursor` belong to the latest accepted Apply checkpoint.
+Operations before `checkpoint_cursor` are already part of the last Apply checkpoint.
+
+Apply promotes the current reduced preview to checkpoint state without doing a full-resolution render. Full-resolution work is deferred to Export.
 
 ---
 
-# 5. EditorController
+# 4. EditorController
 
-Primary presentation controller:
+Primary controller:
 
 ```text
 lib/state/editor_controller.dart
 ```
 
-`EditorController` projects Rust state into Flutter:
+It projects Rust state into Flutter:
 
-- current reduced preview bytes
+- preview bytes
 - checkpoint preview bytes
 - histogram
 - selected tool
-- selected Adjust parameter and remembered values
+- Adjust memories
 - Creative selection/intensity
-- Film profile/strength
-- straighten preview state
+- Film selection/strength
+- straighten preview
 - processing flags
 - cursor / operation count
 - undo / redo capability
 
-## Semantic commit policy
-
-Typical Adjust gesture:
+Typical Adjust transaction:
 
 ```text
 slider drag
-  -> native GPU draft when eligible
+  -> GPU-only draft where eligible
 
 slider release
   -> EditorController.commitFilterValue()
-  -> Rust commit/replace semantics
-  -> authoritative preview
-  -> persist recovery generation
+  -> Rust semantic commit/replace
+  -> authoritative Rust preview
+  -> recovery persistence
 ```
 
-Creative and Film are exclusive semantic slots inside the active draft. Controller recipe replacement preserves the rest of the active draft rather than rebuilding an independent Flutter edit stack.
+Tool switching does not Apply or Discard the active draft.
 
-## Apply / Discard
+Apply:
 
 ```text
-Apply
-  -> Rust applyEdits()
-  -> checkpoint_cursor = cursor
-  -> checkpoint preview updated
-  -> active tool memories reset
-  -> thumbnails regenerated
-  -> recovery persisted
+Rust applyEdits()
+ -> checkpoint_cursor = cursor
+ -> checkpoint preview updated
+ -> active draft controls reset
+ -> recovery persisted
+```
 
-Discard Draft
-  -> Rust discard-to-checkpoint semantics
-  -> current active draft removed
-  -> applied checkpoint preserved
-  -> recovery persisted
+Discard Draft:
+
+```text
+Rust discard-to-checkpoint
+ -> active draft removed
+ -> applied checkpoint preserved
+ -> recovery persisted
 ```
 
 ---
 
-# 6. G3 GPU Editor production pipeline
+# 5. G3 GPU Editor production path
 
 Primary files:
 
@@ -234,9 +213,9 @@ lib/gpu/ios_gpu_editor_preview.dart
 lib/ui/screens/editor_screen.dart
 ```
 
-`GpuEditorRenderPlan` reads the authoritative active Rust recipe and only produces a native plan if semantic order can be represented faithfully.
+`GpuEditorRenderPlan` reads the authoritative active Rust recipe and creates a native plan only when operation order can be represented faithfully.
 
-Supported topology on iOS Metal:
+Current Metal topology:
 
 ```text
 optional Creative compute
@@ -248,58 +227,20 @@ optional Creative compute
  -> optional final LUT
 ```
 
-Representable composition includes multiple Adjust slots and supported Adjust + Creative + Film combinations.
+Fallback cases include unsupported transforms/order, Creative-LUT + Film LUT-slot conflict, and renderer create/update failure.
 
-Explicit fallback cases include:
-
-- transform/unknown operation in unsupported location
-- unrepresentable Rust operation order
-- Creative LUT + Film when both require the one native final-LUT slot
-- native renderer creation/update failure
-
-Fallback means:
+Fallback always means:
 
 ```text
-hide/drop native draft
-  -> continue showing valid Rust preview
+invalidate/hide native draft
+ -> show valid Rust preview
 ```
 
-It never means reordering or approximating the semantic recipe.
+It never means silently reordering semantic operations.
 
-## Renderer lifecycle
+`GpuEditorDraftSession` tracks presentation-only generations for checkpoint, renderer and activation lifecycle. Backgrounding, memory pressure and native failures invalidate the GPU path without corrupting Rust session state.
 
-`GpuEditorDraftSession` tracks presentation-only generations:
-
-```text
-checkpointGeneration
-rendererGeneration
-activationGeneration
-status
-transient edit
-recipe snapshot
-render plan
-fallback reason
-```
-
-Lifecycle rules:
-
-```text
-background/inactive/hidden/detached
-  -> invalidate active GPU draft
-  -> destroy renderer
-
-foreground
-  -> keep Rust preview
-  -> lazily recreate GPU renderer on next eligible gesture
-
-memory pressure
-  -> drop renderer
-  -> preserve Rust session state
-```
-
-Engineering GPU indicators are debug-only.
-
-Detailed closure evidence:
+G3 closure evidence:
 
 ```text
 docs/G3_FINAL_VERIFICATION.md
@@ -308,7 +249,7 @@ docs/G3_DEVICE_VERIFICATION.md
 
 ---
 
-# 7. G4 product-state projection
+# 6. G4 presentation projection
 
 G4 adds:
 
@@ -316,41 +257,38 @@ G4 adds:
 lib/state/editor_recipe_summary.dart
 ```
 
-`EditorRecipeSummary` is a presentation projection of the Rust recipe. It does not own semantic edit state.
+`EditorRecipeSummary` is derived from the Rust recipe and owns no semantic edit state.
 
 It derives:
 
-- changed Adjust parameters
+- active Adjust values
 - active Creative slot
 - active Film slot
-- current draft vs applied checkpoint
-- human-readable History entries
-
-Only operations after `checkpoint_cursor` are marked as active changes.
+- changed indicators
+- applied-vs-draft history labels
 
 Example:
 
 ```text
-operations
-0 Brightness 1.20   <- already Applied
-1 Contrast   1.10   <- current draft
-2 Velvia      80%   <- current draft
+0 Brightness 1.20   <- Applied
+1 Contrast   1.10   <- active draft
+2 Velvia      80%   <- active draft
 
 checkpoint_cursor = 1
 cursor            = 3
 ```
 
-Product projection:
+Product state:
 
 ```text
-Brightness  unchanged in current draft
+Brightness  not changed in current draft
 Contrast    changed
 Film        changed
 ```
 
 ---
 
-# 8. G4.1 Tool-state UX and Reset semantics
+# 7. G4.1 Tool-state UX and Reset
 
 Widget:
 
@@ -358,11 +296,9 @@ Widget:
 lib/ui/widgets/editor_tool_panel.dart
 ```
 
-Adjust / Filters / Film tool icons show a badge when that section has an active draft change.
+Adjust / Filters / Film sections show changed badges. Individual Adjust chips show changed indicators.
 
-Adjust chips show a per-parameter changed indicator.
-
-Neutral/default values:
+Neutral values:
 
 ```text
 Brightness      1.0
@@ -372,88 +308,60 @@ Sharpen         1.0
 Gaussian Blur   0.0
 ```
 
-## Reset current parameter
-
-Reset is authoritative recipe rewriting:
+Reset is recipe-based, not cosmetic:
 
 ```text
 export Rust recipe
-  -> remove matching operation only from draft range
-  -> preserve operations before checkpoint_cursor
-  -> restore rewritten recipe through Rust
-  -> persist session
+ -> remove matching node only from active draft range
+ -> preserve operations before checkpoint_cursor
+ -> truncate stale redo tail because Reset creates a new semantic branch
+ -> restore rewritten recipe through Rust
+ -> persist recovery generation
 ```
 
-## Reset Adjust
-
-Removes only draft operations whose names belong to `coreFilters`.
-
-Creative and Film draft slots are preserved.
-
-## Reset Creative / Film
-
-Remove only the corresponding active draft semantic slot.
-
-The UI therefore does not fake reset by changing a slider while leaving stale Rust operations behind.
+Reset Adjust removes only `coreFilters`; Creative and Film are preserved. Reset Creative and Reset Film remove only their corresponding active draft slots.
 
 ---
 
-# 9. G4.2 Before comparison
+# 8. G4.2 Before comparison
 
-`EditorScreen` supports press-and-hold comparison on the canvas.
+The Editor canvas supports press-and-hold **Before**.
 
-Although the existing state field is named `showOriginal`, its product meaning after Apply is the **last Apply checkpoint**, because `originalPreviewBytes` is promoted when Apply succeeds.
-
-Example:
+The existing `originalPreviewBytes` presentation field is the cached Apply checkpoint after Apply succeeds, so product behavior is:
 
 ```text
 Import
- -> Brightness
- -> Apply           checkpoint A
- -> Film draft
+ -> edit
+ -> Apply checkpoint A
+ -> more draft edits
  -> hold Before
  -> checkpoint A
 ```
 
-Entering Before invalidates the active GPU overlay so the native draft cannot remain visible above the Rust checkpoint preview.
+Entering Before invalidates the active GPU overlay, preventing stale native draft pixels from covering the Rust checkpoint preview.
 
-No full-resolution decode is performed for comparison.
+No full-resolution decode is required for comparison.
 
 ---
 
-# 10. G4.3 History UX
+# 9. G4.3 History
 
-Editor app bar:
+Editor app bar exposes History / Undo / Redo / Export.
 
-```text
-History
-Undo
-Redo
-Export
-```
-
-History sheet is generated from the authoritative recipe summary.
-
-It distinguishes:
+History entries are generated from the authoritative recipe and distinguish:
 
 ```text
 Applied checkpoint operations
 Current draft operations
 ```
 
-Undo/Redo still call Rust through `EditorController`.
+Undo/Redo remain Rust operations.
 
-G4 intentionally does not expose arbitrary jump-to-position because Rust has not defined a separate random-access history contract for product UI.
-
-Detailed walkthrough:
-
-```text
-docs/walkthrough/16_g4_editor_product_ux.md
-```
+G4 deliberately does not expose arbitrary jump-to-history-position because Rust does not currently expose a separate verified random-access history contract.
 
 ---
 
-# 11. G4.4 Autosave and recovery hardening
+# 10. G4.4 Autosave and recovery
 
 Storage:
 
@@ -461,39 +369,42 @@ Storage:
 lib/core/editor_session_store.dart
 ```
 
-Current format uses generation-based atomic publishing.
-
-A generation manifest records:
+Current recovery uses generation-based atomic publishing:
 
 ```text
-version
-sourceFile
-recipeFile
-sourceFingerprint
-savedAt
+source payload
+recipe payload
+        ↓
+generation manifest written last
 ```
 
-The source and recipe payloads are written first. Manifest rename is the generation commit point.
+Manifest fields include version, source file, recipe file, source fingerprint and saved timestamp.
 
-G4 validation now verifies:
+G4 validation adds:
 
-- valid JSON recipe envelope before save
-- `cursor` within operation bounds
+- valid recipe envelope before save
+- `cursor` bounds validation
 - `checkpoint_cursor <= cursor`
-- source bytes still match manifest fingerprint on load
-- corrupt/incomplete newest generation is skipped
-- older valid generation can be recovered
-- legacy recovery layout remains readable when valid
+- source fingerprint verification on load
+- rejection of corrupt/mismatched newest generation
+- fallback to an older valid generation
+- legacy recovery compatibility when valid
 
-Autosave remains semantic-event based rather than frame based.
+Autosave remains semantic-event based; slider frames are not persisted individually.
+
+CI-gated G4 recovery test:
+
+```text
+test/state/editor_session_store_g4_test.dart
+```
 
 ---
 
-# 12. G4.5 Exit policy
+# 11. G4.5 Exit policy
 
-`EditorScreen` uses `PopScope` to protect an unapplied draft.
+`EditorScreen` uses `PopScope` to protect unapplied work.
 
-No draft:
+No active draft:
 
 ```text
 Back -> exit
@@ -508,59 +419,48 @@ Unapplied edits
 [Apply & Exit]
 ```
 
-Processing/export blocks exit until the current operation settles.
+Processing/export blocks exit until the operation settles.
 
-Product semantics remain explicit:
+Product distinction:
 
 ```text
-Apply  != Export
+Apply  = accept current Editor draft as checkpoint
+Export = produce full-resolution output file
 ```
-
-Apply changes the Editor checkpoint. Export renders an output image.
 
 ---
 
-# 13. G4.6 Full-resolution export
+# 12. G4.6 Export
 
 Export remains Rust authoritative:
 
 ```text
-untouched original
-  -> replay complete active recipe
-  -> encode PNG / JPEG / WEBP
-  -> save to gallery/app backup
-  -> optional Share
+untouched original source
+ -> decode
+ -> replay complete active operation recipe
+ -> newly encode PNG / JPEG / WEBP
+ -> gallery/app backup
+ -> optional Share
 ```
 
-The dialog communicates:
+The dialog communicates format, lossy quality where relevant, original-source resolution policy, and whether the current draft is included.
 
-- format
-- lossy quality where relevant
-- original-source resolution policy
-- whether current draft edits will be included
+## Metadata policy
+
+The current Rust path decodes and newly encodes the rendered image. PixelCraft does not currently re-attach the source EXIF/metadata to the exported file. Therefore G4 must not claim metadata preservation.
 
 Native GPU preview pixels are never export input.
 
 ---
 
-# 14. Camera Film Preview — G1 closed architecture
-
-Shared screen:
-
-```text
-lib/ui/screens/camera_film_preview_screen.dart
-lib/ui/screens/camera_film_preview_screen_g1.dart
-```
+# 13. Camera Film Preview — G1 closed architecture
 
 Runtime selection:
 
 ```text
-probe native GPU capability
-
 Android eligible
   -> Camera2
-  -> SurfaceTexture
-  -> GL_TEXTURE_EXTERNAL_OES
+  -> SurfaceTexture / GL_TEXTURE_EXTERNAL_OES
   -> GLES canonical Film LUT
   -> TextureView / AndroidView
 
@@ -575,17 +475,9 @@ native unavailable/failure
   -> Flutter camera plugin fallback
 ```
 
-Capture always stays clean:
+Capture remains clean in every path. Film profile ID and strength are carried separately into Editor, where Rust applies authoritative Film semantics.
 
-```text
-native/fallback capture
-  -> clean JPEG/source
-  -> carry Film profile ID + strength separately
-  -> Editor
-  -> Rust authoritative Film semantics
-```
-
-There is no per-frame Dart callback and no camera frame buffer crosses MethodChannel/FRB.
+No camera frame buffer crosses Dart MethodChannel or FRB.
 
 Detailed camera walkthroughs:
 
@@ -594,11 +486,11 @@ docs/walkthrough/14_g1_android_camera_oes.md
 docs/walkthrough/15_g1_ios_camera_metal.md
 ```
 
-G1 is no longer awaiting initial physical validation; closure evidence is recorded in the project handoff and G1 verification records.
+G1 is closed; obsolete “awaiting Xcode / physical validation” wording has been removed from this walkthrough.
 
 ---
 
-# 15. Canonical Film / Creative LUT architecture
+# 14. Canonical Film / Creative LUT architecture
 
 Rust-owned Film authoring data:
 
@@ -610,13 +502,13 @@ Build flow:
 
 ```text
 look.json
-  -> rust/build.rs
-  -> canonical 33^3 LUT
-       -> Rust renderer
-       -> generated native GPU assets
+ -> rust/build.rs
+ -> canonical 33^3 LUT
+      -> Rust renderer
+      -> generated native GPU assets
 ```
 
-Current canonical Film IDs:
+Current Film IDs:
 
 ```text
 provia_inspired
@@ -627,15 +519,13 @@ ektar_inspired
 chrome64_inspired
 ```
 
-Creative LUT presets also use Rust/photon-rs generated canonical data rather than independent Metal look algorithms.
-
-Compute Creative operations currently include grayscale and invert where exact native semantics are defined.
+Creative LUT presets also use Rust/photon-rs generated canonical data. Grayscale and invert use verified compute semantics.
 
 ---
 
-# 16. Testing and verification layers
+# 15. Verification layers
 
-## Flutter / host
+Host / Flutter:
 
 ```bash
 flutter analyze
@@ -643,7 +533,7 @@ make test
 make golden-test
 ```
 
-## Rust
+Rust:
 
 ```bash
 make rust-fmt
@@ -651,27 +541,24 @@ make rust-clippy
 make rust-test
 ```
 
-## LUT / GPU
+GPU LUT:
 
 ```bash
 make gpu-lut-verify
 ```
 
-## G4-specific tests
+G4-specific CI-gated tests:
 
 ```text
 test/state/editor_recipe_summary_test.dart
-test/core/editor_session_store_g4_test.dart
+test/state/editor_session_store_g4_test.dart
 ```
 
-## Physical-device regression
-
-G3 physical evidence remains the baseline for native renderer parity/lifecycle/performance.
+G3 physical evidence remains the native renderer parity/lifecycle/performance baseline.
 
 G4 physical smoke focuses on product orchestration:
 
-- changed indicators
-- Reset Parameter / Reset section
+- changed indicators and Reset
 - tool switching without implicit Apply/Discard
 - Before hold
 - History boundary
@@ -682,18 +569,12 @@ G4 physical smoke focuses on product orchestration:
 - full-resolution export/share
 - GPU failure -> valid Rust preview
 
-G4 verification record:
-
-```text
-docs/G4_PRODUCT_UX_VERIFICATION.md
-```
-
 ---
 
-# 17. Important files by responsibility
+# 16. Important files
 
 ```text
-Flutter app/bootstrap
+Flutter startup
   lib/main.dart
 
 Home/source/recovery UX
@@ -703,7 +584,7 @@ Editor product shell
   lib/ui/screens/editor_screen.dart
   lib/ui/widgets/editor_tool_panel.dart
 
-Editor presentation controller
+Editor presentation
   lib/state/editor_controller.dart
   lib/state/editor_recipe_summary.dart
 
@@ -713,7 +594,7 @@ Recovery persistence
 Rust adapter
   lib/core/image_engine.dart
 
-GPU editor planning/lifecycle
+GPU planning/lifecycle
   lib/gpu/gpu_editor_render_plan.dart
   lib/gpu/gpu_editor_draft_session.dart
   lib/gpu/gpu_editor_preview_bridge.dart
@@ -724,21 +605,16 @@ Rust authority
   rust/src/api.rs
 ```
 
----
-
-# 18. Current continuation point
-
-For milestone status, verified evidence and the exact next action, always treat this file as secondary to:
+Detailed G4 walkthrough:
 
 ```text
-docs/PROJECT_HANDOFF.md
-```
-
-For G4 details:
-
-```text
-docs/G4_PRODUCT_UX_VERIFICATION.md
 docs/walkthrough/16_g4_editor_product_ux.md
 ```
 
-Do not infer future G5 feature scope from G4 product UX code. New editing algorithms belong to G5 unless an explicit architecture decision changes the roadmap.
+Verification record:
+
+```text
+docs/G4_PRODUCT_UX_VERIFICATION.md
+```
+
+For current milestone status and next action, `docs/PROJECT_HANDOFF.md` remains the primary handoff document.
