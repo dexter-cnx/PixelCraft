@@ -14,22 +14,19 @@ class CropCommitCoordinator {
     required double height,
   }) async {
     final state = ref.read(editorProvider);
-    final original = state.originalBytes;
-    if (original == null || state.isBusy || state.isPreviewProcessing) return;
+    if (state.originalBytes == null || state.isBusy || state.isPreviewProcessing) {
+      return;
+    }
 
-    final engine = ref.read(imageEngineProvider);
-    await engine.applyCropInBackground(
-      x: x,
-      y: y,
-      width: width,
-      height: height,
-    );
-
-    // Keep EditorController as the UI/session owner. The crop is committed by
-    // the same Rust engine, then the authoritative recipe is replayed through
-    // the controller so Undo/Redo/export/persistence stay on the normal path.
-    final recipe = await engine.exportSessionRecipeInBackground();
-    await ref.read(editorProvider.notifier).restore(original, recipe);
+    // Serialize the entire crop commit through EditorController so competing
+    // Apply/Cancel/Undo/Redo/transform actions see isBusy and cannot interleave
+    // with the singleton Rust session mutation.
+    await ref.read(editorProvider.notifier).commitCrop(
+          x: x,
+          y: y,
+          width: width,
+          height: height,
+        );
   }
 }
 
