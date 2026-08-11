@@ -9,6 +9,19 @@ void main() {
     late Directory root;
     late EditorSessionStore store;
 
+    String recipe({
+      required int cursor,
+      int checkpointCursor = 0,
+    }) {
+      final operations = List.generate(
+        cursor,
+        (index) =>
+            '{"type":"filter","name":"brightness","value":${1 + index / 10}}',
+      ).join(',');
+      return '{"version":1,"preview_max_edge":1024,"operations":[$operations],'
+          '"cursor":$cursor,"checkpoint_cursor":$checkpointCursor}';
+    }
+
     setUp(() {
       root = Directory.systemTemp.createTempSync('pixelcraft-session-store-');
       store = EditorSessionStore(rootDirectory: root);
@@ -21,7 +34,7 @@ void main() {
     test('saves and restores original bytes plus recipe', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1, 2, 3, 4]),
-        recipeJson: '{"version":1,"operations":[]}',
+        recipeJson: recipe(cursor: 0),
       );
 
       expect(await store.exists(), isTrue);
@@ -35,11 +48,11 @@ void main() {
     test('newer writes replace the previous recoverable session', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1]),
-        recipeJson: '{"version":1,"cursor":0}',
+        recipeJson: recipe(cursor: 0),
       );
       await store.save(
         originalBytes: Uint8List.fromList([9, 8]),
-        recipeJson: '{"version":1,"cursor":2}',
+        recipeJson: recipe(cursor: 2),
       );
 
       final restored = await store.load();
@@ -50,13 +63,13 @@ void main() {
     test('ignores payloads that were never published by a generation manifest', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1, 2]),
-        recipeJson: '{"version":1,"cursor":1}',
+        recipeJson: recipe(cursor: 1),
       );
 
       final directory = Directory('${root.path}/pixelcraft-session');
       await File('${directory.path}/source.orphan.bin').writeAsBytes([9, 9, 9]);
       await File('${directory.path}/recipe.orphan.json')
-          .writeAsString('{"version":1,"cursor":99}');
+          .writeAsString(recipe(cursor: 2));
 
       final restored = await store.load();
       expect(restored, isNotNull);
@@ -67,11 +80,11 @@ void main() {
     test('falls back to the previous coherent generation if latest payload is missing', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1]),
-        recipeJson: '{"version":1,"cursor":1}',
+        recipeJson: recipe(cursor: 1),
       );
       await store.save(
         originalBytes: Uint8List.fromList([2]),
-        recipeJson: '{"version":1,"cursor":2}',
+        recipeJson: recipe(cursor: 2),
       );
 
       final directory = Directory('${root.path}/pixelcraft-session');
@@ -95,7 +108,7 @@ void main() {
     test('clear removes the recovery payload', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1]),
-        recipeJson: '{"version":1}',
+        recipeJson: recipe(cursor: 0),
       );
       await store.clear();
 
