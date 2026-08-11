@@ -69,8 +69,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   String? _gpuDraftKey;
   double _gpuDraftValue = 1;
   String? _gpuAdjustmentRecipeJson;
-  String? _gpuOwnedDraftKind;
-  String? _gpuOwnedDraftKey;
   int _gpuActivationSerial = 0;
   int _gpuRendererEpoch = 0;
 
@@ -222,17 +220,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   void _invalidateGpuPreview({
     bool dropRenderer = false,
-    bool clearOwnership = false,
     String? reason,
   }) {
     _gpuActivationSerial++;
     _gpuDraftKind = null;
     _gpuDraftKey = null;
     _gpuAdjustmentRecipeJson = null;
-    if (clearOwnership) {
-      _gpuOwnedDraftKind = null;
-      _gpuOwnedDraftKey = null;
-    }
 
     if (dropRenderer) {
       _gpuRendererEpoch++;
@@ -437,12 +430,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         await controller.updateFilmProfileStrength(value);
       }
       await _waitForRustPreviewSettled();
-      if (!mounted || serial != _gpuActivationSerial) return;
-      final settledState = ref.read(editorProvider);
-      if (wasGpuActive && settledState.error == null) {
-        _gpuOwnedDraftKind = kind;
-        _gpuOwnedDraftKey = key;
-      }
     } finally {
       if (mounted && wasGpuActive && serial == _gpuActivationSerial) {
         setState(() => _gpuPreviewActive = false);
@@ -478,7 +465,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 items: const [
                   DropdownMenuItem(value: 'png', child: Text('PNG')),
                   DropdownMenuItem(value: 'jpeg', child: Text('JPEG')),
-                  DropdownMenuItem(value: 'webp', child: Text('WebP')),
+                  DropdownMenuItem(value: 'webp', child: Text('WEBP')),
                 ],
                 onChanged: (value) {
                   if (value != null) setDialogState(() => format = value);
@@ -596,7 +583,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       }
 
       _invalidateGpuPreview(
-        clearOwnership: checkpointChanged,
         reason: checkpointChanged
             ? 'Rust checkpoint changed'
             : toolChanged
