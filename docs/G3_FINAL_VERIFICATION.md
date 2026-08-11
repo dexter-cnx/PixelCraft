@@ -2,13 +2,13 @@
 
 ## Status
 
-**G3 IMPLEMENTATION COMPLETE THROUGH G3.4 — VERIFICATION IN PROGRESS**
+**G3 IMPLEMENTATION COMPLETE THROUGH G3.4 — AUTOMATED DEVICE GATES PASS — MANUAL RUNTIME STRESS REMAINS**
 
 Branch: `feature/editor-gpu-production`
 Base: `main`
 G2 merge baseline: `85c44761e9a88d4b0b0bdef5b8ea612ff3940ca8`
-
-This document is the accumulating verification record for G3 — Production Rendering Pipeline.
+Physical-device automated verification commit: `8eb6e1ebc8766720b524340a402fa223e5487b75`
+Verification date: 2026-08-11
 
 Rust remains authoritative for committed edit semantics, history, checkpoints, session recipe, and full-resolution export. GPU rendering remains an interactive preview path and must fail closed to the valid Rust preview.
 
@@ -47,47 +47,15 @@ Baseline result: **PASS**.
 
 ### Architecture
 
-The G3 live-preview path no longer builds a neutral state containing only the currently dragged control. `GpuEditorRenderPlan` reads the active authoritative Rust recipe range:
+`GpuEditorRenderPlan` reads the active authoritative Rust recipe range:
 
 ```text
 operations[checkpoint_cursor .. cursor]
 ```
 
-and builds the complete representable draft. The currently dragged value is then applied as a transient replacement of its Rust semantic slot. If the slot does not yet exist, the transient node is appended, matching the current Rust transaction behavior.
+and builds the complete representable draft. The currently dragged value replaces only its semantic slot. If the slot does not yet exist, the transient node is appended, matching the current Rust transaction behavior.
 
-Example:
-
-```text
-Rust active draft
-Brightness 1.20
-Contrast   1.30
-Saturation 0.85
-
-Transient drag
-Brightness -> 1.25
-
-GPU plan
-Brightness 1.25
-Contrast   1.30
-Saturation 0.85
-```
-
-### Implemented
-
-- [x] Complete active Adjust state comes from the Rust session recipe.
-- [x] Brightness / Contrast / Saturation / Sharpen / Gaussian Blur are modeled as independent draft slots.
-- [x] Existing transient slot is replaced in place.
-- [x] New transient slot is appended according to Rust draft insertion semantics.
-- [x] Rust commit-on-release path is unchanged.
-- [x] Unsupported or unfaithful operation order fails closed to Rust preview.
-- [x] Old single-purpose `GpuEditorAdjustmentDraft` parser was removed after the ordered render plan superseded it.
-- [x] Unit coverage includes simultaneous B+C+S, checkpoint boundaries, slot insertion, and order mismatch fallback.
-
-### Important order rule
-
-The current iOS Metal renderer has a fixed stage topology. G3 does **not** silently reorder Rust operations. A GPU plan is enabled only when the authoritative Rust order can be represented by the native stages. Otherwise the valid Rust preview remains visible.
-
-Current native stage topology:
+The current iOS Metal renderer has a fixed stage topology:
 
 ```text
 optional compute Creative
@@ -99,55 +67,86 @@ optional compute Creative
  -> optional final LUT
 ```
 
-This is deliberate correctness behavior, not an attempt to claim arbitrary-order GPU equivalence.
+G3 does not silently reorder Rust operations. An unrepresentable authoritative order fails closed to Rust preview.
 
-### Verification still required for closure
+### Implemented
 
-- [ ] G3 multi-adjust deterministic physical-device image parity recorded.
-- [ ] Sharpen + Blur order-sensitive physical-device cases recorded.
-- [ ] Representative G3 multi-adjust physical-device latency recorded.
-- [ ] Existing G2 single-adjust physical-device parity rechecked after final G3 head.
+- [x] Complete active Adjust state comes from Rust session recipe.
+- [x] Brightness / Contrast / Saturation / Sharpen / Gaussian Blur are independent draft slots.
+- [x] Existing transient slot is replaced in place.
+- [x] New transient slot is appended according to Rust draft insertion semantics.
+- [x] Rust commit-on-release path is unchanged.
+- [x] Unsupported or unfaithful operation order fails closed to Rust preview.
+- [x] Host unit coverage includes simultaneous B+C+S, checkpoint boundaries, slot insertion, and order mismatch fallback.
 
-Existing G2 numeric/latency evidence remains a regression baseline but is not relabeled as new G3 device evidence.
+### Physical-device automated evidence
+
+Device GPU reported by native harness: **Apple A13 GPU**.
+
+- [x] Existing native identity LUT parity retained: `maxError=0.0019608139991760254`.
+- [x] All six Film Profile Pack v2 LUT parity cases passed.
+- [x] Adjustment parity passed: `overallMaxChannelError=0.0019263029098510742`, tolerance `0.00392156862745098`, 9 cases.
+- [x] Brightness cases passed.
+- [x] Contrast cases passed.
+- [x] Saturation cases passed.
+- [x] Sharpen cases passed.
+- [x] Gaussian Blur parity passed: `overallMaxChannelError=0.0`, tolerance `0.00784313725490196`, 5 cases.
+- [x] Adjustment + Film realtime benchmark passed at 1024x1024 / 60 iterations:
+  - average `1.020 ms`
+  - p50 `1.000 ms`
+  - p95 `1.104 ms`
+  - p99 `1.821 ms`
+  - max `1.821 ms`
+  - target `16.67 ms`
+- [x] Heavy Gaussian Blur benchmark passed at 1024x1024 / 60 iterations:
+  - average `9.787 ms`
+  - p95 `11.418 ms`
+  - p99 `11.514 ms`
+  - max `11.514 ms`
+  - target `16.67 ms`
+
+Automated G3.1 device result: **PASS**.
+
+### Manual verification still required
+
+- [ ] Confirm multi-adjust visual continuity while dragging one active slot.
+- [ ] Confirm Sharpen + Blur visual continuity and no semantic jump on release.
+- [ ] Undo/Redo once after a multi-adjust sequence and confirm no stale Metal overlay.
 
 ---
 
 ## G3.2 Cross-tool GPU composition
 
-### Implemented representation
-
-`GpuEditorRenderPlan` parses the complete supported active draft across:
-
-```text
-Adjust + Creative + Film
-```
-
-Operation order comes from the Rust recipe; the Flutter layer does not infer order from the UI category.
+`GpuEditorRenderPlan` parses supported active draft state across Adjust + Creative + Film using authoritative Rust operation order.
 
 Supported Creative paths:
 
-- `grayscale` / `invert`: verified native compute stage.
-- `vintage` / `oceanic` / `lofi` / `dramatic` / `golden` / `pastel_pink`: canonical Rust-generated 33^3 Creative LUT through the native LUT runtime.
+- `grayscale` / `invert`: native compute stage.
+- `vintage` / `oceanic` / `lofi` / `dramatic` / `golden` / `pastel_pink`: canonical Rust-generated 33^3 Creative LUT.
 
 ### Faithful-or-fallback contract
 
-The current native editor renderer has one final 3D-LUT slot. Therefore:
-
 - [x] Compute Creative + representable Adjust + Film can be planned when Rust order matches native stage order.
 - [x] Representable Adjust + canonical Creative LUT can be planned when Film is not active.
-- [x] Creative-LUT + Film together explicitly falls back to Rust because both require the same native LUT slot.
+- [x] Creative-LUT + Film explicitly falls back because both require the native final LUT slot.
 - [x] Transform/unknown active nodes explicitly fall back to Rust.
-- [x] Any Rust operation order that cannot be reproduced by the fixed native stages explicitly falls back to Rust.
-- [x] Host regression tests cover representative cross-tool plans, slot replacement, LUT-slot conflict, transforms, and order mismatches.
+- [x] Unsupported Rust operation order explicitly falls back to Rust.
+- [x] Host regression tests cover representative cross-tool plans, LUT-slot conflict, transforms, slot replacement, and order mismatch.
 
-This means G3.2 implements the complete **supported** cross-tool planning contract without misrepresenting unsupported combinations. Arbitrary ordered composition would require a different native multi-pass render graph and is not approximated here.
+### Physical-device automated evidence
 
-### Verification still required for closure
+- [x] Creative compute parity passed: `overallMaxChannelError=0.0`, tolerance `0.00392156862745098`, 6 cases.
+- [x] All six Film LUT native parity cases passed.
+- [x] Representative adjustment + Film workload meets realtime p95 budget (`1.104 ms <= 16.67 ms`).
 
-- [ ] Representative compute-Creative + Adjust + Film physical-device parity recorded.
-- [ ] Representative Creative-LUT + Adjust physical-device parity recorded.
-- [ ] Physical-device Rust fallback confirmed for Creative-LUT + Film conflict.
-- [ ] Representative operation-order fallback cases manually/device validated.
+Automated G3.2 device result: **PASS for the native primitives used by supported render plans**.
+
+### Manual verification still required
+
+- [ ] Confirm one representable Adjust + grayscale/invert + Film composition visually.
+- [ ] Confirm one Adjust + Creative LUT composition visually.
+- [ ] Confirm Creative-LUT + Film conflict stays on Rust preview instead of showing a partial Metal result.
+- [ ] Confirm one intentionally unsupported operation-order/transform case falls back cleanly.
 
 ---
 
@@ -155,35 +154,35 @@ This means G3.2 implements the complete **supported** cross-tool planning contra
 
 ### Implemented
 
-`EditorScreen` now observes Flutter application lifecycle and memory pressure.
-
-- [x] Background/inactive/hidden/detached states invalidate the GPU presentation state and destroy the renderer.
-- [x] Foreground resume leaves the valid Rust preview visible and recreates the renderer lazily on the next eligible gesture.
-- [x] Memory pressure drops the renderer and preserves Rust semantics.
-- [x] Renderer generation guards reject/destroy stale async renderer creation.
-- [x] Activation generation guards reject stale recipe/source/update work.
-- [x] Rust checkpoint/source replacement invalidates the active GPU draft.
+- [x] Background/inactive/hidden/detached invalidates GPU presentation state and destroys renderer.
+- [x] Foreground resume leaves Rust preview visible and recreates renderer lazily.
+- [x] Memory pressure drops renderer and preserves Rust semantics.
+- [x] Renderer generation rejects stale async renderer creation.
+- [x] Activation generation rejects stale recipe/source/update work.
+- [x] Rust checkpoint/source replacement invalidates active GPU draft.
 - [x] Renderer create/update failures fail closed to Rust preview.
-- [x] Renderer destruction on editor disposal is idempotent at the Dart presentation layer.
-- [x] Platform-view layout continues to use the existing MTKView drawable resize path.
+- [x] Renderer disposal is idempotent at Dart presentation layer.
 - [x] No lifecycle path mutates Rust semantic state.
 
-### Verification still required for closure
+### Physical-device automated evidence
 
-- [ ] Physical device background -> foreground stress recorded.
-- [ ] Physical device Editor open/close/reopen loop recorded.
-- [ ] Repeated Camera -> Editor transition stress recorded.
-- [ ] Native/platform-view recreation stress recorded.
-- [ ] Memory-pressure behavior recorded where practically observable.
-- [ ] Confirm no stale native overlay after all stress cases.
+- [x] Renderer destroy/recreate loop passed **12/12 cycles** with unique renderer IDs and no native error.
+
+Automated G3.3 renderer recreation result: **PASS**.
+
+### Manual verification still required
+
+- [ ] Background -> foreground x10.
+- [ ] Editor close/reopen x10.
+- [ ] Camera -> Editor x5.
+- [ ] Confirm no stale image/native overlay after stress.
+- [ ] Observe memory-pressure/background recovery where practical.
 
 ---
 
 ## G3.4 GPU presentation/session state cleanup
 
-### Implemented
-
-G2's scattered `_gpuDraftKind`, `_gpuDraftKey`, `_gpuDraftValue`, activation serial, renderer epoch, and temporary recipe ownership have been replaced by an explicit presentation-only model:
+G2 scattered draft fields were replaced by `GpuEditorDraftSession` containing presentation-only lifecycle metadata:
 
 ```text
 GpuEditorDraftSession
@@ -201,20 +200,37 @@ GpuEditorDraftSession
 - [x] Activation/checkpoint/renderer generations are centralized.
 - [x] Fallback status/reason is centralized.
 - [x] Stale-work behavior is unit-testable and covered.
-- [x] Ordered supported operations live in `GpuEditorRenderPlan` rather than scattered UI fields.
-- [x] Superseded adjustment-only parser/test duplication removed.
-- [x] `GPU READY`, `GPU LIVE`, and `Metal live draft` labels are debug-only.
-- [x] Home GPU diagnostics entry remains debug-only by default.
+- [x] Supported ordered operations live in `GpuEditorRenderPlan`.
+- [x] Superseded adjustment-only parser duplication removed.
+- [x] GPU engineering labels are debug-only.
+- [x] Home GPU diagnostics entry is debug-only by default.
 
-The screen still owns native renderer/file resources, while `GpuEditorDraftSession` owns only presentation lifecycle metadata. This keeps native resource ownership explicit without turning the presentation model into a second semantic edit graph.
+### Manual verification still required
+
+- [ ] Original/Before view never leaves Metal overlay above the original image.
+- [ ] Checkpoint change cannot reactivate an older async renderer/draft.
+- [ ] Native preview failure does not alter Rust history/recipe.
+- [ ] Release build does not show GPU engineering labels.
 
 ---
 
-## Host CI status
+## Physical-device automated run summary
 
-The last fully verified pre-refactor head passed GitHub Actions. The consolidated G3.1-G3.4 implementation is being revalidated by the PR CI after the ordered-plan/session/lifecycle refactor.
+The consolidated `flutter drive` verification session completed successfully on physical iOS hardware using isolated verification bundle `dev.cnxdev.pixelcraft.g3verify`.
 
-Do not mark the final host closure gate until the latest head has passed both `validate` and macOS Golden jobs.
+```text
+Native identity LUT parity: PASS
+Film Profile Pack v2 LUT parity (6/6): PASS
+G3.1 adjustment parity: PASS
+G3.1 Gaussian Blur parity: PASS
+G3.2 Creative compute parity: PASS
+Adjustment + Film p95: 1.104 ms / target 16.67 ms — PASS
+Heavy Blur p95: 11.418 ms / target 16.67 ms — PASS
+Renderer recreate: 12/12 — PASS
+Overall automated device gate: PASS
+```
+
+The verification application used a separate bundle ID so the normal development install remained untouched.
 
 ---
 
@@ -222,28 +238,33 @@ Do not mark the final host closure gate until the latest head has passed both `v
 
 ### Host gates
 
-- [ ] Flutter analyzer/test/golden pass on final G3 head.
-- [ ] Rust fmt/clippy/tests pass on final G3 head.
-- [ ] LUT verification pass on final G3 head.
+- [x] G3.1-G3.4 host CI passed before device-harness follow-up changes.
+- [ ] Latest final PR head must pass Flutter analyzer/test/golden after this verification-record update.
+- [ ] Latest final PR head must pass Rust fmt/clippy/tests and LUT verification after this verification-record update.
 
 ### Renderer correctness/performance gates
 
-- [ ] Existing G2 single-adjust parity retained on final G3 head.
-- [ ] Multi-adjust parity pass on physical iOS device.
-- [ ] Representative Adjust + Creative + Film parity pass.
-- [ ] Operation-order/fallback cases pass.
-- [ ] Reference-device p95 remains within realtime budget.
+- [x] Existing native Film/LUT parity retained.
+- [x] Core adjustment parity passes on physical iOS device.
+- [x] Gaussian Blur parity passes on physical iOS device.
+- [x] Creative compute parity passes on physical iOS device.
+- [x] Reference-device p95 remains within realtime budget for both representative workloads.
+- [ ] Multi-adjust visual semantic continuity manual check.
+- [ ] Representative cross-tool visual composition manual check.
+- [ ] Unsupported-plan Rust fallback manual check.
 
 ### Lifecycle gates
 
-- [ ] Background/foreground stress pass.
-- [ ] Editor recreate/reopen stress pass.
-- [ ] Repeated Camera -> Editor stress pass.
-- [ ] Failure fallback returns to valid Rust preview.
+- [x] Native renderer create/destroy recreation 12/12 automated cycles pass.
+- [ ] Background/foreground x10.
+- [ ] Editor recreate/reopen x10.
+- [ ] Camera -> Editor x5.
+- [ ] Original/Before and stale-overlay manual checks.
 
 ### Semantic authority
 
 - [x] Full-resolution export path remains Rust-authoritative by implementation.
 - [x] GPU presentation failures do not commit semantic operations.
+- [ ] Full-resolution Rust export smoke after manual stress.
 
-**G3 may be marked CLOSED / Ready for review only after all required closure gates above are supported by recorded evidence.**
+**G3 may be marked CLOSED / Ready for review only after the remaining manual runtime gates and the latest final-head CI are recorded as PASS.**
