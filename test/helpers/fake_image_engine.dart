@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pixelcraft/core/image_engine.dart';
-import 'package:pixelcraft/state/editor_controller.dart';
 
 final Uint8List testPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -168,18 +167,6 @@ class FakeImageEngine implements ImageEngine {
     for (var index = checkpointCursor; index < cursor; index++) {
       final operation = operations[index];
       if (operation['type'] == 'filter' && operation['name'] == filter) {
-        return index;
-      }
-    }
-    return -1;
-  }
-
-  int _findCreativeSlot() {
-    for (var index = checkpointCursor; index < cursor; index++) {
-      final operation = operations[index];
-      if (operation['type'] == 'filter' &&
-          operation['name'] is String &&
-          creativeFilters.contains(operation['name'])) {
         return index;
       }
     }
