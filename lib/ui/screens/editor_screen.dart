@@ -643,6 +643,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 initialValue: format,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Format',
                   border: OutlineInputBorder(),
