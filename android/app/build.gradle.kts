@@ -44,7 +44,11 @@ val generateGpuLutAssets = tasks.register<GenerateGpuLutAssetsTask>("generateGpu
     val repoRoot = rootProject.projectDir.parentFile
     inputs.file(repoRoot.resolve("rust/build.rs"))
     inputs.dir(repoRoot.resolve("rust/film_profiles"))
+    inputs.file(repoRoot.resolve("rust/src/bin/generate_creative_luts.rs"))
+    inputs.file(repoRoot.resolve("rust/src/photon_filters.rs"))
+    inputs.dir(repoRoot.resolve("rust/creative_luts"))
     inputs.file(repoRoot.resolve("tool/generate_gpu_lut_atlas.py"))
+    inputs.file(repoRoot.resolve("tool/generate_gpu_creative_lut_atlas.py"))
     inputs.file(repoRoot.resolve("tool/generate_gpu_native_parity_fixture.py"))
     inputs.file(repoRoot.resolve("tool/gpu_lut_parity_fixtures.json"))
 }
