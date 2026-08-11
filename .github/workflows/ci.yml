@@ -44,8 +44,11 @@ jobs:
       - name: Regenerate FRB bridge
         run: make codegen
 
-      - name: Verify generated bridge is committed
-        run: git diff --exit-code -- lib/src/rust rust/src/frb_generated.rs
+      - name: Verify generated native bridge is committed
+        run: git diff --exit-code -- rust/src/frb_generated.rs ios/Runner/frb_generated.h
+
+      - name: Verify generated Dart bridge exists
+        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
 
       - name: Rust format
         run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
@@ -71,7 +74,7 @@ jobs:
   golden:
     name: Golden tests (macOS)
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -84,8 +87,25 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
       - name: Flutter dependencies
         run: flutter pub get
+
+      - name: Install flutter_rust_bridge codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+
+      - name: Regenerate FRB bridge
+        run: make codegen
+
+      - name: Verify generated Dart bridge exists
+        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
 
       - name: Golden tests
         run: flutter test test/golden
