@@ -1,11 +1,7 @@
-SHELL := /usr/bin/env bash
-.SHELLFLAGS := -eu -o pipefail -c
-.DEFAULT_GOAL := help
-
 FLUTTER ?= flutter
+DART ?= dart
 CARGO ?= cargo
-FRB_CODEGEN ?= $(HOME)/.cargo/bin/flutter_rust_bridge_codegen
-FRB_VERSION ?= 2.12.0
+FRB ?= flutter_rust_bridge_codegen
 DEVICE ?=
 APK ?= build/app/outputs/flutter-apk/app-debug.apk
 RUST_CRATE_DIR ?= rust
@@ -16,67 +12,54 @@ DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
         setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test run run-release clean clean-all \
-        analyze test test-unit test-widget golden-test golden-update native-test profile-native test-full \
+        analyze test test-unit test-gpu test-widget golden-test golden-update native-test profile-native test-full \
         rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
 	@printf "Pixel Craft development commands\n\n"
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## ";} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-doctor: ## Check Flutter, Rust and Android tooling
-	@command -v $(FLUTTER) >/dev/null
-	@command -v $(CARGO) >/dev/null
-	@$(FLUTTER) --version
-	@$(CARGO) --version
-	@rustc --version
-	@$(FLUTTER) doctor -v
+doctor: ## Show Flutter / Dart / Rust toolchain versions
+	$(FLUTTER) --version
+	$(DART) --version
+	$(CARGO) --version
+	rustc --version
 
-frb-info: ## Show FRB executable and version
-	@type -a flutter_rust_bridge_codegen 2>/dev/null || true
-	@if [ -x "$(FRB_CODEGEN)" ]; then "$(FRB_CODEGEN)" --version; fi
+frb-info: ## Show Flutter Rust Bridge codegen version
+	$(FRB) --version
 
-install-frb: doctor ## Install pinned FRB codegen
-	@current=""; if [ -x "$(FRB_CODEGEN)" ]; then current="$$($(FRB_CODEGEN) --version 2>/dev/null || true)"; fi; \
-	case "$$current" in *"$(FRB_VERSION)"*) echo "[Pixel Craft] Using $$current" ;; \
-	*) $(CARGO) install flutter_rust_bridge_codegen --version "$(FRB_VERSION)" --locked --force ;; esac
-	@"$(FRB_CODEGEN)" --version
+install-frb: ## Install the pinned Flutter Rust Bridge codegen CLI
+	$(CARGO) install flutter_rust_bridge_codegen --version 2.12.0 --locked
 
-platforms: doctor ## Create missing Android and iOS projects
-	$(FLUTTER) create --platforms=android,ios --org dev.pixelcraft .
+platforms: ## Install Android/iOS Flutter platform artifacts
+	$(FLUTTER) precache --android --ios
 
 pub-get: ## Resolve Flutter dependencies
 	$(FLUTTER) pub get
 
-ensure-rust-plugin: ## Verify local Rust plugin registration
-	@test -f "$(RUST_BUILDER_DIR)/pubspec.yaml"
-	@$(FLUTTER) pub deps --style=compact 2>/dev/null | grep -F 'pixelcraft_engine' >/dev/null
+ensure-rust-plugin: ## Verify local pixelcraft_engine package is present
+	@test -f "$(RUST_BUILDER_DIR)/pubspec.yaml" || { echo "ERROR: missing $(RUST_BUILDER_DIR)/pubspec.yaml" >&2; exit 1; }
 
-integrate: install-frb platforms ## Install CargoKit integration
-	$(FRB_CODEGEN) integrate --template app --no-write-lib --no-integration-test \
-		--rust-crate-name pixelcraft_engine --rust-crate-dir $(RUST_CRATE_DIR)
-	@test -d $(RUST_BUILDER_DIR)/cargokit
-	@$(MAKE) patch-cargokit
-	@$(MAKE) pub-get
-	@$(MAKE) ensure-rust-plugin
+integrate: ## Integrate CargoKit / Flutter Rust Bridge host files
+	$(FRB) integrate
 
-patch-cargokit: ## Patch CargoKit for Gradle 9 and Android SDK 36
-	@python3 tool/patch_cargokit_gradle9.py
+codegen: ## Regenerate Flutter Rust Bridge Dart/Rust/Swift bindings
+	$(FRB) generate
 
-codegen: install-frb ## Regenerate Dart/Rust bridge
-	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml
+codegen-watch: ## Watch Rust API changes and regenerate bindings
+	$(FRB) generate --watch
 
-codegen-watch: install-frb ## Watch and regenerate bridge
-	$(FRB_CODEGEN) generate --config-file flutter_rust_bridge.yaml --watch
+patch-cargokit: ## Apply local CargoKit compatibility patch when required
+	@python3 tool/patch_cargokit.py
 
-app-icon: pub-get ## Generate Pixel Craft launcher icons for Android and iOS
-	$(FLUTTER) test tool/generate_app_icon_test.dart
-	$(FLUTTER) pub run flutter_launcher_icons
+app-icon: ## Generate application launcher icons
+	$(DART) run flutter_launcher_icons
 
 film-luts: ## Materialize Film Profile Pack v2 as inspectable 33^3 .cube files
-	PIXELCRAFT_EXPORT_LUT_DIR="$(CURDIR)/$(RUST_CRATE_DIR)/film_profiles" \
-		$(CARGO) check --manifest-path $(RUST_CRATE_DIR)/Cargo.toml
+	$(CARGO) run --quiet --manifest-path $(RUST_CRATE_DIR)/Cargo.toml \
+		--bin generate_film_luts -- --output "$(CURDIR)/$(RUST_CRATE_DIR)/film_luts"
 	@for profile in provia_inspired velvia_inspired astia_inspired e100_inspired ektar_inspired chrome64_inspired; do \
-		file="$(RUST_CRATE_DIR)/film_profiles/$$profile/lut.cube"; \
+		file="$(RUST_CRATE_DIR)/film_luts/$$profile/lut.cube"; \
 		test -f "$$file"; \
 		grep -q '^LUT_3D_SIZE 33$$' "$$file"; \
 		test "$$(grep -E '^[0-9.-]+[[:space:]]+[0-9.-]+[[:space:]]+[0-9.-]+$$' "$$file" | wc -l | tr -d ' ')" = "35937"; \
@@ -122,10 +105,13 @@ clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
 
-test: test-unit test-widget ## Run Dart unit and widget tests, excluding goldens
+test: test-unit test-gpu test-widget ## Run Dart unit/GPU/widget tests, excluding goldens
 
 test-unit: ## Run controller/state tests
 	$(FLUTTER) test test/state
+
+test-gpu: ## Run GPU presentation/render-plan unit tests
+	$(FLUTTER) test test/gpu
 
 test-widget: ## Run widget tests
 	$(FLUTTER) test test/ui --exclude-tags=golden
@@ -173,4 +159,4 @@ verify-native: build-apk ## Verify Rust .so files in APK
 	printf '%s\n' "$$matches"
 
 adb-abi: ## Show connected Android ABI
-	@adb shell getprop ro.product.cpu.abi
+	adb shell getprop ro.product.cpu.abi
