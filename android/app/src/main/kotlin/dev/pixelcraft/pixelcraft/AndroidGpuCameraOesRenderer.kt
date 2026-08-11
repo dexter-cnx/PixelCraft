@@ -329,111 +329,126 @@ internal class AndroidGpuCameraOesRenderer(
     @SuppressLint("MissingPermission")
     private fun openCamera() {
         if (released || paused || cameraDevice != null || outputSurface == null) return
-        if (appContext.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            fail("Camera permission is not granted", SecurityException("CAMERA permission missing"))
-            return
-        }
-        val texture = inputSurfaceTexture ?: return
-        val cameraId = cameraIdForLens(lensFacing) ?: run {
-            fail("No camera for requested lens", IllegalStateException("Camera unavailable"))
-            return
-        }
-        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-        sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
-        val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            ?: throw IllegalStateException("Camera stream configuration is unavailable")
-        val previews = map.getOutputSizes(SurfaceTexture::class.java).orEmpty()
-        previewSize = choosePreviewSize(previews)
-        val pictureSize = choosePictureSize(map.getOutputSizes(ImageFormat.JPEG).orEmpty())
-        val selectedPreview = previewSize ?: throw IllegalStateException("No preview size available")
-        texture.setDefaultBufferSize(selectedPreview.width, selectedPreview.height)
+        try {
+            if (appContext.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                fail("Camera permission is not granted", SecurityException("CAMERA permission missing"))
+                return
+            }
+            val texture = inputSurfaceTexture ?: return
+            val cameraId = cameraIdForLens(lensFacing) ?: run {
+                fail("No camera for requested lens", IllegalStateException("Camera unavailable"))
+                return
+            }
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+            sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+            val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?: throw IllegalStateException("Camera stream configuration is unavailable")
+            val previews = map.getOutputSizes(SurfaceTexture::class.java).orEmpty()
+            previewSize = choosePreviewSize(previews)
+            val pictureSize = choosePictureSize(map.getOutputSizes(ImageFormat.JPEG).orEmpty())
+            val selectedPreview = previewSize ?: throw IllegalStateException("No preview size available")
+            texture.setDefaultBufferSize(selectedPreview.width, selectedPreview.height)
 
-        imageReader?.close()
-        imageReader = ImageReader.newInstance(
-            pictureSize.width,
-            pictureSize.height,
-            ImageFormat.JPEG,
-            2,
-        ).apply {
-            setOnImageAvailableListener({ reader ->
-                val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
-                try {
-                    val buffer = image.planes[0].buffer
-                    val bytes = ByteArray(buffer.remaining())
-                    buffer.get(bytes)
-                    val directory = File(appContext.cacheDir, "pixelcraft-camera").apply { mkdirs() }
-                    val file = File(directory, "capture-${System.currentTimeMillis()}.jpg")
-                    file.writeBytes(bytes)
-                    pendingCapture?.invoke(Result.success(file.absolutePath))
-                    pendingCapture = null
-                } catch (error: Throwable) {
-                    pendingCapture?.invoke(Result.failure(error))
-                    pendingCapture = null
-                } finally {
-                    image.close()
+            imageReader?.close()
+            imageReader = ImageReader.newInstance(
+                pictureSize.width,
+                pictureSize.height,
+                ImageFormat.JPEG,
+                2,
+            ).apply {
+                setOnImageAvailableListener({ reader ->
+                    val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
+                    try {
+                        val buffer = image.planes[0].buffer
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.get(bytes)
+                        val directory = File(appContext.cacheDir, "pixelcraft-camera").apply { mkdirs() }
+                        val file = File(directory, "capture-${System.currentTimeMillis()}.jpg")
+                        file.writeBytes(bytes)
+                        pendingCapture?.invoke(Result.success(file.absolutePath))
+                        pendingCapture = null
+                    } catch (error: Throwable) {
+                        pendingCapture?.invoke(Result.failure(error))
+                        pendingCapture = null
+                    } finally {
+                        image.close()
+                    }
+                }, cameraHandler)
+            }
+
+            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    if (released || paused || outputSurface == null) {
+                        camera.close()
+                        return
+                    }
+                    cameraDevice = camera
+                    try {
+                        createCaptureSession(camera)
+                    } catch (error: Throwable) {
+                        if (cameraDevice === camera) cameraDevice = null
+                        camera.close()
+                        fail("Unable to create Camera2 capture session", error)
+                    }
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    if (cameraDevice === camera) cameraDevice = null
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    camera.close()
+                    if (cameraDevice === camera) cameraDevice = null
+                    fail("Camera2 error $error", IllegalStateException("Camera2 error $error"))
                 }
             }, cameraHandler)
+        } catch (error: Throwable) {
+            closeCamera()
+            fail("Unable to open Camera2 preview", error)
         }
-
-        cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-            override fun onOpened(camera: CameraDevice) {
-                if (released || paused || outputSurface == null) {
-                    camera.close()
-                    return
-                }
-                cameraDevice = camera
-                createCaptureSession(camera)
-            }
-
-            override fun onDisconnected(camera: CameraDevice) {
-                camera.close()
-                if (cameraDevice === camera) cameraDevice = null
-            }
-
-            override fun onError(camera: CameraDevice, error: Int) {
-                camera.close()
-                if (cameraDevice === camera) cameraDevice = null
-                fail("Camera2 error $error", IllegalStateException("Camera2 error $error"))
-            }
-        }, cameraHandler)
     }
 
     private fun createCaptureSession(camera: CameraDevice) {
         val previewSurface = inputSurface ?: return
         val stillSurface = imageReader?.surface ?: return
-        camera.createCaptureSession(
-            listOf(previewSurface, stillSurface),
-            object : CameraCaptureSession.StateCallback() {
-                override fun onConfigured(session: CameraCaptureSession) {
-                    if (cameraDevice !== camera || released || paused) {
-                        session.close()
-                        return
+        try {
+            camera.createCaptureSession(
+                listOf(previewSurface, stillSurface),
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        if (cameraDevice !== camera || released || paused) {
+                            session.close()
+                            return
+                        }
+                        captureSession = session
+                        try {
+                            val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                addTarget(previewSurface)
+                                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                set(
+                                    CaptureRequest.CONTROL_AF_MODE,
+                                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
+                                )
+                            }.build()
+                            session.setRepeatingRequest(request, null, cameraHandler)
+                        } catch (error: Throwable) {
+                            fail("Unable to start Camera2 preview", error)
+                        }
                     }
-                    captureSession = session
-                    try {
-                        val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                            addTarget(previewSurface)
-                            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                            set(
-                                CaptureRequest.CONTROL_AF_MODE,
-                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
-                            )
-                        }.build()
-                        session.setRepeatingRequest(request, null, cameraHandler)
-                    } catch (error: Throwable) {
-                        fail("Unable to start Camera2 preview", error)
-                    }
-                }
 
-                override fun onConfigureFailed(session: CameraCaptureSession) {
-                    fail(
-                        "Unable to configure Camera2 capture session",
-                        IllegalStateException("configure failed"),
-                    )
-                }
-            },
-            cameraHandler,
-        )
+                    override fun onConfigureFailed(session: CameraCaptureSession) {
+                        fail(
+                            "Unable to configure Camera2 capture session",
+                            IllegalStateException("configure failed"),
+                        )
+                    }
+                },
+                cameraHandler,
+            )
+        } catch (error: Throwable) {
+            fail("Unable to configure Camera2 capture session", error)
+        }
     }
 
     private fun closeCamera() {
