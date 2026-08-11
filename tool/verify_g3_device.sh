@@ -6,6 +6,8 @@ DEVICE="${DEVICE:-}"
 PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
 DEV_BUNDLE_ID="dev.cnxdev.pixelcraft"
 VERIFY_BUNDLE_ID="dev.cnxdev.pixelcraft.g3verify"
+DRIVER="test_driver/integration_test.dart"
+TARGET="integration_test/g3_editor_gpu_verification_test.dart"
 
 if [[ -z "$DEVICE" ]]; then
   echo "ERROR: set DEVICE to a physical iOS device id." >&2
@@ -17,6 +19,11 @@ fi
 
 if [[ ! -f "$PBXPROJ" ]]; then
   echo "ERROR: missing $PBXPROJ" >&2
+  exit 2
+fi
+
+if [[ ! -f "$DRIVER" || ! -f "$TARGET" ]]; then
+  echo "ERROR: missing G3 integration driver/target." >&2
   exit 2
 fi
 
@@ -49,10 +56,12 @@ PY
 
 echo "[PixelCraft G3] device: $DEVICE"
 echo "[PixelCraft G3] app dev bundle remains untouched: $DEV_BUNDLE_ID"
-echo "[PixelCraft G3] running one consolidated install/test session"
+echo "[PixelCraft G3] verification bundle: $VERIFY_BUNDLE_ID"
+echo "[PixelCraft G3] running one consolidated flutter drive session"
 
-"$FLUTTER" test \
-  integration_test/g3_editor_gpu_verification_test.dart \
+"$FLUTTER" drive \
+  --driver="$DRIVER" \
+  --target="$TARGET" \
   -d "$DEVICE"
 
 echo
