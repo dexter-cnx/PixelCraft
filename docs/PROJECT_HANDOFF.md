@@ -623,9 +623,25 @@ Exit definition: editor workflow feels like an actual product rather than an eng
 
 # 8. G5 — Editing Feature Completeness
 
-Goal: select and implement the editing capability set needed for PixelCraft MVP/product positioning.
+Goal: select and implement the editing capability set needed for PixelCraft MVP/product positioning, then build user-created Film Profiles on top of stable semantic editing primitives.
 
 Do not implement every possible photo-editor feature blindly. Prioritize according to product scope and measurable user value.
+
+The Film Profile Creator belongs in G5 rather than G4. G3 must first stabilize production GPU composition/runtime, while G4 should make the existing editor/session workflow coherent. G5 is where new image semantics and reusable creative capabilities are intentionally introduced.
+
+Recommended dependency order:
+
+```text
+G5.1 Tone controls
+ -> G5.2 White balance / color controls
+ -> G5.3 Finish / texture controls
+ -> G5.4 Film Profile system foundation
+ -> G5.5 Film Profile Creator V1
+ -> G5.6 Recipe import/export compatibility
+ -> G5.7 Advanced Film Lab / Curves / HSL
+```
+
+This order prevents the Film Profile schema from being defined around unstable or UI-only parameters.
 
 ## G5.0 Feature-priority decision
 
@@ -641,6 +657,8 @@ Recommended MVP candidate set beyond existing capabilities:
 - Vignette
 - Grain
 - improved crop/rotate/straighten controls
+- Film Profile system foundation
+- user-created Film Profile Creator V1 if Film customization is part of MVP positioning
 
 Candidates for a richer v1/post-MVP:
 
@@ -649,8 +667,12 @@ Candidates for a richer v1/post-MVP:
 - selective color
 - denoise
 - clarity / texture
-- custom Film-profile creation
-- saved user presets/recipes
+- advanced grain response
+- halation / bloom
+- recipe-text import
+- QR/share-link profile transfer
+- profile variants/version history
+- community profiles / marketplace
 
 For every new effect:
 
@@ -671,6 +693,8 @@ Candidate controls:
 
 Define ranges, neutral values and operation ordering explicitly.
 
+These operations should become reusable semantic primitives that Film Profiles can reference later rather than embedding UI slider values or rendered output.
+
 ## G5.2 White balance / color controls
 
 Candidate controls:
@@ -678,8 +702,21 @@ Candidate controls:
 - Temperature
 - Tint
 - optional Vibrance distinct from Saturation
+- optional Color Density as a Film-oriented control distinct from Saturation
 
 Need color-space contract before claiming professional color accuracy.
+
+Distinguish capture/input white balance from Film Profile color bias. A profile must not silently overwrite camera WB semantics when its intent is only to add a creative warm/cool or green/magenta bias.
+
+Conceptual pipeline:
+
+```text
+input/camera white balance
+        +
+Film Profile color bias
+        ↓
+creative / Film response
+```
 
 ## G5.3 Finish / texture controls
 
@@ -691,26 +728,247 @@ Candidate controls:
 
 Film Grain should be deterministic for recipe/export reproducibility; store/generate a stable seed if stochastic behavior is used.
 
-## G5.4 Curves / HSL — optional richer v1
+Keep schema extensible for future advanced Film characteristics such as:
+
+- grain amount / size / roughness
+- luma-dependent grain response
+- halation
+- bloom / glow
+- diffusion / lens character
+
+These advanced controls do not need to block Film Profile Creator V1.
+
+## G5.4 Film Profile system foundation
+
+Goal: define a reusable Film Profile contract before exposing profile creation UI.
+
+A Film Profile is a reusable creative-look definition. It is not a captured GPU frame and it is not the same thing as per-image editing state.
+
+Supported profile sources should use one common model:
+
+```text
+Built-in Profile
+User-created Profile
+Imported Profile
+Future Community Profile
+        │
+        ↓
+      FilmProfile
+        │
+        ├── Camera Preview
+        ├── Editor Preview
+        └── Rust Full-resolution Export
+```
+
+Core invariants:
+
+1. Rust semantic operations remain authoritative for reproducible output.
+2. GPU paths preview a Film Profile but do not become its source of truth.
+3. Built-in profiles are immutable; users edit them by duplication.
+4. User profiles are data/configuration and must not require recompiling shaders or the app.
+5. A profile may contain only reusable look parameters; capture state such as ISO/shutter/focus and image-specific operations such as crop/rotation do not belong in the Film Profile by default.
+6. The format must be vendor-neutral. Do not make the core schema depend on Fujifilm or another camera brand's terminology.
+7. Profile schema/version and engine compatibility must be explicit so saved profiles can be migrated safely.
+
+Conceptual categories:
+
+```text
+FilmProfile
+ |- Identity / metadata
+ |- Base Look
+ |- Profile strength
+ |- Tone
+ |- Color / WB bias
+ |- Film response
+ |- Texture / detail
+ |- Optical effects
+ `- optional advanced color controls
+```
+
+Metadata should reserve at least:
+
+- stable profile ID
+- name / description
+- author where applicable
+- source: built-in / user / imported / future community
+- created/modified time
+- tags/favorites metadata where appropriate
+- profile schema version
+- minimum/compatible engine version
+
+Do not confuse Film Profile with an Adjustment Preset. Image-specific exposure correction, crop, geometry and local edits should remain in the image/session recipe unless the user explicitly chooses a future preset type that includes them.
+
+Exit gate: stable Film Profile schema/contract exists, can represent built-in and user profiles, has migration/version rules, and can resolve to authoritative Rust operations for final render.
+
+## G5.5 Film Profile Creator V1
+
+Goal: allow users to create, duplicate, edit, preview and save their own Film Profiles without touching code or rebuilding the application.
+
+Recommended creation entry points:
+
+```text
+Create Film Profile
+ |- Blank Profile
+ |- Duplicate Existing Profile
+ `- Film Recipe style setup
+```
+
+The initial Creator should use one underlying Film Profile model with different UI views rather than separate incompatible profile formats.
+
+Recommended V1 editor modes:
+
+### Simple
+
+Expose only high-value controls such as:
+
+- Base Look
+- Profile Strength
+- Contrast
+- Highlights
+- Shadows
+- Saturation / Color
+- Temperature bias
+- Tint bias
+- Grain amount
+- Grain size
+- Sharpness
+- optional Clarity if semantics already exist
+
+### Recipe
+
+Provide a discrete recipe-oriented workflow familiar to users of camera Film recipes while keeping PixelCraft terminology and storage vendor-neutral.
+
+Candidate fields:
+
+- Base Look
+- Dynamic-range / highlight-response choice if PixelCraft defines an equivalent semantic contract
+- Highlight Tone
+- Shadow Tone
+- Color
+- White Balance preset or temperature
+- WB/color shift
+- Sharpness
+- Noise Reduction if supported
+- Clarity if supported
+- Grain strength / size
+- future Chrome-like color effects only if PixelCraft has its own defined semantics
+
+Do not claim that a third-party camera recipe reproduces proprietary camera processing 1:1. Imported or manually recreated recipes should be treated as PixelCraft-compatible approximations unless verified otherwise.
+
+### Advanced
+
+Advanced mode is intentionally post-V1 unless the corresponding semantics are already implemented. It can later expose:
+
+- RGB/master curves
+- HSL / Color Mixer
+- toe / shoulder
+- highlight roll-off
+- shadow response
+- color density
+- advanced grain response
+- halation
+- bloom
+- monochrome channel mixer / filters
+
+Creator UX requirements:
+
+- realtime preview through the production GPU path when supported
+- deterministic Rust-authoritative commit/render path
+- hold-to-compare Before/After
+- optional split compare later
+- Reset current parameter
+- Reset section
+- Save
+- Save as Copy
+- Duplicate built-in or user profile
+- Delete user profile only
+- Favorite user/built-in profiles
+- global Profile Strength
+- clear changed-from-base indicators where useful
+
+Recommended Camera integration after the Creator is stable:
+
+```text
+Camera
+ -> quick Film Profile selector
+ -> Built-in + Favorites + My Profiles
+ -> realtime profile preview
+ -> clean capture source remains unchanged
+```
+
+The existing hard contract still applies: Camera Film/Profile is preview-only; capture source stays clean unless a future explicit architecture/product decision changes that policy.
+
+Exit gate:
+
+- user can create a Film Profile from blank or by duplicating an existing profile
+- user can edit supported V1 look parameters with realtime preview
+- saved profile can be reopened without semantic drift
+- same profile can be applied in Editor and selected for Camera preview where supported
+- final export is reproduced from Rust semantic data, not captured GPU output
+- built-in profiles cannot be overwritten accidentally
+- profile persistence survives restart and schema compatibility is validated
+
+## G5.6 Film Recipe import/export compatibility — optional richer v1 / post-MVP
+
+After Film Profile Creator V1 is stable, add profile portability rather than coupling import logic to the first profile schema.
+
+Potential inputs:
+
+- `.pixelcraftprofile` file
+- structured JSON/package format
+- pasted recipe text
+- QR code / share link later
+
+Recipe conversion flow should be explicit:
+
+```text
+external/manual recipe
+        ↓
+parser / mapper
+        ↓
+PixelCraft FilmProfile
+        ↓
+conversion preview
+        ↓
+user reviews approximations / unsupported fields
+        ↓
+save as user profile
+```
+
+Requirements:
+
+- never silently discard unsupported recipe fields
+- show which settings were mapped exactly, approximated or unsupported
+- import creates a local editable profile rather than mutating a built-in source
+- export includes schema version and compatibility metadata
+- do not store proprietary LUT/process data copied from a third-party system unless licensing explicitly permits it
+
+Sharing/community discovery can be added later without changing the local Film Profile semantics.
+
+## G5.7 Curves / HSL / Advanced Film Lab — optional richer v1 / post-MVP
 
 If included:
 
 - Curves need compact serializable control points and stable interpolation semantics.
 - HSL/Color Mixer needs explicit hue-sector definitions and parity tests.
+- Film-response controls such as toe, shoulder, highlight roll-off, shadow response and color density need explicit operation ordering and range contracts.
+- Halation and bloom should remain separate effects; preview may use an optimized approximation while final render remains Rust-authoritative.
 
-These should not block MVP unless they are core product positioning.
+These should not block MVP unless advanced Film Profile creation is core product positioning.
 
-## G5.5 Custom presets / Film recipes
+## G5 final gate
 
-Potential product feature:
+Before closing G5, document the selected MVP boundary and verify:
 
-- save current edit recipe as user preset
-- apply preset to another image
-- share/import preset later if desired
+- all included new effects have authoritative Rust semantics/tests
+- GPU previews that exist have parity/latency evidence appropriate to their effect
+- user-created Film Profiles serialize/restore deterministically
+- built-in/user/imported profile ownership rules are enforced
+- Camera profile preview still preserves clean capture
+- Editor and full-resolution export resolve the same Film Profile semantics
+- unsupported profile/recipe versions fail safely with useful UX
 
-A preset should reference semantic Rust operations, not captured GPU output.
-
-Exit definition: agreed MVP editing feature set is implemented, tested and documented.
+Exit definition: agreed MVP editing feature set and selected Film Profile capabilities are implemented, tested and documented.
 
 ---
 
@@ -754,6 +1012,7 @@ Stress scenarios:
 - open/close Editor repeatedly
 - camera -> editor -> camera loops
 - background/foreground loops
+- repeated Film Profile switching/edit/save cycles if Creator is included in MVP
 
 Watch for:
 
@@ -761,7 +1020,7 @@ Watch for:
 - renderer leaks
 - stale temp files
 - native crashes
-- recipe corruption
+- recipe/profile corruption
 - progressive slowdown
 
 ## G6.3 iOS matrix
@@ -806,6 +1065,7 @@ Test graceful failure for:
 - renderer creation failure
 - source file unavailable
 - corrupt recovery recipe
+- corrupt/incompatible saved Film Profile if Creator is included
 - export write failure
 - gallery permission/write failure
 - camera permission denied
@@ -918,6 +1178,8 @@ These are intentionally not required for the initial product unless prioritized 
 - account system
 - cross-device project library
 - preset marketplace/sharing
+- Film Profile community discovery / ratings / creator pages
+- profile variants and cross-device profile sync
 - RAW/DNG development pipeline
 - masking/local adjustments
 - AI segmentation/object editing
@@ -973,5 +1235,7 @@ mark G2 CLOSED
 ```
 
 Do not begin G4/G5 product-scope additions until G3 production-rendering architecture is stable.
+
+When G5 begins, do not start with Film Profile Creator UI first. Establish the required tone/color/texture semantics and the Film Profile schema/contract before exposing user-created profiles.
 
 The highest-value implementation after G2 merge is **G3.1 Multi-adjustment GPU composition**.
