@@ -35,7 +35,7 @@ void main() {
     final restored = await store.load();
 
     expect(restored, isNotNull);
-    expect(restored!.originalBytes, source);
+    expect(restored!.originalBytes, orderedEquals(source));
     expect(restored.recipeJson, recipe());
   });
 
@@ -78,6 +78,6 @@ void main() {
     final restored = await store.load();
 
     expect(restored, isNotNull);
-    expect(restored!.originalBytes, sourceA);
+    expect(restored!.originalBytes, orderedEquals(sourceA));
   });
 }
