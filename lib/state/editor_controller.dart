@@ -798,6 +798,24 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
+  Future<void> commitCrop({
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  }) async {
+    if (state.isBusy || state.isPreviewProcessing) return;
+    _resetPendingKinds();
+    await _applyBackgroundTransform(
+      () => _engine.applyCropInBackground(
+        x: x,
+        y: y,
+        width: width,
+        height: height,
+      ),
+    );
+  }
+
   Future<void> applyCenteredCrop(double aspectRatio) async {
     if (state.isBusy || state.isPreviewProcessing) return;
     double width = 1;
