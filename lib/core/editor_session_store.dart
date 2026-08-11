@@ -64,6 +64,10 @@ class EditorSessionStore {
     required Uint8List originalBytes,
     required String recipeJson,
   }) {
+    if (!_isRecipeEnvelopeValid(recipeJson)) {
+      throw const FormatException('Refusing to persist an invalid editor recipe');
+    }
+
     final completer = _writeTail.then((_) async {
       final directory = await _directory();
       await directory.create(recursive: true);
@@ -143,6 +147,7 @@ class EditorSessionStore {
           decoded['version'] != _generationVersion ||
           decoded['sourceFile'] is! String ||
           decoded['recipeFile'] is! String ||
+          decoded['sourceFingerprint'] is! String ||
           decoded['savedAt'] is! String) {
         return null;
       }
@@ -154,9 +159,17 @@ class EditorSessionStore {
       final savedAt = DateTime.tryParse(decoded['savedAt'] as String);
       if (savedAt == null) return null;
 
+      final originalBytes = await source.readAsBytes();
+      if (_fingerprint(originalBytes) != decoded['sourceFingerprint']) {
+        return null;
+      }
+
+      final recipeJson = await recipe.readAsString();
+      if (!_isRecipeEnvelopeValid(recipeJson)) return null;
+
       return StoredEditorSession(
-        originalBytes: await source.readAsBytes(),
-        recipeJson: await recipe.readAsString(),
+        originalBytes: originalBytes,
+        recipeJson: recipeJson,
         savedAt: savedAt,
       );
     } catch (_) {
@@ -178,13 +191,35 @@ class EditorSessionStore {
           savedAt = DateTime.tryParse(value) ?? savedAt;
         }
       }
+
+      final recipeJson = await recipe.readAsString();
+      if (!_isRecipeEnvelopeValid(recipeJson)) return null;
+
       return StoredEditorSession(
         originalBytes: await source.readAsBytes(),
-        recipeJson: await recipe.readAsString(),
+        recipeJson: recipeJson,
         savedAt: savedAt,
       );
     } catch (_) {
       return null;
+    }
+  }
+
+  bool _isRecipeEnvelopeValid(String recipeJson) {
+    try {
+      final decoded = jsonDecode(recipeJson);
+      if (decoded is! Map<String, dynamic>) return false;
+      final operations = decoded['operations'];
+      final cursor = decoded['cursor'];
+      final checkpoint = decoded['checkpoint_cursor'];
+      if (operations is! List || cursor is! int || checkpoint is! int) {
+        return false;
+      }
+      if (cursor < 0 || cursor > operations.length) return false;
+      if (checkpoint < 0 || checkpoint > cursor) return false;
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
