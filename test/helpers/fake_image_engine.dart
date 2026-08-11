@@ -119,16 +119,15 @@ class FakeImageEngine implements ImageEngine {
         );
       final requestedCursor = decoded['cursor'];
       cursor = requestedCursor is int
-          ? requestedCursor.clamp(0, operations.length)
+          ? requestedCursor.clamp(0, operations.length).toInt()
           : operations.length;
       final requestedCheckpoint = decoded['checkpoint_cursor'];
       checkpointCursor = requestedCheckpoint is int
-          ? requestedCheckpoint.clamp(0, cursor)
+          ? requestedCheckpoint.clamp(0, cursor).toInt()
           : 0;
       operationCount = operations.length;
       _syncActiveOperationState();
     } else {
-      // Preserve the legacy minimal fixture used by the restore smoke test.
       operations.clear();
       cursor = recipeJson.contains('draft') ? 1 : 0;
       operationCount = cursor;
@@ -202,23 +201,6 @@ class FakeImageEngine implements ImageEngine {
       'value': value,
     };
     final slot = _findFilterSlot(filter);
-    if (slot >= 0) {
-      operations[slot] = replacement;
-    } else {
-      operations.add(replacement);
-      cursor = operations.length;
-    }
-    operationCount = operations.length;
-  }
-
-  void _upsertCreative(String filter, double value) {
-    _truncateRedoTail();
-    final replacement = <String, dynamic>{
-      'type': 'filter',
-      'name': filter,
-      'value': value,
-    };
-    final slot = _findCreativeSlot();
     if (slot >= 0) {
       operations[slot] = replacement;
     } else {
