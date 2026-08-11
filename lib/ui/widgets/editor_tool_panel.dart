@@ -210,8 +210,10 @@ class _DraftActionBar extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
+        Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 8,
+          runSpacing: 8,
           children: [
             OutlinedButton.icon(
               key: const ValueKey('cancel_edits_button'),
@@ -219,7 +221,6 @@ class _DraftActionBar extends StatelessWidget {
               icon: const Icon(Icons.restart_alt_rounded),
               label: const Text('Discard Draft'),
             ),
-            const SizedBox(width: 8),
             FilledButton.icon(
               key: const ValueKey('apply_edits_button'),
               onPressed: enabled ? controller.applyEdits : null,
