@@ -19,10 +19,8 @@ fi
 mkdir -p "$OUT"
 cd "$ROOT"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-log="$OUT/${stamp}-${DEVICE//[^A-Za-z0-9_.-]/_}.log"
-start_epoch="$(date +%s)"
-end_epoch=$((start_epoch + DURATION_MIN * 60))
-cycle=0
+safe_device="${DEVICE//[^A-Za-z0-9_.-]/_}"
+log="$OUT/${stamp}-${safe_device}.log"
 
 {
   echo "PixelCraft G6.4 sustained workload"
@@ -30,17 +28,28 @@ cycle=0
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "device=$DEVICE"
   echo "duration_min=$DURATION_MIN"
+  echo "session=single flutter drive"
+  echo "main_app_policy=do not uninstall or overwrite dev.cnxdev.pixelcraft"
   echo "NOTE: thermal state/heat/throttling observations must still be recorded manually in docs/G6_RELIABILITY_MATRIX.md"
 } | tee "$log"
 
-while [[ "$(date +%s)" -lt "$end_epoch" ]]; do
-  cycle=$((cycle + 1))
-  echo "[G6.4] cycle=$cycle utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$log"
-  flutter test integration_test/performance_profile_test.dart -d "$DEVICE" 2>&1 \
-    | tee -a "$log"
-done
+if DEVICE="$DEVICE" \
+  G6_MODE=thermal \
+  G6_DURATION_MIN="$DURATION_MIN" \
+  G6_SESSION_LOG="$log.session" \
+  bash tool/g6_run_device_session.sh; then
+  cat "$log.session" >> "$log"
+  rm -f "$log.session"
+else
+  status=$?
+  cat "$log.session" >> "$log" 2>/dev/null || true
+  rm -f "$log.session"
+  echo "[G6.4] FAIL status=$status evidence=$log" | tee -a "$log"
+  exit "$status"
+fi
 
 {
-  echo "[G6.4] completed_cycles=$cycle"
+  echo "[G6.4] PASS"
   echo "[G6.4] evidence=$log"
+  echo "[G6.4] NOTE: the installed PixelCraft main app was not targeted by this runner"
 } | tee -a "$log"
