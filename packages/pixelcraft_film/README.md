@@ -2,7 +2,7 @@
 
 Film Profile product/domain orchestration for PixelCraft.
 
-`pixelcraft_film` sits above `pixelcraft_editing`: it coordinates reusable Film Profile creation, library, duplication and import workflows while keeping image-processing semantics and LUT authority in Rust.
+`pixelcraft_film` sits above `pixelcraft_editing`: it coordinates reusable Film Profile creation, library, duplication, import, and creator-draft workflows while keeping image-processing semantics and LUT authority in Rust.
 
 ## Owns
 
@@ -21,7 +21,7 @@ Film Profile product/domain orchestration for PixelCraft.
 - GPU preview backends
 - Flutter UI/navigation
 - filesystem or `path_provider` storage implementation
-- editor history/checkpoints/recovery
+- Editor history/checkpoints/recovery
 - base-Film discovery from the Rust LUT catalog
 
 ## Dependency direction
@@ -82,7 +82,7 @@ toProfile(newId: ...)
 FilmProfileV1
 ```
 
-Parameter clamp/reset behavior delegates to the semantic parameter specs owned by `pixelcraft_editing`. Neutral values are normalized by `FilmProfileV1` when the final profile is built.
+Parameter clamp/reset behavior delegates to semantic parameter specs owned by `pixelcraft_editing`. Neutral values are normalized by `FilmProfileV1` when the final profile is built.
 
 Time-based ID generation remains outside the package so package behavior stays deterministic and testable.
 
@@ -130,6 +130,8 @@ Canonical Film LUT data remains Rust-owned. `pixelcraft_film` coordinates config
 
 ## Validation
 
+Package-local validation:
+
 ```bash
 cd packages/pixelcraft_film
 dart pub get
@@ -138,5 +140,16 @@ dart test
 ```
 
 Root CI also runs package-boundary guards and the full Flutter/Rust/GPU/native packaging suite.
+
+Latest verified P3 implementation baseline before final documentation commits:
+
+```text
+HEAD: cbd70e509018eed1842c162e85b463662e0905f4
+CI run #202
+run id: 31598466536
+SUCCESS
+```
+
+The final documentation-only HEAD must pass one fresh CI cycle before PR #17 is marked Ready or merged.
 
 See [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md) for the detailed data flow.
