@@ -2,7 +2,7 @@ use image::{DynamicImage, RgbaImage};
 use imageproc::filter::{filter3x3, gaussian_blur_f32};
 use rayon::prelude::*;
 
-use crate::photon_filters;
+use crate::{advanced_filters, photon_filters};
 
 fn parallel_map_pixels(
     image: &RgbaImage,
@@ -22,8 +22,7 @@ fn clamp_u8(value: f32) -> u8 {
 }
 
 fn luminance01(pixel: [u8; 4]) -> f32 {
-    (0.2126 * pixel[0] as f32 + 0.7152 * pixel[1] as f32 + 0.0722 * pixel[2] as f32)
-        / 255.0
+    (0.2126 * pixel[0] as f32 + 0.7152 * pixel[1] as f32 + 0.0722 * pixel[2] as f32) / 255.0
 }
 
 fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
@@ -56,6 +55,9 @@ fn apply_masked_tone(pixel: [u8; 4], amount: f32, mask: f32) -> [u8; 4] {
 pub fn apply(image: DynamicImage, filter: &str, value: f32) -> Result<DynamicImage, String> {
     if photon_filters::is_photon_filter(filter) {
         return photon_filters::apply(image, filter, value);
+    }
+    if advanced_filters::is_supported(filter) {
+        return advanced_filters::apply(image, filter, value);
     }
 
     let rgba = image.to_rgba8();
@@ -116,7 +118,8 @@ pub fn apply(image: DynamicImage, filter: &str, value: f32) -> Result<DynamicIma
         "saturation" => {
             let factor = value.clamp(0.0, 2.0);
             parallel_map_pixels(&rgba, |p| {
-                let luminance = 0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32;
+                let luminance =
+                    0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32;
                 [
                     clamp_u8(luminance + (p[0] as f32 - luminance) * factor),
                     clamp_u8(luminance + (p[1] as f32 - luminance) * factor),
@@ -215,12 +218,10 @@ mod tests {
     #[test]
     fn tone_controls_preserve_alpha() {
         let source = [80, 120, 200, 91];
-        for (name, value) in [
-            ("exposure", 1.0),
-            ("highlights", -0.5),
-            ("shadows", 0.5),
-        ] {
-            let output = apply(image_with_pixel(source), name, value).unwrap().to_rgba8();
+        for (name, value) in [("exposure", 1.0), ("highlights", -0.5), ("shadows", 0.5)] {
+            let output = apply(image_with_pixel(source), name, value)
+                .unwrap()
+                .to_rgba8();
             assert_eq!(output.get_pixel(0, 0).0[3], 91, "{name} changed alpha");
         }
     }
@@ -240,6 +241,13 @@ mod tests {
         assert_eq!(pixel[0], pixel[1]);
         assert_eq!(pixel[1], pixel[2]);
         assert_eq!(pixel[3], 255);
+    }
+
+    #[test]
+    fn advanced_filter_dispatch_is_authoritative() {
+        let input = image_with_pixel([100, 100, 100, 255]);
+        let output = apply(input, "temperature", 1.0).unwrap().to_rgba8();
+        assert!(output.get_pixel(0, 0).0[0] > output.get_pixel(0, 0).0[2]);
     }
 
     #[test]
