@@ -16,7 +16,7 @@ fn backend_bit(backend: wgpu::Backend) -> u32 {
 }
 
 fn enumerate() -> Vec<wgpu::Adapter> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
 }
 
