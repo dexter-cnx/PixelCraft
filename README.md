@@ -24,11 +24,11 @@ G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
 P0  pixelcraft_engine package extraction        MERGED
 P1  pixelcraft_gpu package extraction           MERGED
 P2  pixelcraft_editing package extraction       MERGED
-P3  pixelcraft_film package extraction          ACTIVE — PR #17
-G7  Release / Beta / Store Readiness            DEFERRED UNTIL PACKAGE EXTRACTION COMPLETES
+P3  pixelcraft_film package extraction          FINALIZATION — PR #17
+G7  Release / Beta / Store Readiness            DEFERRED UNTIL P3 MERGES
 ```
 
-P1 physical smoke passed on both iOS and Android. P2 merged after the package-boundary, Flutter, Rust, GPU, golden, and native packaging gates were green. P3 is extracting reusable Film Profile product/domain orchestration without moving LUT or pixel authority out of Rust.
+P1 physical smoke passed on both iOS and Android. P2 merged after package-boundary, Flutter, Rust, GPU, golden, and native packaging gates were green. P3 implementation is complete enough for final review and its latest pre-final-doc implementation HEAD (`cbd70e509018eed1842c162e85b463662e0905f4`) passed full CI in run #202 (`31598466536`). Final documentation commits require one fresh green CI before PR #17 is marked Ready or merged.
 
 ## Canonical runtime flow
 
@@ -122,15 +122,15 @@ Preview-only Flutter plugin for native GPU preview infrastructure.
 Current platform scope:
 
 - **Android:** Camera2/OpenGL ES camera preview path and camera control/runtime registration.
-- **iOS:** AVFoundation/Metal camera preview plus the implemented native editor GPU preview path.
+- **iOS:** AVFoundation/Metal camera preview plus the implemented native Editor GPU preview path.
 
-Android does **not** currently provide the editor GPU channel/view used by `GpuEditorRenderPlan`; Android editor preview therefore stays on the Rust/product path until an Android editor implementation is added and parity-verified.
+Android does **not** currently provide the Editor GPU channel/view used by `GpuEditorRenderPlan`; Android Editor preview therefore stays on the Rust/product path until an Android Editor implementation is added and parity-verified.
 
 Owns:
 
 - app-independent Dart GPU transport/session infrastructure
 - Android Camera2/OpenGL ES camera runtime
-- iOS AVFoundation/Metal camera and editor runtime
+- iOS AVFoundation/Metal camera and Editor runtime
 - plugin registration
 - diagnostics/frame pacing
 
@@ -163,9 +163,9 @@ Current responsibilities include:
 
 - `FilmProfileRepository` persistence contract
 - `FilmProfileLibrary` load/save/delete/duplicate/import workflow
-- PixelCraft profile JSON vs generic recipe import classification
+- `FilmProfileImportService` for PixelCraft profile JSON vs generic recipe classification
 - exact/approximated/unsupported import-report propagation
-- `FilmProfileDraft` creator defaults, clamp/reset, metadata normalization, and profile composition
+- `FilmProfileDraft` creator defaults, neutral initialization, clamping/reset, metadata normalization, and deterministic profile composition
 
 Filesystem storage remains app-owned through `FilmProfileStore`; canonical Film LUT data remains Rust-owned.
 
@@ -174,7 +174,7 @@ Filesystem storage remains app-owned through `FilmProfileStore`; canonical Film 
 
 ## Editing model
 
-Rust retains the untouched source, reduced editor preview, recipe/history state, and Apply checkpoint.
+Rust retains the untouched source, reduced Editor preview, recipe/history state, and Apply checkpoint.
 
 Conceptually:
 
@@ -190,7 +190,7 @@ Typical interaction:
 
 ```text
 slider drag
-  -> GPU preview only where a verified native editor path exists and is representable
+  -> GPU preview only where a verified native Editor path exists and is representable
 
 slider release
   -> Rust semantic commit/replace
@@ -231,11 +231,13 @@ A Film Profile deliberately excludes:
 
 - source image data
 - crop/rotate state
-- editor history
+- Editor history
 - checkpoint state
 - captured GPU pixels
 
 Creation/import orchestration may run through `pixelcraft_film`, while profile configuration/mapping semantics remain in `pixelcraft_editing`.
+
+Film creator semantics now use `FilmProfileDraft` for reusable default/clamp/reset/build behavior while Flutter retains widgets, controllers, navigation, and ID generation.
 
 Loading a Film Profile materializes normal Rust recipe operations, so it participates in Apply/Discard, history, recovery, and export.
 
@@ -341,19 +343,28 @@ iOS native packaging smoke
 wgpu core Linux / macOS / Windows
 ```
 
-Native architecture changes additionally require physical-device smoke on supported iOS and Android devices before closure.
+Latest verified P3 implementation run before the final documentation-only commits:
+
+```text
+run #202
+run id: 31598466536
+HEAD: cbd70e509018eed1842c162e85b463662e0905f4
+SUCCESS
+```
+
+Native architecture changes additionally require physical-device smoke on supported iOS and Android devices before closure. Pure-Dart/docs-only P3 finalization does not automatically require a new device smoke cycle.
 
 ## Documentation
 
 - [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — canonical continuation status and current next action
-- [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md) — current application/runtime architecture
+- [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md) — current application/runtime/package architecture
 - [`packages/pixelcraft_engine/CODE_WALKTHROUGH.md`](packages/pixelcraft_engine/CODE_WALKTHROUGH.md) — FRB/CargoKit/native engine integration
 - [`packages/pixelcraft_gpu/CODE_WALKTHROUGH.md`](packages/pixelcraft_gpu/CODE_WALKTHROUGH.md) — GPU control plane and native preview runtime
 - [`packages/pixelcraft_editing/CODE_WALKTHROUGH.md`](packages/pixelcraft_editing/CODE_WALKTHROUGH.md) — pure editing/configuration contracts
 - [`packages/pixelcraft_film/CODE_WALKTHROUGH.md`](packages/pixelcraft_film/CODE_WALKTHROUGH.md) — Film Profile product/domain orchestration
 - [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md) — iOS dependency migration constraints
 
-Current continuation is **P3 / PR #17**. After P3 merges, return to G7 release-readiness by rebasing/recreating the preserved pre-refactor work over the post-P3 `main`.
+Current continuation is **P3 finalization / PR #17**. After P3 merges, return to G7 release-readiness by rebasing/recreating the preserved pre-refactor work over the post-P3 `main`.
 
 ## License
 
