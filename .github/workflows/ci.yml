@@ -125,3 +125,99 @@ jobs:
           name: golden-failures-macos-${{ github.run_id }}
           path: test/golden/failures/**
           if-no-files-found: ignore
+
+  android-release:
+    name: Android release artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Build unsigned release APK
+        run: flutter build apk --release
+
+      - name: Verify Rust native library is packaged
+        run: |
+          unzip -l build/app/outputs/flutter-apk/app-release.apk | tee /tmp/pixelcraft-apk.txt
+          grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/libpixelcraft_engine\.so' /tmp/pixelcraft-apk.txt
+
+      - name: Verify release artifact is not debug-signed
+        run: |
+          if [ -f android/key.properties ]; then
+            echo "CI unexpectedly contains android/key.properties" >&2
+            exit 1
+          fi
+          if grep -q 'signingConfig = signingConfigs.getByName("debug")' android/app/build.gradle.kts; then
+            echo "Release build still references debug signing" >&2
+            exit 1
+          fi
+
+      - name: Upload Android release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixelcraft-android-release-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  ios-release:
+    name: iOS release no-codesign
+    runs-on: macos-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Build iOS release without signing
+        run: flutter build ios --release --no-codesign
+
+      - name: Verify app bundle and Rust/native output exist
+        run: |
+          test -d build/ios/iphoneos/Runner.app
+          find build/ios/iphoneos/Runner.app -maxdepth 3 -type f | sort > /tmp/pixelcraft-ios-files.txt
+          grep -E '(pixelcraft_engine|Runner)' /tmp/pixelcraft-ios-files.txt
+
+      - name: Upload unsigned iOS app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixelcraft-ios-release-${{ github.sha }}
+          path: build/ios/iphoneos/Runner.app
+          if-no-files-found: error
