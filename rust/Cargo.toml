@@ -8,8 +8,10 @@ license = "MIT"
 [lib]
 # Keep the produced native filename deterministic across Cargo and FRB:
 # Android => libpixelcraft_engine.so
+# `rlib` lets Rust integration tests under rust/tests import the same public
+# API without changing the cdylib/staticlib artifacts used by Flutter.
 name = "pixelcraft_engine"
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.12.0"
