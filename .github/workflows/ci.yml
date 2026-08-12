@@ -59,6 +59,11 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path rust/Cargo.toml
 
+      - name: G6 12 MP image characterization
+        env:
+          G6_MAX_MP: '12'
+        run: cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -- --ignored --nocapture
+
       - name: GPU LUT parity
         run: make gpu-lut-verify
 
