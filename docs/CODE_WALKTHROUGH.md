@@ -17,16 +17,22 @@ P1  pixelcraft_gpu package extraction           MERGED
 P2  pixelcraft_editing package extraction       MERGED
 P3  pixelcraft_film package extraction          MERGED
 
-G7A Release Engineering / Store Preparation     ACTIVE — FINALIZATION / PR #18
+G7A Release Engineering / Store Preparation     MERGED — PR #18
 G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
 ```
 
-Latest verified implementation baseline before final documentation commits:
+G7A merge commit:
 
 ```text
-HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
-CI run #216
-GitHub Actions run id: 31609170884
+507875b2e1187e2bc2f0a6d0535b77dc0455b69f
+```
+
+Latest fully verified G7A PR head:
+
+```text
+HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
+CI run #221
+GitHub Actions run id: 31611799174
 conclusion: SUCCESS
 ```
 
@@ -422,7 +428,7 @@ CAMERA
 WRITE_EXTERNAL_STORAGE only through API 28
 ```
 
-`RECORD_AUDIO` is removed from the merged app manifest because the Flutter fallback camera uses `enableAudio: false`. The run #214 APK verified the microphone permission is absent after the change.
+`RECORD_AUDIO` is removed from the merged app manifest because the Flutter fallback camera uses `enableAudio: false`. The post-change release APK verified the microphone permission is absent.
 
 ---
 
@@ -444,13 +450,13 @@ version/build: FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER
 
 Usage descriptions cover Camera, Photo Library read/select, and Photo Library add/save.
 
-Dependency Privacy Manifests are present in the release bundle. PixelCraft currently has no app-owned `PrivacyInfo.xcprivacy`; G7A does not invent one without app-owned required-reason evidence. Re-audit the final signed archive in G7B.
+Dependency Privacy Manifests are present in the release bundle. PixelCraft currently has no app-owned `PrivacyInfo.xcprivacy`; do not invent one without app-owned required-reason evidence. Re-audit the final signed archive in G7B.
 
 ---
 
 # 15. G7A CI release gates
 
-Current CI adds release jobs to existing semantic/native validation:
+Current CI adds release jobs to semantic/native validation:
 
 ```text
 android-release
@@ -469,11 +475,19 @@ ios-release
   -> upload app bundle
 ```
 
-Run #216 passed all jobs at:
+Run #221 passed the complete PR suite, including:
 
 ```text
-HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
-run id: 31609170884
+package boundaries
+Rust fmt/clippy/tests
+editing package analyze/tests
+film package analyze/tests
+GPU package analyze/tests
+Flutter analyze/state/GPU/widget tests
+golden + iOS native packaging
+Android release artifact
+iOS release no-codesign
+wgpu Linux/macOS/Windows
 ```
 
 Unsigned/no-codesign output is packaging evidence only, not signed-store evidence.
@@ -496,9 +510,9 @@ Actual signed distribution begins in G7B.
 
 # 17. G7A vs G7B
 
-G7A owns account-independent release engineering and preparation.
+G7A account-independent release engineering is merged.
 
-G7B is blocked until Apple Developer/App Store Connect and Google Play Console accounts exist. G7B will own:
+G7B remains blocked until Apple Developer/App Store Connect and Google Play Console accounts exist. G7B owns:
 
 ```text
 production signing
@@ -514,21 +528,14 @@ signed RC physical-device smoke
 
 ---
 
-# 18. PR #10 handling
-
-Old PR #10 predates P0–P3 and is not the active G7 line.
-
-After PR #18 merges:
+# 18. PR history
 
 ```text
-1. audit PR #10 file-by-file against post-G7A main
-2. migrate any genuinely missing work
-3. close PR #10 as superseded
-4. keep branch feature/g7-release-readiness as historical reference
-5. delete that branch only if the user explicitly asks
+PR #18  G7A release engineering                 MERGED
+PR #10  old pre-P0–P3 G7 foundation             CLOSED / SUPERSEDED
 ```
 
-Do not merge/rebase PR #10 unchanged.
+PR #10 was audited file-by-file after G7A merge. Its useful release-signing/CI/documentation work was already recreated and expanded in PR #18, so it must not be merged or rebased as an alternate G7 line.
 
 ---
 
@@ -583,14 +590,6 @@ Rust authority
 
 # 21. Continuation point
 
-P0–P3 are merged. G7A is in finalization on PR #18.
+P0–P3 and G7A are merged. PR #10 is closed/superseded. G7B remains externally blocked.
 
-```text
-1. require fresh green CI on the final documentation HEAD
-2. inspect PR #18 review threads/submissions
-3. if clear, mark PR #18 Ready for Review
-4. merge with the latest expected head SHA when approved
-5. verify post-merge main
-6. audit PR #10 as described above
-7. keep G7B blocked until Apple/Google accounts exist
-```
+Continue from `docs/PROJECT_HANDOFF.md` for account-independent maintenance/product work. When Apple/Google store accounts become available, begin G7B with production signing, store-record setup, signed internal beta distribution, final privacy-form verification, and RC physical-device smoke.
