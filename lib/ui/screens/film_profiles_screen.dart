@@ -23,6 +23,7 @@ class FilmProfilesScreen extends StatefulWidget {
 class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   late final FilmProfileStore _store = widget.store ?? FilmProfileStore();
   late final FilmProfileLibrary _library = FilmProfileLibrary(_store);
+  final SearchController _searchController = SearchController();
   List<FilmProfileV1> _profiles = const [];
   bool _loading = true;
   String _query = '';
@@ -39,6 +40,25 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
+
+  void _clearFilters() {
+    _searchController.clear();
+    setState(() {
+      _query = '';
+      _originFilter = null;
+    });
   }
 
   Future<void> _refresh() async {
@@ -208,13 +228,14 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
         children: [
           SearchBar(
             key: const ValueKey('film_profile_search'),
+            controller: _searchController,
             hintText: 'Search Films, tags, descriptions…',
             leading: const Icon(Icons.search_rounded),
             trailing: [
               if (_query.isNotEmpty)
                 IconButton(
                   tooltip: 'Clear search',
-                  onPressed: () => setState(() => _query = ''),
+                  onPressed: _clearSearch,
                   icon: const Icon(Icons.close_rounded),
                 ),
             ],
@@ -294,10 +315,7 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
               const Text('Try another search or show all profile origins.'),
               const SizedBox(height: 16),
               OutlinedButton(
-                onPressed: () => setState(() {
-                  _query = '';
-                  _originFilter = null;
-                }),
+                onPressed: _clearFilters,
                 child: const Text('Clear filters'),
               ),
             ],
