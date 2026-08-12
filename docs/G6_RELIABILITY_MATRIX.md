@@ -211,9 +211,17 @@ A no-crash run is not sufficient by itself; memory and responsiveness trends mus
 
 | Device | Cycles | Start RSS | End RSS | Peak RSS | Latency drift | Corruption/crash | Result |
 |---|---:|---:|---:|---:|---|---|---|
-| pending | 10 | | | | | | |
-| pending | 50 | | | | | | |
-| pending | 100 | | | | | | |
+| iPhone 11 / iOS 26.6 | 10 | ~300.8 MB | ~333.0 MB | ~348 MB observed | ~11.3 s -> ~13.3 s during warm-up | none | PASS |
+| iPhone 11 / iOS 26.6 | 50 | ~302.9 MB | ~358.9 MB | ~362.7 MB observed | rises then settles near ~14.5 s/cycle | none | PASS with characterization |
+| iPhone 11 / iOS 26.6 | 100 | ~303.0 MB | ~364.9 MB | ~364.9 MB observed | sustained-load steady state reaches ~16.6-16.8 s/cycle late in run | none | PASS with characterization |
+
+### iPhone 11 soak characterization
+
+- 10/50/100-cycle verifier runs all completed their required final cycle and emitted the `PIXELCRAFT_G6_COMPLETE` sentinel.
+- JPEG/PNG/WebP export byte counts and recipe byte count remained stable across the observed runs.
+- No crash, watchdog termination, recipe corruption, export corruption or VM-service session loss prevented completion.
+- RSS shows a repeating sawtooth allocation/release pattern rather than monotonic per-cycle growth. The retained-memory envelope increases modestly during the long run and then appears bounded in the observed range; this is recorded as characterization, not proof that all leaks are impossible.
+- Latency rises under sustained load and then approaches a later steady state. G6.4 physical thermal observation is used to characterize whether that sustained-load behavior has a user-visible impact.
 
 ---
 
@@ -296,7 +304,15 @@ Do not claim a numeric thermal result unless measured on the named device.
 
 | Device | Scenario | Duration | Start metric | End metric | Thermal observation | Result |
 |---|---|---:|---:|---:|---|---|
-| pending | | | | | | |
+| iPhone 11 / iOS 26.6 | consolidated Rust engine profile loop | 15:03, 420 cycles | initial profile total ~1.8 s before sustained soak; sustained runner then ramps | late cycles ~2.16-2.19 s/profile, stable | user observation: not hot; no perceived lag | PASS with characterization |
+
+### iPhone 11 thermal characterization
+
+- The 15-minute physical-device session completed 420 cycles and emitted `PIXELCRAFT_G6_COMPLETE mode=thermal completed_cycles=420`.
+- Late-run profile totals are tightly grouped around ~2.16-2.19 seconds per cycle, indicating an observed steady state rather than continued unbounded slowdown.
+- Late-run RSS remains in a bounded repeating range with periodic release, consistent with the sawtooth behavior observed in G6.2.
+- Manual physical observation after the sustained run: the iPhone 11 was **not hot** and showed **no perceived UI/device lag**.
+- This does not claim access to an internal iOS thermal-state sensor value. It records measured workload behavior plus the explicit physical observation available from the test.
 
 ---
 
@@ -352,4 +368,4 @@ G6 may be closed only when:
 
 ## Current continuation point
 
-The G6 automation/scaffolding is implemented. After host CI is green, run the device and thermal scripts on each available physical device, run the 12/24/48 MP characterization tiers appropriate for available memory, and append measured evidence to this document. Do not replace `pending` cells with estimates.
+G6.2 automated long-session evidence is now recorded for 10/50/100 cycles on iPhone 11, and G6.4 has a 15-minute/420-cycle sustained-workload run with manual physical observation (`not hot`, `no perceived lag`). Remaining closure work is G6.0 final baseline evidence, G6.1 image-size characterization, broader G6.3 device diversity/manual product checks, G6.5 physical/native failure cases, and final CI on the closing branch head. Do not replace remaining `pending` cells with estimates.
