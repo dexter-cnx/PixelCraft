@@ -42,14 +42,14 @@ Record:
 
 | Field | Value |
 |---|---|
-| Commit | pending |
-| Flutter | pending |
-| Dart | pending |
-| Rust | pending |
-| Cargo | pending |
-| Host OS | pending |
-| Result | pending |
-| Evidence path | `build/g6/baseline/` |
+| Commit | `6c63e60d9e9776bc4f10fc7273b17d35c7c19a6f` |
+| Flutter | 3.44.7 |
+| Dart | 3.12.2 |
+| Rust | 1.95.0 |
+| Cargo | 1.95.0 |
+| Host OS | macOS / Darwin arm64 |
+| Result | PASS via `tool/g6_complete_remaining.sh` |
+| Evidence path | `build/g6/baseline/` and `build/g6/final/` |
 
 Exit criterion: all existing host gates green on the G6 branch before reliability findings are classified as regressions.
 
@@ -108,6 +108,8 @@ G6_MAX_MP=48 cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -
 
 The harness synthesizes deterministic JPEG input at runtime so the repository does not need to commit huge camera fixtures. Output lines are prefixed `PIXELCRAFT_G6_IMAGE`.
 
+Final local automation was run with `G6_MAX_MP=48` and completed successfully, so the configured 12/24/48 MP host characterization tiers all completed on the measured Mac host. Numeric per-tier timings remain in the local `build/g6/final/` evidence logs and are not invented here when they were not pasted into the project record.
+
 Device runner:
 
 ```bash
@@ -120,12 +122,12 @@ Logs are stored under `build/g6/device/`.
 
 ### Results
 
-| Device | OS | SoC/GPU | Source | Backend | Load/preview | Apply | Export | Peak RSS delta | Result |
-|---|---|---|---|---|---:|---:|---:|---:|---|
-| pending | | | small | | | | | | |
-| pending | | | ~12 MP | | | | | | |
-| pending | | | ~24 MP | | | | | | |
-| pending | | | ~48 MP | | | | | | |
+| Host/device | Source | Result |
+|---|---|---|
+| Mac host / arm64 | ~12 MP synthetic JPEG characterization | PASS |
+| Mac host / arm64 | ~24 MP synthetic JPEG characterization | PASS |
+| Mac host / arm64 | ~48 MP synthetic JPEG characterization | PASS |
+| iPhone 11 / iOS 26.6 | small sample / consolidated device smoke | PASS |
 
 ---
 
@@ -248,7 +250,7 @@ Record:
 
 | Device | OS | SoC | GPU | RAM | Camera backend | Editor GPU backend | Build mode | Result |
 |---|---|---|---|---:|---|---|---|---|
-| pending | | | | | | | release/profile | |
+| iPhone 11 | iOS 26.6 | A13-class reference | Apple GPU | device-specific | AVFoundation | Metal / Rust fallback architecture | device verifier | automated smoke PASS; manual product checklist pending |
 
 Required checks per device:
 
@@ -261,6 +263,8 @@ Required checks per device:
 - performance profile
 - lifecycle background/foreground
 - export and gallery/share product flow
+
+The automated iPhone 11 verifier smoke completed successfully on the final local validation run. Broader product-flow observation and additional hardware diversity remain manual/availability-limited and are tracked in `docs/G6_DEVICE_MANUAL_CHECKLIST.md`.
 
 ---
 
@@ -330,26 +334,22 @@ Existing unit coverage remains responsible for native bridge fallback/generation
 
 Required cases:
 
-| Failure | Expected behavior | Automation |
-|---|---|---|
-| corrupt newest recovery manifest | ignore it and load previous coherent generation | host test |
-| latest recovery source fingerprint mismatch | ignore latest and load previous coherent generation | host test |
-| invalid recipe bounds | reject persistence / restore path | host test |
-| corrupt Film Profile JSON | explicit `FormatException`, no partial profile | host test |
-| unsupported profile schema/version/engine | explicit rejection | host test |
-| unsupported imported recipe field | explicit `unsupported` mapping, never silently dropped | host test |
-| missing/corrupt LUT | GPU path unavailable/fails closed; Rust/product state remains valid | physical/native injection |
-| native renderer init/runtime failure | fall back to valid Rust preview | existing bridge tests + physical injection |
-| missing source | reject recovery/open without corrupting current valid state | physical/product injection |
-| export failure / unwritable destination | surface failure; recipe/session remains intact | physical/product injection |
-| gallery write failure / permission denied | surface failure; exported/session data remains valid | physical/product injection |
-| lifecycle interruption during processing | recover to coherent session or clean failure | physical lifecycle test |
+| Failure | Expected behavior | Automation | Current status |
+|---|---|---|---|
+| corrupt newest recovery manifest | ignore it and load previous coherent generation | host test | PASS |
+| latest recovery source fingerprint mismatch | ignore latest and load previous coherent generation | host test | PASS |
+| invalid recipe bounds | reject persistence / restore path | host test | PASS |
+| corrupt Film Profile JSON | explicit `FormatException`, no partial profile | host test | PASS |
+| unsupported profile schema/version/engine | explicit rejection | host test | PASS |
+| unsupported imported recipe field | explicit `unsupported` mapping, never silently dropped | host test | PASS |
+| missing/corrupt LUT | GPU path unavailable/fails closed; Rust/product state remains valid | physical/native injection | manual/harness availability pending |
+| native renderer init/runtime failure | fall back to valid Rust preview | existing bridge tests + physical injection | host coverage + physical observation pending |
+| missing source | reject recovery/open without corrupting current valid state | physical/product injection | manual pending |
+| export failure / unwritable destination | surface failure; recipe/session remains intact | physical/product injection | manual pending |
+| gallery write failure / permission denied | surface failure; exported/session data remains valid | physical/product injection | manual pending |
+| lifecycle interruption during processing | recover to coherent session or clean failure | physical lifecycle test | manual pending |
 
-Run deterministic host injection directly with:
-
-```bash
-flutter test test/state/g6_failure_injection_test.dart
-```
+The final automated validation completed the deterministic G6.5 host suite successfully.
 
 ---
 
@@ -366,6 +366,17 @@ G6 may be closed only when:
 7. No finding violates the architecture invariants or changes Rust authority to make a test pass.
 8. Final CI on the latest G6 PR head is green.
 
+## Automated closure status
+
+The consolidated remaining validation completed successfully on commit `6c63e60d9e9776bc4f10fc7273b17d35c7c19a6f` with:
+
+```text
+[G6 FINAL] PASS device_smoke
+[G6 FINAL] AUTOMATED REMAINING VALIDATION PASS
+```
+
+This validates the automated G6.0/G6.1/G6.5 host work plus the isolated iPhone 11 device smoke. GitHub CI run #136 also completed successfully on that code head.
+
 ## Current continuation point
 
-G6.2 automated long-session evidence is now recorded for 10/50/100 cycles on iPhone 11, and G6.4 has a 15-minute/420-cycle sustained-workload run with manual physical observation (`not hot`, `no perceived lag`). Remaining closure work is G6.0 final baseline evidence, G6.1 image-size characterization, broader G6.3 device diversity/manual product checks, G6.5 physical/native failure cases, and final CI on the closing branch head. Do not replace remaining `pending` cells with estimates.
+Automated closure is complete. Remaining work is intentionally limited to `docs/G6_DEVICE_MANUAL_CHECKLIST.md`: real product-flow observation, permission/lifecycle/native-failure cases, and any additional device diversity that is actually available. Do not infer PASS for unavailable hardware or failure scenarios. After those observations are recorded, ensure CI is green on the latest documentation head and then G6 can be marked CLOSED.
