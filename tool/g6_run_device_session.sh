@@ -9,11 +9,6 @@ CYCLES="${G6_CYCLES:-10}"
 DURATION_MIN="${G6_DURATION_MIN:-15}"
 LOG="${G6_SESSION_LOG:-}"
 
-PBXPROJ="$ROOT/ios/Runner.xcodeproj/project.pbxproj"
-ANDROID_GRADLE="$ROOT/android/app/build.gradle.kts"
-DRIVER="$ROOT/test_driver/integration_test.dart"
-TARGET="$ROOT/integration_test/g6_device_verification_test.dart"
-
 IOS_MAIN_BUNDLE_ID="dev.cnxdev.pixelcraft"
 IOS_VERIFY_BUNDLE_ID="dev.cnxdev.pixelcraft.g6verify"
 ANDROID_MAIN_APP_ID="dev.cnxdev.pixelcraft"
@@ -44,32 +39,42 @@ case "$MODE" in
     ;;
 esac
 
+cd "$ROOT"
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "ERROR: G6 device runner requires a git checkout" >&2
+  exit 2
+fi
+
+# Do not mutate the checkout that the developer may have open in Xcode.
+# Xcode watches project.pbxproj; temporary bundle-id edits in the live checkout
+# can leave the Runner scheme trying to launch the verifier after Flutter has
+# already removed it. Build the verifier in an isolated detached worktree.
+WORKTREE="$(mktemp -d -t pixelcraft-g6-worktree.XXXXXX)"
+WORKTREE_ADDED=0
+cleanup() {
+  if [[ "$WORKTREE_ADDED" -eq 1 ]]; then
+    git -C "$ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$WORKTREE" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+git worktree add --detach "$WORKTREE" HEAD >/dev/null
+WORKTREE_ADDED=1
+
+PBXPROJ="$WORKTREE/ios/Runner.xcodeproj/project.pbxproj"
+ANDROID_GRADLE="$WORKTREE/android/app/build.gradle.kts"
+DRIVER="$WORKTREE/test_driver/integration_test.dart"
+TARGET="$WORKTREE/integration_test/g6_device_verification_test.dart"
+
 for required in "$PBXPROJ" "$ANDROID_GRADLE" "$DRIVER" "$TARGET"; do
   if [[ ! -f "$required" ]]; then
-    echo "ERROR: missing $required" >&2
+    echo "ERROR: missing $required in isolated G6 worktree" >&2
     exit 2
   fi
 done
-
-backup_dir="$(mktemp -d -t pixelcraft-g6-session.XXXXXX)"
-cp "$PBXPROJ" "$backup_dir/project.pbxproj"
-cp "$ANDROID_GRADLE" "$backup_dir/build.gradle.kts"
-restored=0
-
-restore_project() {
-  if [[ "$restored" -eq 1 ]]; then
-    return
-  fi
-  if [[ -d "$backup_dir" ]]; then
-    cp "$backup_dir/project.pbxproj" "$PBXPROJ"
-    cp "$backup_dir/build.gradle.kts" "$ANDROID_GRADLE"
-    rm -rf "$backup_dir"
-  fi
-  restored=1
-}
-trap restore_project EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 python3 - "$PBXPROJ" "$ANDROID_GRADLE" \
   "$IOS_MAIN_BUNDLE_ID" "$IOS_VERIFY_BUNDLE_ID" \
@@ -104,15 +109,17 @@ if android_count != 1:
     )
 gradle.write_text(gradle_text.replace(android_needle, android_replacement))
 
-print(f"[PixelCraft G6] temporary iOS verifier bundle: {ios_verify} ({ios_count} configs)")
-print(f"[PixelCraft G6] temporary Android verifier app id: {android_verify}")
+print(f"[PixelCraft G6] isolated iOS verifier bundle: {ios_verify} ({ios_count} configs)")
+print(f"[PixelCraft G6] isolated Android verifier app id: {android_verify}")
 PY
 
-cd "$ROOT"
+cd "$WORKTREE"
 echo "[PixelCraft G6] device: $DEVICE"
 echo "[PixelCraft G6] mode: $MODE"
+echo "[PixelCraft G6] main checkout remains untouched: $ROOT"
 echo "[PixelCraft G6] main app id remains untouched: $IOS_MAIN_BUNDLE_ID"
 echo "[PixelCraft G6] verifier app id: $IOS_VERIFY_BUNDLE_ID"
+echo "[PixelCraft G6] verifier build root: $WORKTREE"
 echo "[PixelCraft G6] one consolidated flutter drive session"
 
 cmd=(
@@ -164,12 +171,9 @@ else
   fi
 fi
 
-restore_project
-trap - EXIT
-
 if [[ "$cleanup_session_log" -eq 1 ]]; then
   rm -f "$session_log"
 fi
 
 echo "[PixelCraft G6] DEVICE SESSION PASS"
-echo "[PixelCraft G6] restored project bundle/application-id configuration"
+echo "[PixelCraft G6] isolated worktree will be removed; main Xcode project was never modified"
