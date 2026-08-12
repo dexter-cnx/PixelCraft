@@ -2,11 +2,13 @@
 
 Pure editing-domain contracts and serialization models for PixelCraft.
 
-`pixelcraft_editing` exists to remove reusable edit-graph types from the application layer so other internal packages can depend on editing semantics without importing `package:pixelcraft/...` app source.
+`pixelcraft_editing` removes reusable editing models from the application layer so internal packages can share them without importing `package:pixelcraft/...` app source.
 
-> Rust remains authoritative for committed edit semantics, recipe/history/checkpoint state, recovery, and full-resolution export. This Dart package defines transport/domain contracts; it does not replace Rust authority.
+> Rust remains authoritative for committed edit semantics, recipe/history/checkpoint state, recovery, and full-resolution export. This Dart package defines domain/transport contracts and deterministic recipe-shaping helpers; it does not replace Rust authority.
 
 ## Owns
+
+### Edit graph
 
 - `EditGraphDocument`
 - `EditGraphNode`
@@ -15,15 +17,26 @@ Pure editing-domain contracts and serialization models for PixelCraft.
 - `EditOverlay`
 - edit-graph schema versioning and JSON validation
 
+### Film Profile domain
+
+- `FilmProfileV1`
+- `FilmProfileOrigin`
+- `FilmProfileParameterSpec`
+- Film Profile schema/version validation
+- import mapping reports (`exact`, `approximated`, `unsupported`)
+- `applyFilmProfileToSessionRecipe()` draft materialization helper
+
+The recipe materializer rewrites serialized draft data only. The caller must restore the resulting recipe through Rust before it becomes authoritative editor state.
+
 ## Does not own
 
 - Flutter UI or Riverpod state
 - `EditorController`
 - native GPU runtime
 - Rust engine implementation
-- history/checkpoint mutation
+- authoritative history/checkpoint mutation
 - recovery persistence
-- Film Profile storage
+- Film Profile persistence/storage
 - export rendering
 
 ## Dependency direction
@@ -41,7 +54,7 @@ pixelcraft_editing
    └── Dart SDK only
 ```
 
-The package must stay app-independent and should remain usable from host-side tests without Flutter bindings.
+The package must stay app-independent and usable from host-side Dart tests without Flutter bindings.
 
 ## Edit graph contract
 
@@ -63,20 +76,49 @@ resize
 overlay
 ```
 
-Decoding validates:
+Decoding validates object shape, schema version, node types, opacity bounds, mask references, and unique IDs.
 
-- root/document object shape
-- supported schema version
-- node/mask/overlay object lists
-- known node type
-- opacity bounds
-- referenced mask existence
-- unique node/mask/overlay IDs
+## Film Profile contract
 
-## Why P2 extracts this
+Current identifiers:
 
-Before P2, GPU adapters such as `GpuPreviewRenderer` depended on `lib/core/edit_graph.dart`, which made the GPU boundary understand an app-owned source path. Moving the pure graph model here allows `pixelcraft_gpu` to depend on a stable internal package instead of depending back on the application.
+```text
+schema            pixelcraft-film-profile
+schemaVersion     1
+minEngineVersion  1
+```
 
-## Detailed walkthrough
+Reusable Film Profiles contain configuration only: profile metadata, optional base Film, strength, normalized parameters, and tags. They do not contain source image data, editor history, checkpoint state, or captured GPU pixels.
 
-See [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
+Import mapping never silently drops unsupported source fields; every recognized input is reported as exact, approximated, or unsupported.
+
+## Compatibility during P2
+
+The former app paths remain compatibility exports while call sites are migrated:
+
+```text
+lib/core/edit_graph.dart
+lib/core/film_profile_v1.dart
+lib/core/film_profile_recipe.dart
+```
+
+New package/infrastructure code should import:
+
+```dart
+import 'package:pixelcraft_editing/pixelcraft_editing.dart';
+```
+
+rather than depending on the compatibility paths.
+
+## Validation
+
+P2 adds independent package gates:
+
+```bash
+cd packages/pixelcraft_editing
+dart pub get
+dart analyze
+dart test
+```
+
+See [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md) for the detailed boundary and extension rules.
