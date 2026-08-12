@@ -18,7 +18,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
+        child: const MaterialApp(
           home: ProductEditorScreen(imageBytes: testPngBytes),
         ),
       ),
@@ -54,5 +54,69 @@ void main() {
       findsOneWidget,
     );
     expect(engine.operations, isEmpty);
+  });
+
+  testWidgets('new product editor session resets a previous Before state',
+      (tester) async {
+    final engine = FakeImageEngine();
+    final container = ProviderContainer(
+      overrides: [imageEngineProvider.overrideWithValue(engine)],
+    );
+    addTearDown(container.dispose);
+
+    Widget editor() => UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: ProductEditorScreen(imageBytes: testPngBytes),
+          ),
+        );
+
+    await tester.pumpWidget(editor());
+    await tester.pumpAndSettle();
+
+    final compareButton =
+        find.byKey(const ValueKey('editor_compare_button'));
+    await tester.tap(compareButton);
+    await tester.pump();
+    expect(container.read(editorProvider).showOriginal, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(container.read(editorProvider).showOriginal, isTrue);
+
+    await tester.pumpWidget(editor());
+    await tester.pumpAndSettle();
+
+    expect(container.read(editorProvider).showOriginal, isFalse);
+    expect(
+      find.descendant(of: compareButton, matching: find.text('Before')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Compare stays over the canvas on wide layouts', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final engine = FakeImageEngine();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [imageEngineProvider.overrideWithValue(engine)],
+        child: const MaterialApp(
+          home: ProductEditorScreen(imageBytes: testPngBytes),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final compareButton =
+        find.byKey(const ValueKey('editor_compare_button'));
+    expect(compareButton, findsOneWidget);
+
+    final rect = tester.getRect(compareButton);
+    const canvasRightEdge = 1200.0 - 16.0 - 360.0 - 20.0;
+    expect(rect.right, lessThanOrEqualTo(canvasRightEdge - 16.0 + 0.5));
   });
 }
