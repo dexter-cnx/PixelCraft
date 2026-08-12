@@ -16,7 +16,7 @@ preview adapters / serialization boundaries
 Rust engine = authoritative committed semantics
 ```
 
-The package models editing intent, reusable Film Profile configuration, serialized graph structure, and deterministic draft shaping. It does not execute committed image processing.
+The package models editing intent, adjustment semantics, reusable Film Profile configuration, serialized graph structure, and deterministic draft shaping. It does not execute committed image processing.
 
 ## 2. Why this package exists
 
@@ -26,9 +26,8 @@ Before P2, shared GPU/domain code reached into app-owned files such as:
 lib/core/edit_graph.dart
 lib/core/film_profile_v1.dart
 lib/core/film_profile_recipe.dart
+lib/state/editor_adjustment_catalog.dart
 ```
-
-That prevented infrastructure packages from depending on stable domain types without depending back on the application.
 
 After P2:
 
@@ -37,7 +36,7 @@ pixelcraft_gpu ──> pixelcraft_editing
 PixelCraft app ──> pixelcraft_editing
 ```
 
-The former app paths remain compatibility exports during migration.
+Former app paths remain compatibility exports/adapters during migration.
 
 ## 3. Public API
 
@@ -51,6 +50,7 @@ Primary implementation files:
 
 ```text
 lib/src/edit_graph.dart
+lib/src/editor_adjustment_catalog.dart
 lib/src/film_profile_v1.dart
 lib/src/film_profile_recipe.dart
 ```
@@ -61,19 +61,6 @@ Current schema:
 
 ```text
 pixelCraftEditGraphSchemaVersion = 3
-```
-
-Serialized shape:
-
-```json
-{
-  "schemaVersion": 3,
-  "document": {
-    "nodes": [],
-    "masks": [],
-    "overlays": []
-  }
-}
 ```
 
 Public graph types:
@@ -88,7 +75,36 @@ EditOverlay
 
 `EditGraphDocument.decode()` / `fromJson()` validate schema compatibility, object/list shapes, known node types, opacity bounds, mask references, and unique IDs. Invalid data throws `FormatException` rather than being coerced into a partially valid graph.
 
-## 5. Film Profile model
+## 5. Adjustment semantic catalog
+
+`EditorAdjustmentSpec` now lives in `pixelcraft_editing` and contains only semantic/product metadata:
+
+```text
+id
+label
+min
+max
+neutral
+group
+unit
+```
+
+It deliberately does **not** contain GPU/backend capability flags.
+
+Package-owned helpers:
+
+```text
+editorAdjustmentSpecs
+coreFilters
+adjustmentSpec(id)
+defaultAdjustmentValue(id)
+```
+
+The former app catalog remains a compatibility/policy adapter. It wraps the package-owned semantic specs and adds whether a control currently has verified continuous GPU preview support.
+
+This separation prevents a pure editing-domain package from learning about Metal/OpenGL/backend rollout state.
+
+## 6. Film Profile model
 
 `FilmProfileV1` is reusable configuration, not a per-image edit session.
 
@@ -100,23 +116,9 @@ schemaVersion     1
 minEngineVersion  1
 ```
 
-It carries:
+It carries profile metadata, optional base Film, strength, normalized parameter values, and tags. It excludes source pixels, history/checkpoint state, and GPU frames.
 
-```text
-id / name / description
-origin
-optional base Film ID
-base Film strength
-normalized parameter map
-tags
-compatibility versions
-```
-
-It deliberately excludes source pixels, crop/rotate session state, history, checkpoint state, and captured GPU frames.
-
-Parameter values are clamped by `FilmProfileParameterSpec`; neutral values are normalized out of persisted profile parameter maps.
-
-## 6. Import compatibility reporting
+## 7. Import compatibility reporting
 
 Generic recipe import uses:
 
@@ -128,34 +130,20 @@ FilmProfileMappingKind.unsupported
 
 Unsupported fields remain visible in the import report. PixelCraft must not silently discard them or claim proprietary vendor processing is reproduced 1:1.
 
-## 7. Film Profile recipe materialization
+## 8. Film Profile recipe materialization
 
-`applyFilmProfileToSessionRecipe()` operates on serialized Rust recipe JSON:
-
-```text
-current recipe
- -> preserve operations before checkpoint_cursor
- -> inspect active draft
- -> upsert base Film operation
- -> upsert profile scalar filters
- -> truncate stale redo tail
- -> return rewritten recipe JSON
-```
+`applyFilmProfileToSessionRecipe()` reshapes the active serialized draft while preserving the applied prefix and truncating stale redo state.
 
 The helper does **not** commit editor state by itself. The application must restore the rewritten recipe through the Rust engine before presenting it as authoritative state.
-
-This distinction is critical:
 
 ```text
 pixelcraft_editing helper = deterministic draft transformation
 Rust engine               = semantic authority
 ```
 
-## 8. Relationship to pixelcraft_gpu
+## 9. Relationship to pixelcraft_gpu
 
-`pixelcraft_gpu` may depend on this package for graph types and other pure editing-domain contracts.
-
-This direction is allowed:
+This dependency is allowed:
 
 ```text
 pixelcraft_gpu -> pixelcraft_editing
@@ -163,15 +151,14 @@ pixelcraft_gpu -> pixelcraft_editing
 
 The reverse direction is forbidden. `pixelcraft_editing` must not learn about Metal, OpenGL ES, MethodChannels, renderer lifecycle, or platform capability policy.
 
-GPU behavior remains preview-only and fail-closed. Unsupported graph order/composition must fall back to the valid Rust/product path.
+GPU behavior remains preview-only and fail-closed.
 
-## 9. What remains app-owned
-
-P2 does not move orchestration merely to reduce file count. These remain outside this package:
+## 10. What remains app-owned
 
 ```text
 EditorController / Riverpod state
 UI/navigation
+GPU rollout/capability policy
 recovery persistence
 Film Profile storage
 export/file/gallery services
@@ -179,9 +166,9 @@ Rust bridge implementation
 native GPU implementation
 ```
 
-`EditorAdjustmentSpec.gpuPreview` also mixes product metadata with backend capability policy; it should not be moved wholesale into the pure domain package without first separating semantic adjustment metadata from GPU support policy.
+P2 moves reusable semantics, not orchestration.
 
-## 10. Validation
+## 11. Validation
 
 The package is validated independently:
 
@@ -192,11 +179,9 @@ dart analyze
 dart test
 ```
 
-Package tests cover Film Profile normalization/round-trip, import mapping classification, and active-draft materialization/redo-tail truncation. Root compatibility tests continue to protect existing application call sites during migration.
+Package tests cover edit-graph behavior, semantic adjustment defaults/ranges, Film Profile normalization/round-trip, import mapping classification, and active-draft materialization/redo-tail truncation.
 
-## 11. Dependency invariant
-
-The intended bottom-of-graph rule is:
+## 12. Dependency invariant
 
 ```text
 pixelcraft_editing -> Dart SDK only
