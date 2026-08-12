@@ -1,6 +1,6 @@
 # pixelcraft_gpu Code Walkthrough
 
-`pixelcraft_gpu` is PixelCraft's preview-only Flutter plugin for native GPU camera and editor rendering.
+`pixelcraft_gpu` is PixelCraft's preview-only Flutter plugin for native GPU preview infrastructure.
 
 Its purpose is low-latency interaction. It is never the authoritative source for committed edit semantics or exported pixels.
 
@@ -12,10 +12,8 @@ Canonical ownership:
 Flutter app
    ↓ control/session intent
 pixelcraft_gpu
-   ↓
-Android OpenGL ES / Camera2
-or
-iOS Metal / AVFoundation
+   ├── Android: Camera2 / OpenGL ES camera preview
+   └── iOS: AVFoundation / Metal camera + editor preview
 
 Rust engine
    ↑ authoritative semantic commit
@@ -25,10 +23,10 @@ Flutter app
 `pixelcraft_gpu` owns:
 
 - app-independent Dart GPU transport/session infrastructure
-- GPU editor render-plan transport
+- GPU editor render-plan transport contracts
 - native camera control bridges
-- Android Camera2/OpenGL ES runtime
-- iOS AVFoundation/Metal runtime
+- Android Camera2/OpenGL ES camera runtime
+- iOS AVFoundation/Metal camera and editor runtime
 - plugin registration
 - diagnostics and frame-pacing bridges
 
@@ -40,6 +38,7 @@ Flutter app
 - full-resolution export
 - final image pixels
 - app navigation/product state
+- current app-level LUT asset generation/packaging
 
 ## 2. Core architectural invariant
 
@@ -59,7 +58,6 @@ Conceptually:
 ```text
 packages/pixelcraft_gpu/
 ├── lib/
-│   └── src/
 ├── android/
 │   └── src/main/kotlin/
 ├── ios/
@@ -99,25 +97,31 @@ That is intentional: MethodChannel is a control plane, not the video pipeline.
 
 ## 5. Editor GPU render plan
 
-The package can transport and execute a native preview plan only when the requested operations are representable faithfully.
+`GpuEditorRenderPlan` represents a native editor preview plan only when the requested operations are faithfully representable.
 
-Conceptual flow:
+Current execution scope matters:
 
 ```text
 authoritative recipe / active draft
    ↓ app-side adapter
 GpuEditorRenderPlan
    ↓
-pixelcraft_gpu native transport
+pixelcraft_gpu editor transport
    ↓
-Metal / OpenGL ES preview
+iOS Metal editor preview
 ```
+
+At present, the implemented native editor channel/view exists on **iOS Metal only**.
+
+Android's plugin currently registers `GpuPreviewChannel` and the camera PlatformView/runtime. It does **not** implement the iOS-equivalent `gpu_editor_preview_v1` / `GpuEditorPreviewPlugin` editor channel/view.
+
+Therefore do not describe `GpuEditorRenderPlan` as executing through Android OpenGL ES today.
 
 The app-side adapter remains important because some editing-domain types are still app-owned until P2 extracts them.
 
 `pixelcraft_gpu` must not import PixelCraft app source merely to understand those types.
 
-If operation order cannot be represented faithfully:
+If an operation graph cannot be represented faithfully, or if a native editor backend is unavailable:
 
 ```text
 native GPU plan = rejected / unavailable
@@ -129,7 +133,7 @@ Never silently reorder semantic operations just to make a shader pipeline fit.
 
 ## 6. Editor preview lifecycle
 
-A typical editor interaction looks like:
+On a platform with a verified native editor preview implementation, a typical editor interaction looks like:
 
 ```text
 slider drag starts
@@ -147,6 +151,8 @@ Rust produces authoritative preview/recipe state
 GPU overlay/session is updated or invalidated
 ```
 
+On Android today, absence of the editor-native path means the product remains on the valid Rust/editor path rather than attempting a nonexistent OpenGL ES editor renderer.
+
 GPU session generations exist to prevent stale async/native work from winning over newer editor state.
 
 Important invalidation events include:
@@ -161,7 +167,7 @@ new activation superseded older activation
 
 ## 7. Android native path
 
-Eligible camera preview path:
+The current Android native GPU path is camera-focused:
 
 ```text
 Camera2
@@ -170,7 +176,7 @@ SurfaceTexture / external OES texture
    ↓
 OpenGL ES renderer
    ↓
-canonical Film LUT / verified shader stages
+canonical Film LUT / verified camera shader stages
    ↓
 Flutter PlatformView
 ```
@@ -184,7 +190,7 @@ GeneratedPluginRegistrant
    ↓
 PixelcraftGpuPlugin
    ↓ FlutterPlugin + ActivityAware
-MethodChannel / PlatformView registration
+GpuPreviewChannel / camera PlatformView registration
    ↓
 Camera2 + GLES runtime
 ```
@@ -198,6 +204,12 @@ dev.pixelcraft.gpu
 ```
 
 It must not reuse the app namespace.
+
+### Important limitation
+
+Android currently has **no native editor GPU channel/view implementation** corresponding to the iOS Metal editor path.
+
+That limitation is intentional to document explicitly so future work does not mistake camera OpenGL ES support for editor OpenGL ES support.
 
 ## 8. Android capture contract
 
@@ -233,6 +245,8 @@ canonical Film LUT / verified stages
 Flutter PlatformView
 ```
 
+The implemented native editor GPU preview path also lives on iOS Metal.
+
 Production Metal/AVFoundation implementation lives in:
 
 ```text
@@ -250,8 +264,8 @@ GeneratedPluginRegistrant
    ↓
 pixelcraft_gpu registrar
    ↓
-preview channels
-platform views
+camera preview channels/platform views
+editor preview channel/plugin
 Metal renderer registry
 diagnostics
 ```
@@ -260,11 +274,11 @@ P1 moved production registration out of `AppDelegate` into the plugin.
 
 Any temporary app-project compatibility stubs exist only to satisfy stale Xcode file references and must not contain production GPU implementation.
 
-## 11. Canonical LUT flow
+## 11. Canonical LUT semantics vs packaging ownership
 
 Film/Creative LUT semantics originate from Rust-owned canonical data.
 
-Conceptual build path:
+Conceptual semantic flow:
 
 ```text
 Rust canonical Film/Creative data
@@ -272,11 +286,33 @@ Rust canonical Film/Creative data
 materialized 33^3 LUT
    ├── Rust renderer
    └── generated native GPU assets
-           ↓
-      pixelcraft_gpu
 ```
 
-This prevents native GPU code from becoming a separate hand-maintained interpretation of Film semantics.
+However, current native asset **generation and packaging remain app-owned**:
+
+```text
+Android app build
+  android/app/build.gradle.kts
+  GenerateGpuLutAssetsTask
+        ↓
+  generated LUT assets consumed by plugin runtime
+
+Runner / Xcode build phase
+        ↓
+  generated/copy LUT assets consumed by iOS plugin runtime
+```
+
+`packages/pixelcraft_gpu/android/build.gradle` and `packages/pixelcraft_gpu/ios/pixelcraft_gpu.podspec` do not yet provide equivalent self-contained generated LUT resource packaging.
+
+Therefore the correct ownership statement today is:
+
+```text
+LUT semantic authority = Rust
+LUT asset packaging    = app build integration
+LUT runtime consumer   = pixelcraft_gpu
+```
+
+Do not describe generated native LUT assets as package-owned until their generation/resource packaging is actually moved into `pixelcraft_gpu`.
 
 ## 12. Capability and fallback model
 
@@ -294,6 +330,7 @@ blacklisted GPU
 renderer init failure
 runtime renderer failure
 unsupported edit order
+platform has no native editor backend
 ```
 
 All of these should fail closed to the valid Rust/product path.
@@ -339,6 +376,8 @@ Coverage checks:
 - LUT-slot conflicts
 - renderer/runtime error forwarding
 
+These host-side editor plan/session tests do not imply that every platform has a native editor renderer implementation.
+
 ## 15. Native validation
 
 P1 is not considered valid based on Dart tests alone.
@@ -358,9 +397,11 @@ physical-device smoke on iOS
 
 P1 passed these gates before merge.
 
+The Android physical/device evidence validates the Android camera/plugin extraction and native packaging topology. It is not evidence of an Android editor GPU channel/view.
+
 ## 16. How to extend GPU support safely
 
-For every new edit effect:
+For every new edit effect or backend:
 
 ### Step 1 — define semantics in Rust
 
@@ -368,7 +409,9 @@ Specify and test the authoritative operation first.
 
 ### Step 2 — determine native representability
 
-Ask whether Metal/OpenGL ES can reproduce the operation faithfully and in the correct order.
+Ask whether the target backend can reproduce the operation faithfully and in the correct order.
+
+For Android editor GPU support specifically, this means first implementing an actual editor channel/view/backend; the existing camera GLES path is not sufficient.
 
 ### Step 3 — add parity evidence
 
@@ -406,6 +449,13 @@ The most important invariant is:
 ```text
 pixelcraft_gpu = low-latency native preview implementation
 Rust           = committed image authority
+```
+
+Platform support must be stated precisely:
+
+```text
+Android = native GPU camera preview
+ iOS    = native GPU camera + editor preview
 ```
 
 If a future change makes `pixelcraft_gpu` the only place where an edit's meaning exists, the architecture has regressed.
