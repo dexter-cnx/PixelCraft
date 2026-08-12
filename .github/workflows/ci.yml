@@ -82,6 +82,18 @@ jobs:
         working-directory: packages/pixelcraft_editing
         run: dart test
 
+      - name: Film package dependencies
+        working-directory: packages/pixelcraft_film
+        run: dart pub get
+
+      - name: Film package analyze
+        working-directory: packages/pixelcraft_film
+        run: dart analyze
+
+      - name: Film package tests
+        working-directory: packages/pixelcraft_film
+        run: dart test
+
       - name: GPU package dependencies
         working-directory: packages/pixelcraft_gpu
         run: flutter pub get
