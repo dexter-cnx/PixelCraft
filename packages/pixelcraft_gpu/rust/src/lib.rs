@@ -27,9 +27,9 @@ fn enumerate() -> Vec<wgpu::Adapter> {
 #[no_mangle]
 pub extern "C" fn pixelcraft_gpu_wgpu_backend_mask() -> u32 {
     catch_unwind(AssertUnwindSafe(|| {
-        enumerate()
-            .into_iter()
-            .fold(0, |mask, adapter| mask | backend_bit(adapter.get_info().backend))
+        enumerate().into_iter().fold(0, |mask, adapter| {
+            mask | backend_bit(adapter.get_info().backend)
+        })
     }))
     .unwrap_or(0)
 }
