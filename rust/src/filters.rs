@@ -118,8 +118,7 @@ pub fn apply(image: DynamicImage, filter: &str, value: f32) -> Result<DynamicIma
         "saturation" => {
             let factor = value.clamp(0.0, 2.0);
             parallel_map_pixels(&rgba, |p| {
-                let luminance =
-                    0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32;
+                let luminance = 0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32;
                 [
                     clamp_u8(luminance + (p[0] as f32 - luminance) * factor),
                     clamp_u8(luminance + (p[1] as f32 - luminance) * factor),
