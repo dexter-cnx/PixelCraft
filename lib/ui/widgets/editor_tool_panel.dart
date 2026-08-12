@@ -2,9 +2,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../core/editor_session_store.dart';
+import '../../core/film_profile_recipe.dart';
+import '../../core/film_profile_v1.dart';
 import '../../core/image_engine.dart';
 import '../../state/editor_controller.dart';
 import '../../state/editor_recipe_summary.dart';
+import '../screens/film_profiles_screen.dart';
 import 'filter_slider.dart';
 import 'histogram_widget.dart';
 
@@ -255,18 +259,12 @@ class _AdjustPanel extends StatelessWidget {
   final EditorResetAdjustmentCallback? onResetAdjustment;
   final EditorResetCallback? onResetAdjustments;
 
-  bool get _gpuSupported =>
-      state.selectedFilter == 'brightness' ||
-      state.selectedFilter == 'contrast' ||
-      state.selectedFilter == 'saturation' ||
-      state.selectedFilter == 'sharpen' ||
-      state.selectedFilter == 'gaussian_blur';
-
   @override
   Widget build(BuildContext context) {
     final filter = state.selectedFilter;
-    final useGpuCallbacks = _gpuSupported && onGpuPreviewChanged != null;
-    final neutral = defaultAdjustmentValue(filter);
+    final spec = adjustmentSpec(filter);
+    final useGpuCallbacks = spec.gpuPreview && onGpuPreviewChanged != null;
+    final neutral = spec.neutral;
     final currentChanged = recipeSummary.isAdjustmentChanged(filter);
     final resetBlocked = state.isBusy || state.isPreviewProcessing;
 
@@ -274,48 +272,54 @@ class _AdjustPanel extends StatelessWidget {
       key: const ValueKey('adjust'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: coreFilters
-              .map(
-                (item) => ChoiceChip(
-                  label: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(item.replaceAll('_', ' ')),
-                      if (recipeSummary.isAdjustmentChanged(item)) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          key: ValueKey('adjust_changed_$item'),
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            shape: BoxShape.circle,
-                          ),
+        SizedBox(
+          height: 42,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: coreFilters.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final item = coreFilters[index];
+              final itemSpec = adjustmentSpec(item);
+              return ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(itemSpec.label),
+                    if (recipeSummary.isAdjustmentChanged(item)) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        key: ValueKey('adjust_changed_$item'),
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: BoxShape.circle,
                         ),
-                      ],
+                      ),
                     ],
-                  ),
-                  selected: filter == item,
-                  onSelected: (_) => controller.selectFilter(item),
+                  ],
                 ),
-              )
-              .toList(),
+                selected: filter == item,
+                onSelected: (_) => controller.selectFilter(item),
+              );
+            },
+          ),
         ),
         const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
               child: Text(
-                '${filter.replaceAll('_', ' ')} · neutral ${neutral.toStringAsFixed(1)}',
+                '${spec.label} · ${spec.group} · neutral ${neutral.toStringAsFixed(1)}${spec.unit.isEmpty ? '' : ' ${spec.unit}'}',
                 style: Theme.of(context).textTheme.labelMedium,
               ),
             ),
             TextButton.icon(
               key: const ValueKey('reset_adjustment_button'),
-              onPressed: currentChanged && !resetBlocked && onResetAdjustment != null
+              onPressed: currentChanged &&
+                      !resetBlocked &&
+                      onResetAdjustment != null
                   ? () => onResetAdjustment!(filter)
                   : null,
               icon: const Icon(Icons.restart_alt_rounded, size: 18),
@@ -325,8 +329,8 @@ class _AdjustPanel extends StatelessWidget {
         ),
         FilterSlider(
           value: state.value,
-          min: 0,
-          max: 2,
+          min: spec.min,
+          max: spec.max,
           enabled: !state.isBusy,
           onChangeStart: useGpuCallbacks
               ? (value) => onGpuPreviewStart?.call('adjust', filter, value)
@@ -342,7 +346,15 @@ class _AdjustPanel extends StatelessWidget {
             }
           },
         ),
-        if (recipeSummary.hasAdjustChanges) ...[
+        if (!spec.gpuPreview)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Rust authoritative preview updates on release until a verified GPU path is available.',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+        if (recipeSummary.hasAdjustChanges)
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(
@@ -353,7 +365,6 @@ class _AdjustPanel extends StatelessWidget {
               child: const Text('Reset Adjust'),
             ),
           ),
-        ],
       ],
     );
   }
@@ -472,19 +483,68 @@ class _FilmPanel extends StatelessWidget {
   final EditorGpuPreviewCallback? onGpuPreviewCommit;
   final EditorResetCallback? onResetFilm;
 
+  Future<void> _loadCustomFilm(BuildContext context) async {
+    final profile = await Navigator.of(context).push<FilmProfileV1>(
+      MaterialPageRoute(
+        builder: (_) => const FilmProfilesScreen(selectionMode: true),
+      ),
+    );
+    if (profile == null || !context.mounted) return;
+    final original = state.originalBytes;
+    if (original == null || state.isBusy || state.isPreviewProcessing) return;
+
+    const engine = RustImageEngine();
+    try {
+      final currentRecipe = await engine.exportSessionRecipeInBackground();
+      final rewritten = applyFilmProfileToSessionRecipe(currentRecipe, profile);
+      await controller.restore(original, rewritten);
+      await EditorSessionStore().save(
+        originalBytes: original,
+        recipeJson: rewritten,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Loaded ${profile.name} into the current draft.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to load Film Profile: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selected = state.selectedFilmProfile;
-    final selectedProfile = state.filmProfiles.cast<EngineFilmProfile?>().firstWhere(
-          (profile) => profile?.id == selected,
-          orElse: () => null,
-        );
-    final useGpuCallbacks = selectedProfile != null && onGpuPreviewChanged != null;
+    final selectedProfile =
+        state.filmProfiles.cast<EngineFilmProfile?>().firstWhere(
+              (profile) => profile?.id == selected,
+              orElse: () => null,
+            );
+    final useGpuCallbacks =
+        selectedProfile != null && onGpuPreviewChanged != null;
 
     return Column(
       key: const ValueKey('film'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text('Built-in Films and reusable custom Film Profiles'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('load_custom_film_button'),
+              onPressed: state.isBusy || state.isPreviewProcessing
+                  ? null
+                  : () => _loadCustomFilm(context),
+              icon: const Icon(Icons.library_add_outlined, size: 18),
+              label: const Text('My Films'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         if (state.isGeneratingFilmPreviews && state.filmProfilePreviews.isEmpty)
           const _PreparingLabel(label: 'Preparing film previews…'),
         SizedBox(
@@ -499,7 +559,8 @@ class _FilmPanel extends StatelessWidget {
                 label: profile.name,
                 previewBytes: state.filmProfilePreviews[profile.id],
                 selected: selected == profile.id,
-                enabled: state.filmProfilePreviews[profile.id] != null && !state.isBusy,
+                enabled: state.filmProfilePreviews[profile.id] != null &&
+                    !state.isBusy,
                 onTap: () => controller.selectFilmProfile(profile.id),
               );
             },
@@ -610,7 +671,9 @@ class _PreviewCard extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
-              color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.outlineVariant,
               width: selected ? 2 : 1,
             ),
           ),
@@ -713,7 +776,10 @@ class _RotatePanel extends StatelessWidget {
             IconButton.filledTonal(
               onPressed: controller.flipVertical,
               tooltip: 'Flip vertical',
-              icon: const RotatedBox(quarterTurns: 1, child: Icon(Icons.flip)),
+              icon: const RotatedBox(
+                quarterTurns: 1,
+                child: Icon(Icons.flip),
+              ),
             ),
           ],
         ),
@@ -727,7 +793,8 @@ class _RotatePanel extends StatelessWidget {
                 max: 15,
                 divisions: 60,
                 label: '${state.straightenDegrees.toStringAsFixed(1)}°',
-                onChanged: state.isBusy ? null : controller.setStraightenPreview,
+                onChanged:
+                    state.isBusy ? null : controller.setStraightenPreview,
                 onChangeEnd: state.isBusy ? null : controller.commitStraighten,
               ),
             ),

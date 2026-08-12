@@ -1,3 +1,4 @@
+mod advanced_filters;
 pub mod api;
 mod engine;
 mod film_profiles;

@@ -30,7 +30,7 @@ void main() {
     WidgetTester tester,
     FakeImageEngine engine,
   ) async {
-    await tester.tap(find.text('contrast'));
+    await tester.tap(find.text('Contrast'));
     await tester.pump();
 
     final slider = find.byType(Slider);
@@ -53,7 +53,7 @@ void main() {
     await pumpEditor(tester, engine);
 
     expect(find.text('Editor · Applied'), findsOneWidget);
-    expect(find.text('brightness'), findsOneWidget);
+    expect(find.text('Brightness'), findsOneWidget);
     expect(find.text('Adjust'), findsOneWidget);
     expect(find.text('Film'), findsOneWidget);
 

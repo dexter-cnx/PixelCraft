@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/editor_session_store.dart';
 import 'camera_film_preview_screen.dart';
 import 'editor_screen.dart';
+import 'film_profiles_screen.dart';
 import 'gpu_diagnostics_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -106,6 +107,13 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const CameraFilmPreviewScreen()),
     );
     await _refreshRecovery();
+  }
+
+  Future<void> _openFilmProfiles() async {
+    if (_isRecovering || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const FilmProfilesScreen()),
+    );
   }
 
   Future<void> _openGpuDiagnostics() async {
@@ -256,6 +264,11 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Pixel Craft'),
         actions: [
+          IconButton(
+            tooltip: 'Films',
+            onPressed: blocked ? null : _openFilmProfiles,
+            icon: const Icon(Icons.camera_roll_outlined),
+          ),
           if (widget.showGpuDiagnostics)
             IconButton(
               tooltip: 'GPU Diagnostics',
