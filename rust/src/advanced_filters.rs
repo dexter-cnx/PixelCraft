@@ -34,13 +34,10 @@ pub fn apply(image: DynamicImage, name: &str, value: f32) -> Result<DynamicImage
         "curve_shadows" => apply_curve_zone(image, value, CurveZone::Shadows),
         "curve_midtones" => apply_curve_zone(image, value, CurveZone::Midtones),
         "curve_highlights" => apply_curve_zone(image, value, CurveZone::Highlights),
-        _ => {
-            if let Some((sector, component)) = parse_hsl_filter(name) {
-                apply_hsl_sector(image, value, sector, component)
-            } else {
-                Err(format!("Unknown advanced filter: {name}"))
-            }
-        }
+        _ => match parse_hsl_filter(name) {
+            Some((sector, component)) => apply_hsl_sector(image, value, sector, component),
+            None => Err(format!("Unknown advanced filter: {name}")),
+        },
     }
 }
 
@@ -70,13 +67,10 @@ fn apply_temperature(image: DynamicImage, value: f32) -> Result<DynamicImage, St
     }
     let rgba = image.to_rgba8();
     let result = map_pixels(&rgba, |_, p| {
-        let red = 34.0 * amount;
-        let green = 6.0 * amount;
-        let blue = -34.0 * amount;
         [
-            clamp_u8(p[0] as f32 + red),
-            clamp_u8(p[1] as f32 + green),
-            clamp_u8(p[2] as f32 + blue),
+            clamp_u8(p[0] as f32 + 34.0 * amount),
+            clamp_u8(p[1] as f32 + 6.0 * amount),
+            clamp_u8(p[2] as f32 - 34.0 * amount),
             p[3],
         ]
     });
@@ -118,11 +112,7 @@ fn apply_vibrance(image: DynamicImage, value: f32) -> Result<DynamicImage, Strin
             (max - min) / max
         };
         let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        let protection = if amount >= 0.0 {
-            1.0 - saturation
-        } else {
-            1.0
-        };
+        let protection = if amount >= 0.0 { 1.0 - saturation } else { 1.0 };
         let factor = 1.0 + amount * protection;
         [
             clamp_u8((luma + (r - luma) * factor) * 255.0),
@@ -149,7 +139,7 @@ fn apply_vignette(image: DynamicImage, value: f32) -> Result<DynamicImage, Strin
         let nx = ((x as f32 + 0.5) / width_f - 0.5) * 2.0;
         let ny = ((y as f32 + 0.5) / height - 0.5) * 2.0;
         let radius = (nx * nx + ny * ny).sqrt() / 2.0_f32.sqrt();
-        let mask = smoothstep(0.35, 1.0, radius).clamp(0.0, 1.0);
+        let mask = smoothstep(0.35, 1.0, radius);
         let scale = if amount >= 0.0 {
             1.0 - amount * mask * 0.72
         } else {
@@ -175,10 +165,7 @@ fn apply_grain(image: DynamicImage, value: f32) -> Result<DynamicImage, String> 
     let result = map_pixels(&rgba, |index, p| {
         let x = (index % width) as u32;
         let y = (index / width) as u32;
-        // Fixed coordinate hash is deliberate: grain is reproducible across
-        // preview, recovery and full-resolution replay without hidden RNG state.
-        let hash = deterministic_hash(x, y, 0x5049_5845);
-        let noise = (hash as f32 / u32::MAX as f32) * 2.0 - 1.0;
+        let noise = deterministic_noise(x, y, 0x5049_5845);
         let delta = noise * amount * 28.0;
         [
             clamp_u8(p[0] as f32 + delta),
@@ -190,7 +177,7 @@ fn apply_grain(image: DynamicImage, value: f32) -> Result<DynamicImage, String> 
     Ok(DynamicImage::ImageRgba8(result))
 }
 
-fn deterministic_hash(x: u32, y: u32, seed: u32) -> u32 {
+fn deterministic_noise(x: u32, y: u32, seed: u32) -> f32 {
     let mut value = x
         .wrapping_mul(0x9E37_79B9)
         .wrapping_add(y.wrapping_mul(0x85EB_CA6B))
@@ -199,7 +186,8 @@ fn deterministic_hash(x: u32, y: u32, seed: u32) -> u32 {
     value = value.wrapping_mul(0x7FEB_352D);
     value ^= value >> 15;
     value = value.wrapping_mul(0x846C_A68B);
-    value ^ (value >> 16)
+    value ^= value >> 16;
+    (value as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
 
 #[derive(Clone, Copy)]
@@ -224,19 +212,17 @@ fn apply_curve_zone(
         let mask = match zone {
             CurveZone::Shadows => 1.0 - smoothstep(0.08, 0.48, luma),
             CurveZone::Midtones => {
-                let low = smoothstep(0.12, 0.5, luma);
-                let high = 1.0 - smoothstep(0.5, 0.88, luma);
-                (low * high).clamp(0.0, 1.0)
+                smoothstep(0.12, 0.5, luma) * (1.0 - smoothstep(0.5, 0.88, luma))
             }
             CurveZone::Highlights => smoothstep(0.52, 0.94, luma),
         };
         let mix = amount * mask * 0.38;
         let map = |channel: u8| {
-            let c = channel as f32;
+            let channel = channel as f32;
             if mix >= 0.0 {
-                clamp_u8(c + (255.0 - c) * mix)
+                clamp_u8(channel + (255.0 - channel) * mix)
             } else {
-                clamp_u8(c * (1.0 + mix))
+                clamp_u8(channel * (1.0 + mix))
             }
         };
         [map(p[0]), map(p[1]), map(p[2]), p[3]]
@@ -280,21 +266,14 @@ fn apply_hsl_sector(
     let rgba = image.to_rgba8();
     let result = map_pixels(&rgba, |_, p| {
         let (mut h, mut s, mut l) = rgb_to_hsl(p[0], p[1], p[2]);
-        let distance = hue_distance(h, center);
-        let weight = 1.0 - smoothstep(20.0, 60.0, distance);
+        let weight = 1.0 - smoothstep(20.0, 60.0, hue_distance(h, center));
         if weight <= f32::EPSILON {
             return p;
         }
         match component {
-            HslComponent::Hue => {
-                h = (h + amount * 30.0 * weight).rem_euclid(360.0);
-            }
-            HslComponent::Saturation => {
-                s = (s + amount * 0.5 * weight).clamp(0.0, 1.0);
-            }
-            HslComponent::Luminance => {
-                l = (l + amount * 0.35 * weight).clamp(0.0, 1.0);
-            }
+            HslComponent::Hue => h = (h + amount * 30.0 * weight).rem_euclid(360.0),
+            HslComponent::Saturation => s = (s + amount * 0.5 * weight).clamp(0.0, 1.0),
+            HslComponent::Luminance => l = (l + amount * 0.35 * weight).clamp(0.0, 1.0),
         }
         let rgb = hsl_to_rgb(h, s, l);
         [rgb[0], rgb[1], rgb[2], p[3]]
