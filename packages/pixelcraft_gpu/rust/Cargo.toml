@@ -1,0 +1,16 @@
+[package]
+name = "pixelcraft_gpu_native"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform wgpu preview core for PixelCraft"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+pollster = "0.4"
+wgpu = "29.0.3"
+
+# Keep this crate independently buildable inside the PixelCraft monorepo.
+[workspace]
