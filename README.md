@@ -2,12 +2,12 @@
 
 PixelCraft is an offline-first mobile photo editor and film-simulation camera built with Flutter, Rust, Metal, and OpenGL ES.
 
-The architecture deliberately separates semantic authority from interactive rendering:
+The architecture separates semantic authority from interactive rendering:
 
 - **Rust is authoritative** for committed editing semantics, recipes, history, checkpoints, recovery, and full-resolution export.
-- **Native GPU is preview-only** for low-latency camera/editor interaction where the current operation graph can be represented faithfully.
+- **Native GPU is preview-only** for low-latency camera/editor interaction where the requested operation graph can be reproduced faithfully.
 
-Images do not need to leave the device for normal PixelCraft editing/export flows.
+Normal PixelCraft editing/export flows do not require user images to leave the device.
 
 ## Current status
 
@@ -15,9 +15,9 @@ As of 2026-08-12:
 
 ```text
 G1  Camera GPU Preview                          CLOSED
-G2  Editor GPU Preview Foundation               CLOSED
-G3  Production Rendering Pipeline               CLOSED
-G4  Product Editor UX / Session Workflow        CLOSED
+G2  Editor GPU Preview Foundation               CLOSED / MERGED
+G3  Production Rendering Pipeline               CLOSED / MERGED
+G4  Product Editor UX / Session Workflow        CLOSED / MERGED
 G5  Editing Feature Completeness                CLOSED / VERIFIED
 G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
 
@@ -26,20 +26,21 @@ P1  pixelcraft_gpu package extraction           MERGED
 P2  pixelcraft_editing package extraction       MERGED
 P3  pixelcraft_film package extraction          MERGED
 
-G7A Release Engineering / Store Preparation     ACTIVE — FINALIZATION / PR #18
+G7A Release Engineering / Store Preparation     MERGED — PR #18
 G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
 ```
 
-Latest verified G7A implementation baseline before final documentation commits:
+G7A merged into `main` as:
 
 ```text
-run #216
-run id: 31609170884
-HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
-SUCCESS
+507875b2e1187e2bc2f0a6d0535b77dc0455b69f
 ```
 
-G7B is blocked because Apple Developer/App Store Connect and Google Play Console accounts are not yet available. That does not block G7A release engineering, unsigned/no-codesign packaging, privacy review, or offline store metadata preparation.
+The final G7A PR head passed full CI in run #221 (`31611799174`). That run included package-boundary checks, Rust tests, editing/film/GPU package analyze/tests, Flutter analyze/tests, golden/native packaging, Android release packaging, iOS release no-codesign packaging, and wgpu Linux/macOS/Windows.
+
+Old PR #10 was audited after G7A merge and is now **CLOSED / SUPERSEDED**. Its implementation was recreated and expanded by PR #18; it must not be merged as an alternate G7 line.
+
+G7B remains blocked until Apple Developer/App Store Connect and Google Play Console accounts are available.
 
 ## Canonical runtime flow
 
@@ -76,7 +77,7 @@ full-resolution Rust replay/export
 
 ```text
 PixelCraft/
-├── lib/                          # Flutter app shell, UI, platform adapters
+├── lib/                          # Flutter app shell, UI, state, platform adapters
 ├── rust/                         # authoritative Rust image engine
 ├── packages/
 │   ├── pixelcraft_engine/        # FRB/CargoKit build integration
@@ -101,37 +102,36 @@ PixelCraft App
 
 pixelcraft_film -> pixelcraft_editing
 pixelcraft_gpu  -> pixelcraft_editing
-
 pixelcraft_editing -> Dart SDK only
 pixelcraft_engine  -> repository rust/ crate through build integration
 ```
 
-Packages must not depend back on app source. `tool/check_package_boundaries.sh` enforces the package graph in CI.
+Packages must not depend back on root app source. `tool/check_package_boundaries.sh` enforces the package graph in CI.
 
 ## Packages
 
 ### `pixelcraft_engine`
 
-Flutter FFI/build package for the repository-level Rust engine. It owns Flutter Rust Bridge integration, CargoKit build glue, native packaging, and generated builder normalization. Editing semantics remain in `rust/`.
+Flutter FFI/build-integration package around the root Rust engine. It owns Flutter Rust Bridge integration, CargoKit build glue, platform native packaging, and generated builder normalization. Editing semantics remain authoritative in `rust/`.
 
 ### `pixelcraft_gpu`
 
 Preview-only Flutter plugin for native GPU infrastructure.
 
-- Android: Camera2/OpenGL ES camera preview path.
-- iOS: AVFoundation/Metal camera preview plus the implemented Editor GPU preview path.
-- Android Editor preview remains on the Rust/product path until a faithful Android Editor GPU implementation exists.
+- Android: Camera2/OpenGL ES camera preview.
+- iOS: AVFoundation/Metal camera preview and native Editor GPU preview.
+- Android Editor preview currently stays on the valid Rust/product path; there is no Android native Editor GPU channel/view yet.
 
 ### `pixelcraft_editing`
 
-Pure-Dart shared editing/configuration contracts:
+Pure-Dart reusable editing/configuration contracts:
 
 - Edit Graph schema/models
 - adjustment catalog/ranges/neutrals
 - Film Profile schema/configuration/import mapping
 - deterministic Film Profile → Editor recipe materialization
 
-It does not own Flutter UI, GPU rollout policy, or pixel processing.
+It does not own Flutter UI, GPU rollout policy, persistence, or pixel processing.
 
 ### `pixelcraft_film`
 
@@ -143,7 +143,7 @@ Pure-Dart Film Profile product/domain orchestration:
 - exact/approximated/unsupported import-report propagation
 - `FilmProfileDraft` creator defaults/clamping/reset/metadata normalization/composition
 
-Filesystem storage remains app-owned through `FilmProfileStore`; canonical LUT data remains Rust-owned.
+Filesystem storage remains app-owned through `FilmProfileStore`; canonical Film LUT data remains Rust-owned.
 
 ## Editing model
 
@@ -171,7 +171,7 @@ Unsupported/unavailable GPU paths keep the valid Rust preview.
 
 ## Camera GPU preview
 
-Android eligible path:
+Android:
 
 ```text
 Camera2
@@ -180,7 +180,7 @@ Camera2
  -> Flutter PlatformView
 ```
 
-iOS eligible path:
+iOS:
 
 ```text
 AVCaptureVideoDataOutput
@@ -196,7 +196,7 @@ Capture returns a clean source image/file path. Live frame buffers stay native.
 
 Film Profiles are versioned reusable Tone/Color/Texture/Curve/HSL configuration. They exclude source-image bytes, crop/rotate session state, Editor history/checkpoints, and captured GPU pixels.
 
-Creation/import orchestration is handled by `pixelcraft_film`; configuration/mapping semantics remain in `pixelcraft_editing`; applying a profile materializes normal Rust recipe operations.
+Creation/import orchestration is handled by `pixelcraft_film`; configuration/mapping semantics remain in `pixelcraft_editing`; applying a profile materializes a normal Rust-backed recipe path.
 
 ## G7A release engineering
 
@@ -211,7 +211,7 @@ iOS bundle identifier: dev.cnxdev.pixelcraft
 iOS deployment target: 13.0
 ```
 
-Release CI now produces:
+Release CI produces:
 
 ```text
 Android release APK
@@ -224,16 +224,16 @@ iOS release --no-codesign Runner.app
   - Film/Creative LUT assets present
 ```
 
-Android microphone permission is explicitly removed because PixelCraft's still-camera fallback uses `enableAudio: false`.
+Android microphone permission is explicitly removed because the still-camera fallback uses `enableAudio: false`.
 
-Privacy/recovery audit also verifies:
+Privacy/recovery audit verifies:
 
 - recovery state is local private app-support data;
 - at most three coherent recovery generations are retained;
-- abandoned recovery `.tmp` files are cleaned;
-- user Discard removes recovery data;
+- abandoned recovery `.tmp` files are cleaned during load/save;
+- Discard removes recovery data;
 - export/share is user initiated;
-- current dependency set contains no analytics, advertising, or remote crash-reporting SDK.
+- the current dependency set contains no analytics, advertising, or remote crash-reporting SDK.
 
 See `docs/G7A_RELEASE_READINESS.md` and `docs/G7A_PRIVACY_STORE_DRAFTS.md`.
 
@@ -279,7 +279,7 @@ make verify-native
 
 ## Native integration notes
 
-`pixelcraft_engine` is the Flutter build plugin, while the authoritative crate remains `rust/`. FRB can regenerate root `rust_builder/`; normalize it back into the package with:
+`pixelcraft_engine` is the Flutter build plugin, while the authoritative crate remains `rust/`. FRB can regenerate a root `rust_builder/`; normalize it back into the package with:
 
 ```bash
 python3 tool/normalize_rust_builder_layout.py
@@ -320,12 +320,12 @@ Android release artifact
 iOS release --no-codesign artifact
 ```
 
-Latest verified implementation run:
+Latest fully verified G7A run:
 
 ```text
-run #216
-run id: 31609170884
-HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
+run #221
+run id: 31611799174
+HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
 SUCCESS
 ```
 
@@ -341,7 +341,7 @@ Unsigned/no-codesign artifacts are packaging evidence only. Signed RC physical-d
 - package `README.md` / `CODE_WALKTHROUGH.md` files — package-specific contracts
 - `docs/IOS_SWIFTPM_MIGRATION.md` — iOS dependency migration constraints
 
-Current continuation is **G7A finalization / PR #18**. After #18 merges, audit old PR #10 file-by-file, migrate any genuinely missing work, close it as superseded, and preserve its branch unless explicitly asked to delete it. G7B then remains blocked until Apple/Google store accounts are available.
+Current continuation is **post-G7A**. PR #10 is closed/superseded. G7B remains blocked until Apple/Google store accounts are available; account-independent maintenance or product work can continue from `docs/PROJECT_HANDOFF.md`.
 
 ## License
 
