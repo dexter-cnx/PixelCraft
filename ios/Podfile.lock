@@ -2,27 +2,21 @@ PODS:
   - Flutter (1.0.0)
   - pixelcraft_engine (0.0.1):
     - Flutter
-  - saver_gallery (0.0.1):
-    - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - pixelcraft_engine (from `.symlinks/plugins/pixelcraft_engine/ios`)
-  - saver_gallery (from `.symlinks/plugins/saver_gallery/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
   pixelcraft_engine:
     :path: ".symlinks/plugins/pixelcraft_engine/ios"
-  saver_gallery:
-    :path: ".symlinks/plugins/saver_gallery/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   pixelcraft_engine: 3efe205459ecc1fb03cc83b0821423531c3a64fe
-  saver_gallery: 396593da3909354abe1e88d0f4fc0ce927700288
 
-PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+PODFILE CHECKSUM: f8c2dcdfb50bb67645580d28a6bf814fca30bdec
 
 COCOAPODS: 1.16.2

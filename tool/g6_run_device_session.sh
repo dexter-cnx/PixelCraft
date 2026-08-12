@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FLUTTER="${FLUTTER:-flutter}"
+DEVICE="${DEVICE:-}"
+MODE="${G6_MODE:-reliability}"
+CYCLES="${G6_CYCLES:-10}"
+DURATION_MIN="${G6_DURATION_MIN:-15}"
+LOG="${G6_SESSION_LOG:-}"
+
+IOS_MAIN_BUNDLE_ID="dev.cnxdev.pixelcraft"
+IOS_VERIFY_BUNDLE_ID="dev.cnxdev.pixelcraft.g6verify"
+ANDROID_MAIN_APP_ID="dev.cnxdev.pixelcraft"
+ANDROID_VERIFY_APP_ID="dev.cnxdev.pixelcraft.g6verify"
+
+if [[ -z "$DEVICE" ]]; then
+  echo "ERROR: set DEVICE=<flutter-device-id>" >&2
+  "$FLUTTER" devices || true
+  exit 2
+fi
+
+case "$MODE" in
+  reliability)
+    if ! [[ "$CYCLES" =~ ^[0-9]+$ ]] || [[ "$CYCLES" -lt 1 ]]; then
+      echo "ERROR: G6_CYCLES must be a positive integer" >&2
+      exit 2
+    fi
+    ;;
+  thermal)
+    if ! [[ "$DURATION_MIN" =~ ^[0-9]+$ ]] || [[ "$DURATION_MIN" -lt 1 ]]; then
+      echo "ERROR: G6_DURATION_MIN must be a positive integer" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "ERROR: G6_MODE must be reliability or thermal" >&2
+    exit 2
+    ;;
+esac
+
+cd "$ROOT"
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "ERROR: G6 device runner requires a git checkout" >&2
+  exit 2
+fi
+
+# The Flutter/Rust bridge Dart sources are generated and intentionally not all
+# tracked by git. A detached worktree therefore needs them hydrated from the
+# developer checkout before Flutter can compile the verifier.
+MAIN_FRB_DIR="$ROOT/lib/src/rust"
+for generated in "$MAIN_FRB_DIR/api.dart" "$MAIN_FRB_DIR/frb_generated.dart"; do
+  if [[ ! -f "$generated" ]]; then
+    echo "ERROR: missing generated Flutter/Rust bridge source: $generated" >&2
+    echo "Run the normal PixelCraft FRB/code-generation step in the main checkout first." >&2
+    exit 2
+  fi
+done
+
+# Do not mutate the checkout that the developer may have open in Xcode.
+# Xcode watches project.pbxproj; temporary bundle-id edits in the live checkout
+# can leave the Runner scheme trying to launch the verifier after Flutter has
+# already removed it. Build the verifier in an isolated detached worktree.
+WORKTREE="$(mktemp -d -t pixelcraft-g6-worktree.XXXXXX)"
+WORKTREE_ADDED=0
+cleanup() {
+  if [[ "$WORKTREE_ADDED" -eq 1 ]]; then
+    git -C "$ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$WORKTREE" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+git worktree add --detach "$WORKTREE" HEAD >/dev/null
+WORKTREE_ADDED=1
+
+PBXPROJ="$WORKTREE/ios/Runner.xcodeproj/project.pbxproj"
+ANDROID_GRADLE="$WORKTREE/android/app/build.gradle.kts"
+DRIVER="$WORKTREE/test_driver/integration_test.dart"
+TARGET="$WORKTREE/integration_test/g6_device_verification_test.dart"
+WORKTREE_FRB_DIR="$WORKTREE/lib/src/rust"
+
+for required in "$PBXPROJ" "$ANDROID_GRADLE" "$DRIVER" "$TARGET"; do
+  if [[ ! -f "$required" ]]; then
+    echo "ERROR: missing $required in isolated G6 worktree" >&2
+    exit 2
+  fi
+done
+
+mkdir -p "$WORKTREE_FRB_DIR"
+# Copy the complete generated bridge directory so companion generated parts stay
+# version-compatible with api.dart/frb_generated.dart. This only writes inside
+# the disposable worktree; the main checkout remains untouched.
+cp -R "$MAIN_FRB_DIR/." "$WORKTREE_FRB_DIR/"
+
+for generated in "$WORKTREE_FRB_DIR/api.dart" "$WORKTREE_FRB_DIR/frb_generated.dart"; do
+  if [[ ! -s "$generated" ]]; then
+    echo "ERROR: failed to hydrate generated Flutter/Rust bridge source: $generated" >&2
+    exit 2
+  fi
+done
+
+echo "[PixelCraft G6] hydrated generated FRB Dart sources into isolated worktree"
+
+python3 - "$PBXPROJ" "$ANDROID_GRADLE" \
+  "$IOS_MAIN_BUNDLE_ID" "$IOS_VERIFY_BUNDLE_ID" \
+  "$ANDROID_MAIN_APP_ID" "$ANDROID_VERIFY_APP_ID" <<'PY'
+from pathlib import Path
+import sys
+
+pbx = Path(sys.argv[1])
+gradle = Path(sys.argv[2])
+ios_main = sys.argv[3]
+ios_verify = sys.argv[4]
+android_main = sys.argv[5]
+android_verify = sys.argv[6]
+
+pbx_text = pbx.read_text()
+ios_needle = f"PRODUCT_BUNDLE_IDENTIFIER = {ios_main};"
+ios_replacement = f"PRODUCT_BUNDLE_IDENTIFIER = {ios_verify};"
+ios_count = pbx_text.count(ios_needle)
+if ios_count < 1:
+    raise SystemExit(
+        f"ERROR: could not find iOS Runner bundle id {ios_main} in {pbx}"
+    )
+pbx.write_text(pbx_text.replace(ios_needle, ios_replacement))
+
+gradle_text = gradle.read_text()
+android_needle = f'applicationId = "{android_main}"'
+android_replacement = f'applicationId = "{android_verify}"'
+android_count = gradle_text.count(android_needle)
+if android_count != 1:
+    raise SystemExit(
+        f"ERROR: expected one Android applicationId {android_main}, found {android_count}"
+    )
+gradle.write_text(gradle_text.replace(android_needle, android_replacement))
+
+print(f"[PixelCraft G6] isolated iOS verifier bundle: {ios_verify} ({ios_count} configs)")
+print(f"[PixelCraft G6] isolated Android verifier app id: {android_verify}")
+PY
+
+cd "$WORKTREE"
+echo "[PixelCraft G6] device: $DEVICE"
+echo "[PixelCraft G6] mode: $MODE"
+echo "[PixelCraft G6] main checkout remains untouched: $ROOT"
+echo "[PixelCraft G6] main app id remains untouched: $IOS_MAIN_BUNDLE_ID"
+echo "[PixelCraft G6] verifier app id: $IOS_VERIFY_BUNDLE_ID"
+echo "[PixelCraft G6] verifier build root: $WORKTREE"
+echo "[PixelCraft G6] one consolidated flutter drive session"
+
+cmd=(
+  "$FLUTTER" drive
+  "--driver=$DRIVER"
+  "--target=$TARGET"
+  -d "$DEVICE"
+  "--dart-define=G6_MODE=$MODE"
+  "--dart-define=G6_CYCLES=$CYCLES"
+  "--dart-define=G6_DURATION_MIN=$DURATION_MIN"
+)
+
+session_log="$LOG"
+if [[ -z "$session_log" ]]; then
+  session_log="$(mktemp -t pixelcraft-g6-drive.XXXXXX.log)"
+  cleanup_session_log=1
+else
+  cleanup_session_log=0
+  mkdir -p "$(dirname "$session_log")"
+fi
+
+set +e
+"${cmd[@]}" 2>&1 | tee "$session_log"
+status=${PIPESTATUS[0]}
+set -e
+
+if [[ "$status" -ne 0 ]]; then
+  echo "[PixelCraft G6] DEVICE SESSION FAIL status=$status log=$session_log" >&2
+  exit "$status"
+fi
+
+if [[ "$MODE" == "reliability" ]]; then
+  if ! grep -qF "PIXELCRAFT_G6_CYCLE pass=$CYCLES total=$CYCLES" "$session_log"; then
+    echo "[PixelCraft G6] DEVICE SESSION FAIL: flutter drive returned success before cycle $CYCLES completed" >&2
+    echo "[PixelCraft G6] required marker: PIXELCRAFT_G6_CYCLE pass=$CYCLES total=$CYCLES" >&2
+    echo "[PixelCraft G6] log=$session_log" >&2
+    exit 3
+  fi
+  if ! grep -qF "PIXELCRAFT_G6_COMPLETE mode=reliability cycles=$CYCLES" "$session_log"; then
+    echo "[PixelCraft G6] DEVICE SESSION FAIL: missing reliability completion sentinel" >&2
+    echo "[PixelCraft G6] log=$session_log" >&2
+    exit 3
+  fi
+else
+  if ! grep -qF "PIXELCRAFT_G6_COMPLETE mode=thermal completed_cycles=" "$session_log"; then
+    echo "[PixelCraft G6] DEVICE SESSION FAIL: missing thermal completion sentinel" >&2
+    echo "[PixelCraft G6] log=$session_log" >&2
+    exit 3
+  fi
+fi
+
+if [[ "$cleanup_session_log" -eq 1 ]]; then
+  rm -f "$session_log"
+fi
+
+echo "[PixelCraft G6] DEVICE SESSION PASS"
+echo "[PixelCraft G6] isolated worktree will be removed; main Xcode project was never modified"
