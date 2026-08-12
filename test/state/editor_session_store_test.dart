@@ -77,6 +77,29 @@ void main() {
       expect(restored.recipeJson, contains('"cursor":1'));
     });
 
+    test('removes stale temporary recovery payloads before restore', () async {
+      await store.save(
+        originalBytes: Uint8List.fromList([4, 5, 6]),
+        recipeJson: recipe(cursor: 1),
+      );
+
+      final directory = Directory('${root.path}/pixelcraft-session');
+      final sourceTemp = File('${directory.path}/source.crashed.bin.tmp');
+      final recipeTemp = File('${directory.path}/recipe.crashed.json.tmp');
+      final manifestTemp = File('${directory.path}/generation.crashed.json.tmp');
+      await sourceTemp.writeAsBytes([9, 9, 9]);
+      await recipeTemp.writeAsString(recipe(cursor: 2));
+      await manifestTemp.writeAsString('{}');
+
+      final restored = await store.load();
+
+      expect(restored, isNotNull);
+      expect(restored!.originalBytes, [4, 5, 6]);
+      expect(await sourceTemp.exists(), isFalse);
+      expect(await recipeTemp.exists(), isFalse);
+      expect(await manifestTemp.exists(), isFalse);
+    });
+
     test('falls back to the previous coherent generation if latest payload is missing', () async {
       await store.save(
         originalBytes: Uint8List.fromList([1]),
