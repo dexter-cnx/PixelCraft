@@ -255,18 +255,12 @@ class _AdjustPanel extends StatelessWidget {
   final EditorResetAdjustmentCallback? onResetAdjustment;
   final EditorResetCallback? onResetAdjustments;
 
-  bool get _gpuSupported =>
-      state.selectedFilter == 'brightness' ||
-      state.selectedFilter == 'contrast' ||
-      state.selectedFilter == 'saturation' ||
-      state.selectedFilter == 'sharpen' ||
-      state.selectedFilter == 'gaussian_blur';
-
   @override
   Widget build(BuildContext context) {
     final filter = state.selectedFilter;
-    final useGpuCallbacks = _gpuSupported && onGpuPreviewChanged != null;
-    final neutral = defaultAdjustmentValue(filter);
+    final spec = adjustmentSpec(filter);
+    final useGpuCallbacks = spec.gpuPreview && onGpuPreviewChanged != null;
+    final neutral = spec.neutral;
     final currentChanged = recipeSummary.isAdjustmentChanged(filter);
     final resetBlocked = state.isBusy || state.isPreviewProcessing;
 
@@ -274,42 +268,46 @@ class _AdjustPanel extends StatelessWidget {
       key: const ValueKey('adjust'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: coreFilters
-              .map(
-                (item) => ChoiceChip(
-                  label: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(item.replaceAll('_', ' ')),
-                      if (recipeSummary.isAdjustmentChanged(item)) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          key: ValueKey('adjust_changed_$item'),
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            shape: BoxShape.circle,
-                          ),
+        SizedBox(
+          height: 42,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: coreFilters.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final item = coreFilters[index];
+              final itemSpec = adjustmentSpec(item);
+              return ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(itemSpec.label),
+                    if (recipeSummary.isAdjustmentChanged(item)) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        key: ValueKey('adjust_changed_$item'),
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: BoxShape.circle,
                         ),
-                      ],
+                      ),
                     ],
-                  ),
-                  selected: filter == item,
-                  onSelected: (_) => controller.selectFilter(item),
+                  ],
                 ),
-              )
-              .toList(),
+                selected: filter == item,
+                onSelected: (_) => controller.selectFilter(item),
+              );
+            },
+          ),
         ),
         const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
               child: Text(
-                '${filter.replaceAll('_', ' ')} · neutral ${neutral.toStringAsFixed(1)}',
+                '${spec.label} · ${spec.group} · neutral ${neutral.toStringAsFixed(1)}${spec.unit.isEmpty ? '' : ' ${spec.unit}'}',
                 style: Theme.of(context).textTheme.labelMedium,
               ),
             ),
@@ -325,8 +323,8 @@ class _AdjustPanel extends StatelessWidget {
         ),
         FilterSlider(
           value: state.value,
-          min: 0,
-          max: 2,
+          min: spec.min,
+          max: spec.max,
           enabled: !state.isBusy,
           onChangeStart: useGpuCallbacks
               ? (value) => onGpuPreviewStart?.call('adjust', filter, value)
@@ -342,6 +340,14 @@ class _AdjustPanel extends StatelessWidget {
             }
           },
         ),
+        if (!spec.gpuPreview)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Rust authoritative preview updates on release until a verified GPU path is available.',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
         if (recipeSummary.hasAdjustChanges) ...[
           Align(
             alignment: Alignment.centerRight,
