@@ -54,10 +54,12 @@ fn map_pixels(
 ) -> RgbaImage {
     let (width, height) = image.dimensions();
     let mut raw = image.as_raw().clone();
-    raw.par_chunks_mut(4).enumerate().for_each(|(index, pixel)| {
-        let mapped = transform(index, [pixel[0], pixel[1], pixel[2], pixel[3]]);
-        pixel.copy_from_slice(&mapped);
-    });
+    raw.par_chunks_mut(4)
+        .enumerate()
+        .for_each(|(index, pixel)| {
+            let mapped = transform(index, [pixel[0], pixel[1], pixel[2], pixel[3]]);
+            pixel.copy_from_slice(&mapped);
+        });
     RgbaImage::from_raw(width, height, raw).expect("pixel buffer size remains valid")
 }
 
@@ -116,7 +118,11 @@ fn apply_vibrance(image: DynamicImage, value: f32) -> Result<DynamicImage, Strin
             (max - min) / max
         };
         let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        let protection = if amount >= 0.0 { 1.0 - saturation } else { 1.0 };
+        let protection = if amount >= 0.0 {
+            1.0 - saturation
+        } else {
+            1.0
+        };
         let factor = 1.0 + amount * protection;
         [
             clamp_u8((luma + (r - luma) * factor) * 255.0),
@@ -214,8 +220,7 @@ fn apply_curve_zone(
     }
     let rgba = image.to_rgba8();
     let result = map_pixels(&rgba, |_, p| {
-        let luma = (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32)
-            / 255.0;
+        let luma = (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0;
         let mask = match zone {
             CurveZone::Shadows => 1.0 - smoothstep(0.08, 0.48, luma),
             CurveZone::Midtones => {
