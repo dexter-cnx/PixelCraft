@@ -3,7 +3,7 @@ import 'package:pixelcraft_gpu/wgpu_gpu_core.dart';
 
 void main() {
   test('decodes the stable wgpu backend ABI mask', () {
-    final backends = WgpuBackendSet.fromMask(0b1111);
+    final backends = WgpuBackendSet.fromMask(0xF);
 
     expect(backends.vulkan, isTrue);
     expect(backends.metal, isTrue);
