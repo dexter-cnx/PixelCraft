@@ -28,7 +28,10 @@ void main() {
     final compareButton =
         find.byKey(const ValueKey('editor_compare_button'));
     expect(compareButton, findsOneWidget);
-    expect(find.text('Before'), findsOneWidget);
+    expect(
+      find.descendant(of: compareButton, matching: find.text('Before')),
+      findsOneWidget,
+    );
     expect(container.read(editorProvider).showOriginal, isFalse);
     expect(engine.operations, isEmpty);
 
@@ -36,14 +39,20 @@ void main() {
     await tester.pump();
 
     expect(container.read(editorProvider).showOriginal, isTrue);
-    expect(find.text('Edited'), findsOneWidget);
+    expect(
+      find.descendant(of: compareButton, matching: find.text('Edited')),
+      findsOneWidget,
+    );
     expect(engine.operations, isEmpty);
 
     await tester.tap(compareButton);
     await tester.pump();
 
     expect(container.read(editorProvider).showOriginal, isFalse);
-    expect(find.text('Before'), findsOneWidget);
+    expect(
+      find.descendant(of: compareButton, matching: find.text('Before')),
+      findsOneWidget,
+    );
     expect(engine.operations, isEmpty);
   });
 }
