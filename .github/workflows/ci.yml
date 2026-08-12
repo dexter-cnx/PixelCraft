@@ -230,6 +230,15 @@ jobs:
       - name: Flutter dependencies
         run: flutter pub get
 
+      - name: Install flutter_rust_bridge codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+
+      - name: Regenerate FRB bridge
+        run: make codegen
+
+      - name: Verify generated Dart bridge exists
+        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
+
       - name: Build unsigned release APK
         run: flutter build apk --release
 
@@ -279,6 +288,15 @@ jobs:
 
       - name: Flutter dependencies
         run: flutter pub get
+
+      - name: Install flutter_rust_bridge codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+
+      - name: Regenerate FRB bridge
+        run: make codegen
+
+      - name: Verify generated Dart bridge exists
+        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
 
       - name: Build iOS release without signing
         run: flutter build ios --release --no-codesign
