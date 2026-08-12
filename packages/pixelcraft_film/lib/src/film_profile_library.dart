@@ -5,9 +5,9 @@ import 'film_profile_repository.dart';
 
 class FilmProfileLibrary {
   FilmProfileLibrary(
-    this._repository, {
-    FilmProfileImportService importService = const FilmProfileImportService(),
-  }) : this._importService = importService;
+    this._repository, [
+    this._importService = const FilmProfileImportService(),
+  ]);
 
   final FilmProfileRepository _repository;
   final FilmProfileImportService _importService;
