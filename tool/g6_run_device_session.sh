@@ -45,6 +45,18 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 2
 fi
 
+# The Flutter/Rust bridge Dart sources are generated and intentionally not all
+# tracked by git. A detached worktree therefore needs them hydrated from the
+# developer checkout before Flutter can compile the verifier.
+MAIN_FRB_DIR="$ROOT/lib/src/rust"
+for generated in "$MAIN_FRB_DIR/api.dart" "$MAIN_FRB_DIR/frb_generated.dart"; do
+  if [[ ! -f "$generated" ]]; then
+    echo "ERROR: missing generated Flutter/Rust bridge source: $generated" >&2
+    echo "Run the normal PixelCraft FRB/code-generation step in the main checkout first." >&2
+    exit 2
+  fi
+done
+
 # Do not mutate the checkout that the developer may have open in Xcode.
 # Xcode watches project.pbxproj; temporary bundle-id edits in the live checkout
 # can leave the Runner scheme trying to launch the verifier after Flutter has
@@ -68,6 +80,7 @@ PBXPROJ="$WORKTREE/ios/Runner.xcodeproj/project.pbxproj"
 ANDROID_GRADLE="$WORKTREE/android/app/build.gradle.kts"
 DRIVER="$WORKTREE/test_driver/integration_test.dart"
 TARGET="$WORKTREE/integration_test/g6_device_verification_test.dart"
+WORKTREE_FRB_DIR="$WORKTREE/lib/src/rust"
 
 for required in "$PBXPROJ" "$ANDROID_GRADLE" "$DRIVER" "$TARGET"; do
   if [[ ! -f "$required" ]]; then
@@ -75,6 +88,21 @@ for required in "$PBXPROJ" "$ANDROID_GRADLE" "$DRIVER" "$TARGET"; do
     exit 2
   fi
 done
+
+mkdir -p "$WORKTREE_FRB_DIR"
+# Copy the complete generated bridge directory so companion generated parts stay
+# version-compatible with api.dart/frb_generated.dart. This only writes inside
+# the disposable worktree; the main checkout remains untouched.
+cp -R "$MAIN_FRB_DIR/." "$WORKTREE_FRB_DIR/"
+
+for generated in "$WORKTREE_FRB_DIR/api.dart" "$WORKTREE_FRB_DIR/frb_generated.dart"; do
+  if [[ ! -s "$generated" ]]; then
+    echo "ERROR: failed to hydrate generated Flutter/Rust bridge source: $generated" >&2
+    exit 2
+  fi
+done
+
+echo "[PixelCraft G6] hydrated generated FRB Dart sources into isolated worktree"
 
 python3 - "$PBXPROJ" "$ANDROID_GRADLE" \
   "$IOS_MAIN_BUNDLE_ID" "$IOS_VERIFY_BUNDLE_ID" \
