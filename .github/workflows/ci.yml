@@ -67,6 +67,18 @@ jobs:
       - name: GPU LUT parity
         run: make gpu-lut-verify
 
+      - name: Editing package dependencies
+        working-directory: packages/pixelcraft_editing
+        run: dart pub get
+
+      - name: Editing package analyze
+        working-directory: packages/pixelcraft_editing
+        run: dart analyze
+
+      - name: Editing package tests
+        working-directory: packages/pixelcraft_editing
+        run: dart test
+
       - name: GPU package dependencies
         working-directory: packages/pixelcraft_gpu
         run: flutter pub get
