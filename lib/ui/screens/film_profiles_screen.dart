@@ -8,9 +8,14 @@ import '../../core/film_profile_v1.dart';
 import 'film_profile_creator_screen.dart';
 
 class FilmProfilesScreen extends StatefulWidget {
-  const FilmProfilesScreen({super.key, this.store});
+  const FilmProfilesScreen({
+    super.key,
+    this.store,
+    this.selectionMode = false,
+  });
 
   final FilmProfileStore? store;
+  final bool selectionMode;
 
   @override
   State<FilmProfilesScreen> createState() => _FilmProfilesScreenState();
@@ -63,8 +68,14 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
         title: const Text('Delete Film Profile?'),
         content: Text('Delete “${profile.name}”? This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -100,8 +111,14 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Import')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Import'),
+          ),
         ],
       ),
     );
@@ -112,8 +129,11 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
       FilmProfileV1 profile;
       FilmProfileImportReport? report;
       final decoded = jsonDecode(source);
-      if (decoded is Map<String, dynamic> && decoded['schema'] == pixelCraftProfileSchema) {
-        profile = FilmProfileV1.decode(source).copyWith(origin: FilmProfileOrigin.imported);
+      if (decoded is Map<String, dynamic> &&
+          decoded['schema'] == pixelCraftProfileSchema) {
+        profile = FilmProfileV1.decode(source).copyWith(
+          origin: FilmProfileOrigin.imported,
+        );
       } else if (decoded is Map<String, dynamic>) {
         report = importRecipeMap(
           decoded.cast<String, Object?>(),
@@ -152,8 +172,10 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
                   dense: true,
                   leading: Icon(switch (mapping.kind) {
                     FilmProfileMappingKind.exact => Icons.check_circle_outline,
-                    FilmProfileMappingKind.approximated => Icons.change_circle_outlined,
-                    FilmProfileMappingKind.unsupported => Icons.report_gmailerrorred_outlined,
+                    FilmProfileMappingKind.approximated =>
+                      Icons.change_circle_outlined,
+                    FilmProfileMappingKind.unsupported =>
+                      Icons.report_gmailerrorred_outlined,
                   }),
                   title: Text(mapping.sourceField),
                   subtitle: Text(
@@ -165,17 +187,28 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
           ),
         ),
         actions: [
-          FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done'),
+          ),
         ],
       ),
     );
+  }
+
+  void _select(FilmProfileV1 profile) {
+    if (!widget.selectionMode) {
+      _create(profile);
+      return;
+    }
+    Navigator.of(context).pop(profile);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Films'),
+        title: Text(widget.selectionMode ? 'Load Film' : 'Films'),
         actions: [
           IconButton(
             tooltip: 'Import Film Profile',
@@ -198,9 +231,14 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
                     children: [
                       const Icon(Icons.camera_roll_outlined, size: 54),
                       const SizedBox(height: 12),
-                      Text('No custom Films yet', style: Theme.of(context).textTheme.titleLarge),
+                      Text(
+                        'No custom Films yet',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
                       const SizedBox(height: 6),
-                      const Text('Create a Film Profile or import a compatible recipe.'),
+                      const Text(
+                        'Create a Film Profile or import a compatible recipe.',
+                      ),
                       const SizedBox(height: 18),
                       FilledButton.icon(
                         onPressed: () => _create(),
@@ -218,33 +256,50 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
                     final profile = _profiles[index];
                     return Card(
                       child: ListTile(
-                        leading: const CircleAvatar(child: Icon(Icons.camera_roll_outlined)),
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.camera_roll_outlined),
+                        ),
                         title: Text(profile.name),
                         subtitle: Text(
                           [
-                            if (profile.baseFilmId.isNotEmpty) profile.baseFilmId.replaceAll('_', ' '),
+                            if (profile.baseFilmId.isNotEmpty)
+                              profile.baseFilmId.replaceAll('_', ' '),
                             '${profile.parameters.length} adjustments',
                             profile.origin.name,
                           ].join(' • '),
                         ),
-                        onTap: () => _create(profile),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (action) {
-                            switch (action) {
-                              case 'duplicate':
-                                _duplicate(profile);
-                              case 'export':
-                                _copyExport(profile);
-                              case 'delete':
-                                _delete(profile);
-                            }
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
-                            PopupMenuItem(value: 'export', child: Text('Copy JSON')),
-                            PopupMenuItem(value: 'delete', child: Text('Delete')),
-                          ],
-                        ),
+                        onTap: () => _select(profile),
+                        trailing: widget.selectionMode
+                            ? const Icon(Icons.chevron_right)
+                            : PopupMenuButton<String>(
+                                onSelected: (action) {
+                                  switch (action) {
+                                    case 'duplicate':
+                                      _duplicate(profile);
+                                      break;
+                                    case 'export':
+                                      _copyExport(profile);
+                                      break;
+                                    case 'delete':
+                                      _delete(profile);
+                                      break;
+                                  }
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(
+                                    value: 'duplicate',
+                                    child: Text('Duplicate'),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'export',
+                                    child: Text('Copy JSON'),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('Delete'),
+                                  ),
+                                ],
+                              ),
                       ),
                     );
                   },
