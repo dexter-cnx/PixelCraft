@@ -52,7 +52,33 @@ import source + persist result
 
 Direct save of a built-in profile fails. Built-ins must be duplicated first; `FilmProfileV1.duplicate()` converts the copy to `FilmProfileOrigin.user`.
 
-## 4. Creator draft orchestration
+## 4. Library query flow
+
+`FilmProfileQuery` owns reusable pure-Dart search/filter behavior for library screens.
+
+```text
+repository order
+   ↓
+FilmProfileQuery(text, origins)
+   ↓
+case-insensitive metadata match
+   + optional FilmProfileOrigin filter
+   ↓
+visible profile list
+```
+
+Searchable metadata is intentionally limited to product-facing configuration fields:
+
+```text
+name
+description
+baseFilmId
+tags
+```
+
+The query does not inspect pixels, recipe history, filesystem paths, or GPU state. An empty origin set means all origins, and result order follows repository order. Flutter remains responsible for SearchBar/ChoiceChip state and empty-result presentation.
+
+## 5. Creator draft orchestration
 
 `FilmProfileDraft` removes reusable creation/edit rules from `FilmProfileCreatorScreen`.
 
@@ -92,7 +118,7 @@ UI text fields
 
 The package does not generate IDs from time/randomness. The caller supplies `newId`, keeping package behavior deterministic in tests.
 
-## 5. Why parameter semantics remain in pixelcraft_editing
+## 6. Why parameter semantics remain in pixelcraft_editing
 
 `FilmProfileDraft` uses the parameter catalog from `pixelcraft_editing` rather than duplicating ranges or neutral values.
 
@@ -104,7 +130,7 @@ pixelcraft_editing
 
 `pixelcraft_film` owns Film product workflow; `pixelcraft_editing` owns reusable editing/profile configuration semantics.
 
-## 6. Import flow
+## 7. Import flow
 
 ```text
 UI pasted source
@@ -122,7 +148,7 @@ UI renders optional mapping report
 
 The caller supplies generated IDs for generic imports.
 
-## 7. Mapping ownership
+## 8. Mapping ownership
 
 The mapping semantics remain in `pixelcraft_editing`:
 
@@ -134,13 +160,13 @@ unsupported
 
 `pixelcraft_film` owns orchestration/result transport, not the meaning of individual image adjustments. Unsupported source fields remain visible in the import report and are never silently dropped.
 
-## 8. Storage boundary
+## 9. Storage boundary
 
 The app currently persists profiles as JSON under its application documents directory and writes through a temporary file before rename.
 
 That implementation stays outside `pixelcraft_film` because it depends on Flutter platform storage (`path_provider` / `dart:io`). This keeps the package pure Dart and gives a clean replacement seam for future storage backends.
 
-## 9. Applying a profile to the Editor
+## 10. Applying a profile to the Editor
 
 The package does not bypass the authority chain:
 
@@ -156,13 +182,13 @@ selected FilmProfileV1
 
 Canonical Film LUT data remains Rust-owned.
 
-## 10. Base Film catalog boundary
+## 11. Base Film catalog boundary
 
 The current creator UI presents known base-Film IDs, but `pixelcraft_film` is deliberately not authoritative for LUT inventory because canonical Film LUT data belongs to Rust.
 
 A future base-Film discovery API should be fed from the authoritative engine/catalog rather than hard-coding a second canonical LUT registry into this package.
 
-## 11. Extension rule
+## 12. Extension rule
 
 A component belongs in `pixelcraft_film` when it is:
 
@@ -184,7 +210,7 @@ camera lifecycle
 canonical LUT pixels
 ```
 
-## 12. Tests
+## 13. Tests
 
 Package tests verify:
 
@@ -197,8 +223,13 @@ Package tests verify:
 - profile composition trims metadata and normalizes neutral parameters
 - editing an existing profile preserves its id
 - unknown parameter IDs fail explicitly
+- library queries preserve order
+- search matches name/description/base-Film/tags case-insensitively
+- origin filters compose with text queries
 
-## 13. Dependency invariant
+The root Flutter suite separately verifies the Film library SearchBar and origin chips against the app-owned filesystem repository adapter.
+
+## 14. Dependency invariant
 
 Allowed:
 
@@ -218,7 +249,7 @@ pixelcraft_editing -> pixelcraft_film
 
 The root boundary gate verifies these rules in CI.
 
-## 14. Current validation status
+## 15. Current validation status
 
 P3 is merged. The latest fully verified G7A PR head also validated this package:
 
