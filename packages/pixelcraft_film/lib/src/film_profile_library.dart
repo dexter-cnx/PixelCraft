@@ -7,7 +7,7 @@ class FilmProfileLibrary {
   FilmProfileLibrary(
     this._repository, {
     FilmProfileImportService importService = const FilmProfileImportService(),
-  }) : _importService = importService;
+  }) : this._importService = importService;
 
   final FilmProfileRepository _repository;
   final FilmProfileImportService _importService;
