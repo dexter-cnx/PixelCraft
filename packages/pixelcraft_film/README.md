@@ -1,13 +1,14 @@
 # pixelcraft_film
 
-Film Profile library and import orchestration for PixelCraft.
+Film Profile product/domain orchestration for PixelCraft.
 
-`pixelcraft_film` sits above `pixelcraft_editing`: it coordinates reusable Film Profile workflows while keeping image-processing semantics and LUT authority in Rust.
+`pixelcraft_film` sits above `pixelcraft_editing`: it coordinates reusable Film Profile creation, library, duplication and import workflows while keeping image-processing semantics and LUT authority in Rust.
 
 ## Owns
 
-- `FilmProfileRepository` contract
-- `FilmProfileLibrary` orchestration
+- `FilmProfileRepository` persistence contract
+- `FilmProfileLibrary` use-case orchestration
+- `FilmProfileDraft` creation/edit composition state
 - PixelCraft profile JSON vs generic recipe import classification
 - propagation of exact / approximated / unsupported mapping reports
 - duplicate / save / delete product rules for reusable Film Profiles
@@ -21,6 +22,7 @@ Film Profile library and import orchestration for PixelCraft.
 - Flutter UI/navigation
 - filesystem or `path_provider` storage implementation
 - editor history/checkpoints/recovery
+- base-Film discovery from the Rust LUT catalog
 
 ## Dependency direction
 
@@ -28,7 +30,8 @@ Film Profile library and import orchestration for PixelCraft.
 PixelCraft app
    ├── pixelcraft_film
    ├── pixelcraft_gpu
-   └── pixelcraft_engine
+   ├── pixelcraft_engine
+   └── pixelcraft_editing
 
 pixelcraft_film
    └── pixelcraft_editing
@@ -37,14 +40,21 @@ pixelcraft_editing
    └── Dart SDK only
 ```
 
-`pixelcraft_film` must not import PixelCraft app source, `pixelcraft_gpu`, or `pixelcraft_engine`.
+`pixelcraft_film` must not import PixelCraft app source, `pixelcraft_gpu`, `pixelcraft_engine`, Flutter, `path_provider`, or `dart:io`.
 
 ## Why P3 extracts this
 
-Before P3, `FilmProfilesScreen` performed product/domain orchestration directly:
+Before P3, Film screens performed reusable product/domain orchestration directly:
 
 ```text
-paste JSON
+Creator UI
+ -> initialize every parameter/default
+ -> mutate/reset parameter values
+ -> normalize name/tags
+ -> build FilmProfileV1
+ -> save
+
+Library UI
  -> detect PixelCraft profile vs generic recipe
  -> map recipe fields
  -> create imported profile
@@ -52,7 +62,29 @@ paste JSON
  -> display mapping report
 ```
 
-P3 moves parsing and library rules behind package APIs so UI only gathers input, invokes the library, and renders the result.
+P3 moves those rules behind package APIs so widgets collect/display values while the package owns reusable Film Profile behavior.
+
+## Draft contract
+
+`FilmProfileDraft` provides pure-Dart creation/edit state:
+
+```text
+FilmProfileV1? existing profile
+        ↓
+FilmProfileDraft.fromProfile
+        ↓
+semantic neutral defaults for all profile parameters
+        ↓
+withParameter / resetParameter / copyWith
+        ↓
+toProfile(newId: ...)
+        ↓
+FilmProfileV1
+```
+
+Parameter clamp/reset behavior delegates to the semantic parameter specs owned by `pixelcraft_editing`. Neutral values are normalized by `FilmProfileV1` when the final profile is built.
+
+Time-based ID generation remains outside the package so package behavior stays deterministic and testable.
 
 ## Persistence
 
@@ -94,6 +126,8 @@ Film Profile configuration
  -> Rust-authoritative preview/history/checkpoint/export
 ```
 
+Canonical Film LUT data remains Rust-owned. `pixelcraft_film` coordinates configuration/product workflows only.
+
 ## Validation
 
 ```bash
@@ -102,5 +136,7 @@ dart pub get
 dart analyze
 dart test
 ```
+
+Root CI also runs package-boundary guards and the full Flutter/Rust/GPU/native packaging suite.
 
 See [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md) for the detailed data flow.
