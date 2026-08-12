@@ -23,11 +23,12 @@ G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
 
 P0  pixelcraft_engine package extraction        MERGED
 P1  pixelcraft_gpu package extraction           MERGED
-P2  pixelcraft_editing package extraction       NEXT
-G7  Release / Beta / Store Readiness            PLANNED
+P2  pixelcraft_editing package extraction       MERGED
+P3  pixelcraft_film package extraction          ACTIVE — PR #17
+G7  Release / Beta / Store Readiness            DEFERRED UNTIL PACKAGE EXTRACTION COMPLETES
 ```
 
-P1 was closed after automated CI and physical-device smoke passed on both iOS and Android.
+P1 physical smoke passed on both iOS and Android. P2 merged after the package-boundary, Flutter, Rust, GPU, golden, and native packaging gates were green. P3 is extracting reusable Film Profile product/domain orchestration without moving LUT or pixel authority out of Rust.
 
 ## Canonical runtime flow
 
@@ -64,11 +65,13 @@ full-resolution Rust replay/export
 
 ```text
 PixelCraft/
-├── lib/                          # Flutter app shell, UI, app-side adapters
+├── lib/                          # Flutter app shell, UI, platform adapters, compatibility exports
 ├── rust/                         # authoritative Rust image engine
 ├── packages/
 │   ├── pixelcraft_engine/        # FRB/CargoKit build integration
-│   └── pixelcraft_gpu/           # preview-only Flutter GPU plugin
+│   ├── pixelcraft_gpu/           # preview-only Flutter GPU plugin
+│   ├── pixelcraft_editing/       # pure-Dart editing/configuration contracts
+│   └── pixelcraft_film/          # pure-Dart Film Profile product orchestration
 ├── android/                      # Android app shell
 ├── ios/                          # iOS app shell
 ├── test/
@@ -80,16 +83,19 @@ Dependency direction:
 
 ```text
 PixelCraft App
-   ├── pixelcraft_gpu
-   └── pixelcraft_engine
-          |
-          v
-        rust/
+ ├── pixelcraft_film
+ ├── pixelcraft_gpu
+ ├── pixelcraft_editing
+ └── pixelcraft_engine
+
+pixelcraft_film -> pixelcraft_editing
+pixelcraft_gpu  -> pixelcraft_editing
+
+pixelcraft_editing -> Dart SDK only
+pixelcraft_engine  -> repository rust/ crate through build integration
 ```
 
-Packages must not depend back on app source.
-
-Some `lib/gpu/*` files remain app-side adapters or compatibility exports. GPU renderer/capability code that still understands app-owned edit graph types remains outside `pixelcraft_gpu` until P2 extracts those pure editing-domain contracts.
+Packages must not depend back on app source. `tool/check_package_boundaries.sh` enforces the package graph in CI.
 
 ## Packages
 
@@ -132,6 +138,39 @@ Does not own committed edit semantics or exported pixels.
 
 - [`packages/pixelcraft_gpu/README.md`](packages/pixelcraft_gpu/README.md)
 - [`packages/pixelcraft_gpu/CODE_WALKTHROUGH.md`](packages/pixelcraft_gpu/CODE_WALKTHROUGH.md)
+
+### `pixelcraft_editing`
+
+Pure-Dart editing/configuration contracts shared by the app and infrastructure packages.
+
+Owns reusable non-rendering contracts such as:
+
+- Edit Graph document/node/mask/overlay models
+- semantic adjustment catalog, ranges, groups, units, and neutral values
+- Film Profile schema/configuration models and import mapping report
+- deterministic Film Profile → Editor recipe materialization
+
+It does **not** own GPU capability rollout, Flutter state/UI, or pixel processing. Rust remains authoritative for committed image semantics.
+
+- [`packages/pixelcraft_editing/README.md`](packages/pixelcraft_editing/README.md)
+- [`packages/pixelcraft_editing/CODE_WALKTHROUGH.md`](packages/pixelcraft_editing/CODE_WALKTHROUGH.md)
+
+### `pixelcraft_film`
+
+Pure-Dart Film Profile product/domain orchestration introduced in P3.
+
+Current responsibilities include:
+
+- `FilmProfileRepository` persistence contract
+- `FilmProfileLibrary` load/save/delete/duplicate/import workflow
+- PixelCraft profile JSON vs generic recipe import classification
+- exact/approximated/unsupported import-report propagation
+- `FilmProfileDraft` creator defaults, clamp/reset, metadata normalization, and profile composition
+
+Filesystem storage remains app-owned through `FilmProfileStore`; canonical Film LUT data remains Rust-owned.
+
+- [`packages/pixelcraft_film/README.md`](packages/pixelcraft_film/README.md)
+- [`packages/pixelcraft_film/CODE_WALKTHROUGH.md`](packages/pixelcraft_film/CODE_WALKTHROUGH.md)
 
 ## Editing model
 
@@ -195,6 +234,8 @@ A Film Profile deliberately excludes:
 - editor history
 - checkpoint state
 - captured GPU pixels
+
+Creation/import orchestration may run through `pixelcraft_film`, while profile configuration/mapping semantics remain in `pixelcraft_editing`.
 
 Loading a Film Profile materializes normal Rust recipe operations, so it participates in Apply/Discard, history, recovery, and export.
 
@@ -283,29 +324,36 @@ See [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md).
 CI validates:
 
 ```text
-FRB generation
+package dependency boundaries
+FRB generation / committed bridge checks
 Rust fmt / clippy / tests
 G6 image characterization
 GPU LUT parity
+pixelcraft_editing analyze / tests
+pixelcraft_film analyze / tests
+pixelcraft_gpu analyze / tests
 Flutter analyze
 state tests
 GPU plan/session tests
 widget/golden tests
 Android native packaging smoke
 iOS native packaging smoke
+wgpu core Linux / macOS / Windows
 ```
 
 Native architecture changes additionally require physical-device smoke on supported iOS and Android devices before closure.
 
 ## Documentation
 
+- [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — canonical continuation status and current next action
 - [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md) — current application/runtime architecture
 - [`packages/pixelcraft_engine/CODE_WALKTHROUGH.md`](packages/pixelcraft_engine/CODE_WALKTHROUGH.md) — FRB/CargoKit/native engine integration
 - [`packages/pixelcraft_gpu/CODE_WALKTHROUGH.md`](packages/pixelcraft_gpu/CODE_WALKTHROUGH.md) — GPU control plane and native preview runtime
-- [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — historical G5→G6 execution handoff; its continuation instructions predate the completed G6/P0/P1 work and must not be used as the current next-action source
+- [`packages/pixelcraft_editing/CODE_WALKTHROUGH.md`](packages/pixelcraft_editing/CODE_WALKTHROUGH.md) — pure editing/configuration contracts
+- [`packages/pixelcraft_film/CODE_WALKTHROUGH.md`](packages/pixelcraft_film/CODE_WALKTHROUGH.md) — Film Profile product/domain orchestration
 - [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md) — iOS dependency migration constraints
 
-Current continuation after this documentation refresh is **P2: extract pure editing-domain contracts into `packages/pixelcraft_editing`**.
+Current continuation is **P3 / PR #17**. After P3 merges, return to G7 release-readiness by rebasing/recreating the preserved pre-refactor work over the post-P3 `main`.
 
 ## License
 
