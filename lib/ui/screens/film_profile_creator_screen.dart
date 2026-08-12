@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pixelcraft_film/pixelcraft_film.dart';
 
 import '../../core/film_profile_store.dart';
 import '../../core/film_profile_v1.dart';
@@ -29,27 +30,20 @@ class _FilmProfileCreatorScreenState extends State<FilmProfileCreatorScreen> {
   };
 
   late final FilmProfileStore _store = widget.store ?? FilmProfileStore();
+  late final FilmProfileLibrary _library = FilmProfileLibrary(_store);
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _tagsController;
-  late final Map<String, double> _values;
-  late String _baseFilmId;
-  late double _baseStrength;
+  late FilmProfileDraft _draft;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    final profile = widget.initialProfile;
-    _nameController = TextEditingController(text: profile?.name ?? 'My Film');
-    _descriptionController = TextEditingController(text: profile?.description ?? '');
-    _tagsController = TextEditingController(text: profile?.tags.join(', ') ?? '');
-    _values = {
-      for (final spec in filmProfileParameterSpecs)
-        spec.id: profile?.parameters[spec.id] ?? spec.neutral,
-    };
-    _baseFilmId = profile?.baseFilmId ?? '';
-    _baseStrength = profile?.baseStrength ?? 1;
+    _draft = FilmProfileDraft.fromProfile(widget.initialProfile);
+    _nameController = TextEditingController(text: _draft.name);
+    _descriptionController = TextEditingController(text: _draft.description);
+    _tagsController = TextEditingController(text: _draft.tags.join(', '));
   }
 
   @override
@@ -63,21 +57,12 @@ class _FilmProfileCreatorScreenState extends State<FilmProfileCreatorScreen> {
   String _newId() => 'user_${DateTime.now().microsecondsSinceEpoch}';
 
   FilmProfileV1 _buildProfile() {
-    final previous = widget.initialProfile;
-    return FilmProfileV1(
-      id: previous?.id ?? _newId(),
-      name: _nameController.text.trim().isEmpty ? 'Untitled Film' : _nameController.text.trim(),
-      description: _descriptionController.text.trim(),
-      origin: FilmProfileOrigin.user,
-      baseFilmId: _baseFilmId,
-      baseStrength: _baseStrength,
-      parameters: Map.of(_values),
-      tags: _tagsController.text
-          .split(',')
-          .map((tag) => tag.trim())
-          .where((tag) => tag.isNotEmpty)
-          .toList(),
+    final draft = _draft.copyWith(
+      name: _nameController.text,
+      description: _descriptionController.text,
+      tags: FilmProfileDraft.parseTags(_tagsController.text),
     );
+    return draft.toProfile(newId: _newId());
   }
 
   Future<void> _save() async {
@@ -85,7 +70,7 @@ class _FilmProfileCreatorScreenState extends State<FilmProfileCreatorScreen> {
     setState(() => _saving = true);
     try {
       final profile = _buildProfile();
-      await _store.save(profile);
+      await _library.save(profile);
       if (!mounted) return;
       Navigator.of(context).pop(profile);
     } catch (error) {
@@ -135,21 +120,32 @@ class _FilmProfileCreatorScreenState extends State<FilmProfileCreatorScreen> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              initialValue: _baseFilms.containsKey(_baseFilmId) ? _baseFilmId : '',
+              initialValue: _baseFilms.containsKey(_draft.baseFilmId)
+                  ? _draft.baseFilmId
+                  : '',
               decoration: const InputDecoration(labelText: 'Base Film'),
               items: _baseFilms.entries
-                  .map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value)))
+                  .map(
+                    (entry) => DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                  )
                   .toList(),
-              onChanged: (value) => setState(() => _baseFilmId = value ?? ''),
+              onChanged: (value) => setState(
+                () => _draft = _draft.copyWith(baseFilmId: value ?? ''),
+              ),
             ),
-            if (_baseFilmId.isNotEmpty) ...[
+            if (_draft.baseFilmId.isNotEmpty) ...[
               const SizedBox(height: 12),
               _ProfileSlider(
                 label: 'Base Film Strength',
-                value: _baseStrength,
+                value: _draft.baseStrength,
                 min: 0,
                 max: 1,
-                onChanged: (value) => setState(() => _baseStrength = value),
+                onChanged: (value) => setState(
+                  () => _draft = _draft.copyWith(baseStrength: value),
+                ),
               ),
             ],
             const SizedBox(height: 12),
@@ -165,7 +161,8 @@ class _FilmProfileCreatorScreenState extends State<FilmProfileCreatorScreen> {
               Card(
                 clipBehavior: Clip.antiAlias,
                 child: ExpansionTile(
-                  initiallyExpanded: entry.key == 'Tone' || entry.key == 'Color',
+                  initiallyExpanded:
+                      entry.key == 'Tone' || entry.key == 'Color',
                   title: Text(entry.key),
                   subtitle: Text('${entry.value.length} controls'),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -174,12 +171,16 @@ class _FilmProfileCreatorScreenState extends State<FilmProfileCreatorScreen> {
                       _ProfileSlider(
                         label: spec.label,
                         unit: spec.unit,
-                        value: _values[spec.id] ?? spec.neutral,
+                        value: _draft.parameterValue(spec.id),
                         min: spec.min,
                         max: spec.max,
                         neutral: spec.neutral,
-                        onChanged: (value) => setState(() => _values[spec.id] = value),
-                        onReset: () => setState(() => _values[spec.id] = spec.neutral),
+                        onChanged: (value) => setState(
+                          () => _draft = _draft.withParameter(spec.id, value),
+                        ),
+                        onReset: () => setState(
+                          () => _draft = _draft.resetParameter(spec.id),
+                        ),
                       ),
                   ],
                 ),
@@ -222,7 +223,9 @@ class _ProfileSlider extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text(label)),
-              Text('${value.toStringAsFixed(2)}${unit.isEmpty ? '' : ' $unit'}'),
+              Text(
+                '${value.toStringAsFixed(2)}${unit.isEmpty ? '' : ' $unit'}',
+              ),
               if (changed && onReset != null)
                 IconButton(
                   tooltip: 'Reset $label',
