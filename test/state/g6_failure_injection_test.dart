@@ -99,16 +99,20 @@ void main() {
       });
 
       await expectLater(
-        store.save(
-          originalBytes: Uint8List.fromList([1]),
-          recipeJson: invalidCursor,
+        Future<void>.sync(
+          () => store.save(
+            originalBytes: Uint8List.fromList([1]),
+            recipeJson: invalidCursor,
+          ),
         ),
         throwsFormatException,
       );
       await expectLater(
-        store.save(
-          originalBytes: Uint8List.fromList([1]),
-          recipeJson: invalidCheckpoint,
+        Future<void>.sync(
+          () => store.save(
+            originalBytes: Uint8List.fromList([1]),
+            recipeJson: invalidCheckpoint,
+          ),
         ),
         throwsFormatException,
       );
