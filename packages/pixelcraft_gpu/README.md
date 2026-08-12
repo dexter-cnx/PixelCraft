@@ -1,44 +1,189 @@
 # pixelcraft_gpu
 
-Preview-only GPU control plane for PixelCraft.
+Preview-only Flutter plugin for PixelCraft's native GPU preview runtime.
 
-This package may represent and transport interactive preview state, but it never owns committed edit semantics. Rust remains authoritative for recipes, history, checkpoints, recovery, and full-resolution export. Camera frame buffers stay native and never cross Dart MethodChannel or Flutter Rust Bridge.
+`pixelcraft_gpu` provides low-latency native preview infrastructure while keeping committed image semantics in Rust.
 
-## Platform architecture
+> GPU is an optimization and preview surface. Rust remains authoritative for committed recipes, history, checkpoints, recovery, and full-resolution export.
 
-| Platform | Preview backend | Status |
-| --- | --- | --- |
-| Android | Existing native camera GPU path | Active |
-| iOS | Existing Metal camera path | Active |
-| macOS | Rust + wgpu → Metal | Foundation wired |
-| Windows | Rust + wgpu → D3D12/Vulkan | Foundation wired |
-| Linux | Rust + wgpu → Vulkan/GL | Foundation wired |
+## Responsibilities
 
-The desktop path is intentionally split into two layers:
+`pixelcraft_gpu` owns:
 
-1. `rust/` owns the cross-platform wgpu GPU core.
-2. Flutter platform build files are thin adapters that package/load that core.
+- app-independent Dart GPU transport/session infrastructure
+- editor GPU render-plan transport contracts
+- native camera control bridges
+- Android Camera2/OpenGL ES **camera** runtime
+- iOS AVFoundation/Metal **camera and editor** runtime
+- Flutter plugin registration
+- diagnostics and frame-pacing bridges
 
-The first ABI (`WgpuGpuCore.probe`) exposes adapter count and detected native backends. This establishes and validates the desktop build/runtime boundary before camera-frame or editor-texture presentation is migrated.
+It does **not** own:
 
-Android and iOS remain on their existing zero-copy native preview implementations during this migration. Do not route camera frame buffers through Dart/MethodChannel/FRB.
+- committed edit semantics
+- authoritative recipe/history state
+- recovery policy
+- full-resolution export
+- app navigation/product state
+- final image pixels
+- generation/packaging of native LUT assets at the app build level
 
-## Desktop probe
+## Current platform scope
 
-```dart
-import 'package:pixelcraft_gpu/pixelcraft_gpu.dart';
+### Android
 
-final capabilities = WgpuGpuCore.probe();
-print(capabilities.adapterCount);
-print(capabilities.backends.dx12);
-print(capabilities.backends.vulkan);
-print(capabilities.backends.metal);
+Android currently provides the native camera preview path:
+
+```text
+Camera2
+ -> SurfaceTexture / external OES texture
+ -> OpenGL ES
+ -> Film LUT preview
+ -> Flutter PlatformView
 ```
 
-## Migration guardrails
+The Android `PixelcraftGpuPlugin.kt` registers the camera-facing `GpuPreviewChannel` and camera PlatformView/runtime.
 
-- `pixelcraft_gpu` remains preview-only.
-- Committed edit semantics remain in the authoritative Rust engine.
-- Desktop rendering should use WGSL/wgpu rather than separate D3D/Vulkan/Metal shader implementations.
-- Platform-specific code should be limited to Flutter texture/surface interop and zero-copy external texture import/export where required.
-- A desktop platform is not considered production-ready until texture presentation, resize/device-loss handling, frame pacing, and physical-device/GPU validation are complete.
+**There is currently no Android editor GPU channel/view implementation corresponding to the iOS `gpu_editor_preview_v1` / `GpuEditorPreviewPlugin` path.**
+
+Therefore `GpuEditorRenderPlan` must not be described as executing through Android OpenGL ES today. Android editor interaction remains on the valid Rust/product path until an Android editor renderer is implemented and parity-verified.
+
+### iOS
+
+iOS currently provides both camera preview and the implemented native editor GPU preview path using Metal/AVFoundation.
+
+Production sources live under:
+
+```text
+packages/pixelcraft_gpu/ios/Classes/
+```
+
+## Runtime boundary
+
+```text
+Flutter app
+   ↓ small control/session messages
+pixelcraft_gpu
+   ├── Android: Camera2 / OpenGL ES camera preview
+   └── iOS: AVFoundation / Metal camera + editor preview
+
+Flutter app
+   ↓ semantic commit
+Rust engine
+   ↓
+authoritative preview / recipe / export
+```
+
+Live camera frame buffers stay native. They never cross Dart MethodChannel or Flutter Rust Bridge.
+
+## Camera contract
+
+Camera Film is preview-only.
+
+```text
+native camera frames
+   ↓
+GPU Film preview
+   ↓
+user captures
+   ↓
+clean source JPEG/file path
+```
+
+Dart receives control data and the clean capture path, not processed live-frame buffers.
+
+## Editor contract
+
+Where a verified native editor path exists and the requested operation graph is representable:
+
+```text
+slider drag
+   ↓
+GPU preview session
+   ↓
+native low-latency preview
+
+slider release
+   ↓
+Rust semantic commit
+   ↓
+authoritative Rust preview
+```
+
+At present this native editor path is implemented on iOS Metal, not Android OpenGL ES.
+
+Unsupported operation ordering, unavailable platform support, or runtime failure falls back to the valid Rust path. The GPU layer must never silently reorder or approximate committed semantics.
+
+## Native ownership
+
+Android native camera registration belongs to the plugin rather than `MainActivity`.
+
+The Android library namespace is:
+
+```text
+dev.pixelcraft.gpu
+```
+
+iOS production Metal/AVFoundation sources live in:
+
+```text
+packages/pixelcraft_gpu/ios/Classes/
+```
+
+The app `AppDelegate` remains an app shell; it is not the production GPU composition root.
+
+## Canonical LUT data and current packaging ownership
+
+Film and Creative LUT **semantics** originate from Rust-owned canonical data.
+
+Conceptually:
+
+```text
+Rust canonical data
+   ↓
+33^3 LUTs / parity fixtures
+   ├── Rust renderer
+   └── generated native GPU assets
+```
+
+However, **native LUT asset generation/packaging is still app-owned today**, not fully owned by `pixelcraft_gpu`:
+
+- Android LUT generation is wired from the app build through `GenerateGpuLutAssetsTask` in `android/app/build.gradle.kts`.
+- iOS LUT generation/copying remains integrated through the Runner/Xcode build phase.
+- `packages/pixelcraft_gpu/android/build.gradle` and `packages/pixelcraft_gpu/ios/pixelcraft_gpu.podspec` do not yet declare equivalent self-contained generated LUT resources.
+
+So the plugin **consumes app-generated native LUT assets**. Do not describe those assets as package-owned until generation and packaging are actually relocated into `pixelcraft_gpu`.
+
+This distinction preserves two separate truths:
+
+```text
+LUT semantic authority  = Rust
+LUT native packaging    = app build integration (current)
+```
+
+## Validation
+
+P1 was closed only after all of the following passed:
+
+```text
+Flutter analyze
+Rust checks/tests
+GPU plan/session tests
+GPU LUT parity
+Android native packaging smoke
+iOS native packaging smoke
+Android physical-device smoke
+iOS physical-device smoke
+```
+
+The Android physical smoke validates the Android camera/plugin topology; it is not evidence that an Android editor GPU renderer exists.
+
+## Detailed walkthrough
+
+For the Dart control plane, editor session lifecycle, native registration, camera paths, fallback model, diagnostics, and extension rules, see:
+
+- [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md)
+
+For the overall application architecture, see:
+
+- [`../../docs/CODE_WALKTHROUGH.md`](../../docs/CODE_WALKTHROUGH.md)
