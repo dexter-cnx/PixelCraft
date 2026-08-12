@@ -9,7 +9,8 @@ import 'package:pixelcraft/ui/screens/film_profiles_screen.dart';
 void main() {
   testWidgets('Film library searches metadata and filters imported profiles',
       (tester) async {
-    final directory = await Directory.systemTemp.createTemp('pixelcraft-film-ui-');
+    final directory =
+        await Directory.systemTemp.createTemp('pixelcraft-film-ui-');
     addTearDown(() => directory.delete(recursive: true));
     final store = FilmProfileStore(directoryProvider: () async => directory);
 
@@ -34,7 +35,16 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: FilmProfilesScreen(store: store)),
     );
-    await tester.pumpAndSettle();
+
+    // The screen starts with an indeterminate CircularProgressIndicator while
+    // FilmProfileStore performs real async file I/O. pumpAndSettle() cannot be
+    // used here because the spinner continuously schedules frames and can keep
+    // the test harness alive indefinitely. Yield to the real event loop so the
+    // store load can finish, then render the completed state once.
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pump();
 
     expect(find.text('Portrait Soft'), findsOneWidget);
     expect(find.text('Travel Chrome'), findsOneWidget);
