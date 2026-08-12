@@ -23,7 +23,7 @@ G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
 
 P0  pixelcraft_engine package extraction        MERGED
 P1  pixelcraft_gpu package extraction           MERGED
-P2  pixelcraft_editing package extraction        NEXT
+P2  pixelcraft_editing package extraction       NEXT
 G7  Release / Beta / Store Readiness            PLANNED
 ```
 
@@ -111,13 +111,20 @@ Does not own editing semantics; those remain in `rust/`.
 
 ### `pixelcraft_gpu`
 
-Preview-only Flutter plugin for native GPU camera/editor rendering.
+Preview-only Flutter plugin for native GPU preview infrastructure.
+
+Current platform scope:
+
+- **Android:** Camera2/OpenGL ES camera preview path and camera control/runtime registration.
+- **iOS:** AVFoundation/Metal camera preview plus the implemented native editor GPU preview path.
+
+Android does **not** currently provide the editor GPU channel/view used by `GpuEditorRenderPlan`; Android editor preview therefore stays on the Rust/product path until an Android editor implementation is added and parity-verified.
 
 Owns:
 
 - app-independent Dart GPU transport/session infrastructure
-- Android Camera2/OpenGL ES runtime
-- iOS AVFoundation/Metal runtime
+- Android Camera2/OpenGL ES camera runtime
+- iOS AVFoundation/Metal camera and editor runtime
 - plugin registration
 - diagnostics/frame pacing
 
@@ -144,7 +151,7 @@ Typical interaction:
 
 ```text
 slider drag
-  -> GPU preview when verified and representable
+  -> GPU preview only where a verified native editor path exists and is representable
 
 slider release
   -> Rust semantic commit/replace
@@ -152,7 +159,7 @@ slider release
   -> recovery persistence
 ```
 
-Unsupported GPU paths simply keep the valid Rust preview.
+Unsupported or unavailable GPU paths simply keep the valid Rust preview.
 
 ## Camera GPU preview
 
@@ -292,11 +299,13 @@ Native architecture changes additionally require physical-device smoke on suppor
 
 ## Documentation
 
-- [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md) — application/runtime architecture
+- [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md) — current application/runtime architecture
 - [`packages/pixelcraft_engine/CODE_WALKTHROUGH.md`](packages/pixelcraft_engine/CODE_WALKTHROUGH.md) — FRB/CargoKit/native engine integration
 - [`packages/pixelcraft_gpu/CODE_WALKTHROUGH.md`](packages/pixelcraft_gpu/CODE_WALKTHROUGH.md) — GPU control plane and native preview runtime
-- [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — current execution handoff
+- [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — historical G5→G6 execution handoff; its continuation instructions predate the completed G6/P0/P1 work and must not be used as the current next-action source
 - [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md) — iOS dependency migration constraints
+
+Current continuation after this documentation refresh is **P2: extract pure editing-domain contracts into `packages/pixelcraft_editing`**.
 
 ## License
 
