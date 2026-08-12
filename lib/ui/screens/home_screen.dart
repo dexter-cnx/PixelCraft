@@ -4,9 +4,9 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/editor_session_store.dart';
 import 'camera_film_preview_screen.dart';
-import 'editor_screen.dart';
 import 'film_profiles_screen.dart';
 import 'gpu_diagnostics_screen.dart';
+import 'product_editor_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -95,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => EditorScreen(imagePath: picked.path),
+        builder: (_) => ProductEditorScreen(imagePath: picked.path),
       ),
     );
     await _refreshRecovery();
@@ -127,7 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final bytes = await bytesFuture;
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => EditorScreen(imageBytes: bytes)),
+      MaterialPageRoute(builder: (_) => ProductEditorScreen(imageBytes: bytes)),
     );
     await _refreshRecovery();
   }
@@ -148,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isRecovering = false);
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => EditorScreen(
+        builder: (_) => ProductEditorScreen(
           imageBytes: session.originalBytes,
           recoveryRecipe: session.recipeJson,
         ),
