@@ -3,14 +3,14 @@ package dev.pixelcraft.pixelcraft
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 internal class GpuPreviewChannel(
-    flutterEngine: FlutterEngine,
+    messenger: BinaryMessenger,
     context: Context,
     private val sessions: GpuPreviewRendererSessionRegistry,
     private val requestCameraPermission: ((Boolean) -> Unit) -> Unit,
@@ -19,23 +19,22 @@ internal class GpuPreviewChannel(
         const val PROTOCOL_VERSION = 1
         private const val CHANNEL = "dev.pixelcraft/gpu_preview_v1"
         private const val MAX_LUT_SIZE = 33
-
-        /** Serialize EGL test work away from Android's platform/UI thread. */
         private val gpuExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     }
 
     private val appContext = context.applicationContext
     private val capabilityProbe = GpuCapabilityProbe(appContext)
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    private val channel = MethodChannel(
-        flutterEngine.dartExecutor.binaryMessenger,
-        CHANNEL,
-    )
+    private val channel = MethodChannel(messenger, CHANNEL)
 
     init {
         channel.setMethodCallHandler(this)
         sessions.runtimeFailureListener = ::notifyRuntimeFailure
+    }
+
+    fun dispose() {
+        sessions.runtimeFailureListener = null
+        channel.setMethodCallHandler(null)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -77,86 +76,54 @@ internal class GpuPreviewChannel(
         result.success(null)
     }
 
-    private fun handleRequestCameraPermission(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private fun handleRequestCameraPermission(call: MethodCall, result: MethodChannel.Result) {
         if (!validateProtocol(call, result)) return
         requestCameraPermission { granted ->
             mainHandler.post { result.success(granted) }
         }
     }
 
-    private fun handleAvailableCameraLenses(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private fun handleAvailableCameraLenses(call: MethodCall, result: MethodChannel.Result) {
         if (!validateProtocol(call, result)) return
         try {
             result.success(sessions.availableLenses())
         } catch (error: Throwable) {
-            result.error(
-                "gpu_camera_info_failed",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_camera_info_failed", error.message ?: error.javaClass.simpleName, null)
         }
     }
 
-    private fun handleReferenceHarness(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private fun handleReferenceHarness(call: MethodCall, result: MethodChannel.Result) {
         if (!validateProtocol(call, result)) return
-
         gpuExecutor.execute {
             try {
                 val harness = GpuLutShaderHarness.run().toChannelMap()
                 mainHandler.post { result.success(harness) }
             } catch (error: Throwable) {
                 mainHandler.post {
-                    result.error(
-                        "gpu_harness_failed",
-                        error.message ?: error.javaClass.simpleName,
-                        null,
-                    )
+                    result.error("gpu_harness_failed", error.message ?: error.javaClass.simpleName, null)
                 }
             }
         }
     }
 
-    private fun handleFilmProfileHarness(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private fun handleFilmProfileHarness(call: MethodCall, result: MethodChannel.Result) {
         if (!validateProtocol(call, result)) return
         val profileId = call.argument<String>("profileId").orEmpty()
         if (profileId.isBlank()) {
             result.error("gpu_invalid_profile", "profileId is required", null)
             return
         }
-
         gpuExecutor.execute {
             try {
-                val harness = GpuLutShaderHarness
-                    .runFilmProfile(appContext, profileId)
-                    .toChannelMap()
+                val harness = GpuLutShaderHarness.runFilmProfile(appContext, profileId).toChannelMap()
                 mainHandler.post { result.success(harness) }
             } catch (error: IllegalArgumentException) {
                 mainHandler.post {
-                    result.error(
-                        "gpu_invalid_profile",
-                        error.message ?: "Invalid Film Profile",
-                        null,
-                    )
+                    result.error("gpu_invalid_profile", error.message ?: "Invalid Film Profile", null)
                 }
             } catch (error: Throwable) {
                 mainHandler.post {
-                    result.error(
-                        "gpu_film_harness_failed",
-                        error.message ?: error.javaClass.simpleName,
-                        null,
-                    )
+                    result.error("gpu_film_harness_failed", error.message ?: error.javaClass.simpleName, null)
                 }
             }
         }
@@ -175,11 +142,7 @@ internal class GpuPreviewChannel(
             )
         } catch (error: Throwable) {
             capabilityProbe.invalidate()
-            result.error(
-                "gpu_renderer_init_failed",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_renderer_init_failed", error.message ?: error.javaClass.simpleName, null)
         }
     }
 
@@ -225,10 +188,7 @@ internal class GpuPreviewChannel(
 
     private fun handleSetEnabled(call: MethodCall, result: MethodChannel.Result) =
         handleRendererControl(call, result) { rendererId ->
-            sessions.setEnabled(
-                rendererId,
-                call.argument<Boolean>("enabled") ?: false,
-            )
+            sessions.setEnabled(rendererId, call.argument<Boolean>("enabled") ?: false)
         }
 
     private fun handleCapturePhoto(call: MethodCall, result: MethodChannel.Result) {
@@ -240,21 +200,13 @@ internal class GpuPreviewChannel(
                     capture.fold(
                         onSuccess = { path -> result.success(mapOf("path" to path)) },
                         onFailure = { error ->
-                            result.error(
-                                "gpu_camera_capture_failed",
-                                error.message ?: error.javaClass.simpleName,
-                                null,
-                            )
+                            result.error("gpu_camera_capture_failed", error.message ?: error.javaClass.simpleName, null)
                         },
                     )
                 }
             }
         } catch (error: Throwable) {
-            result.error(
-                "gpu_camera_capture_failed",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_camera_capture_failed", error.message ?: error.javaClass.simpleName, null)
         }
     }
 
@@ -267,21 +219,13 @@ internal class GpuPreviewChannel(
                     switched.fold(
                         onSuccess = { lens -> result.success(mapOf("lensDirection" to lens)) },
                         onFailure = { error ->
-                            result.error(
-                                "gpu_camera_switch_failed",
-                                error.message ?: error.javaClass.simpleName,
-                                null,
-                            )
+                            result.error("gpu_camera_switch_failed", error.message ?: error.javaClass.simpleName, null)
                         },
                     )
                 }
             }
         } catch (error: Throwable) {
-            result.error(
-                "gpu_camera_switch_failed",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_camera_switch_failed", error.message ?: error.javaClass.simpleName, null)
         }
     }
 
@@ -301,28 +245,15 @@ internal class GpuPreviewChannel(
     ) {
         if (!validateProtocol(call, result)) return
         val rendererId = rendererId(call, result) ?: return
-
         try {
             action(rendererId)
             result.success(null)
         } catch (error: IllegalArgumentException) {
-            result.error(
-                "gpu_renderer_invalid",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_renderer_invalid", error.message ?: error.javaClass.simpleName, null)
         } catch (error: IllegalStateException) {
-            result.error(
-                "gpu_renderer_state",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_renderer_state", error.message ?: error.javaClass.simpleName, null)
         } catch (error: Throwable) {
-            result.error(
-                "gpu_renderer_failed",
-                error.message ?: error.javaClass.simpleName,
-                null,
-            )
+            result.error("gpu_renderer_failed", error.message ?: error.javaClass.simpleName, null)
         }
     }
 
@@ -333,10 +264,7 @@ internal class GpuPreviewChannel(
         return null
     }
 
-    private fun validateProtocol(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ): Boolean {
+    private fun validateProtocol(call: MethodCall, result: MethodChannel.Result): Boolean {
         val requestedVersion = call.argument<Int>("protocolVersion") ?: 0
         if (requestedVersion == PROTOCOL_VERSION) return true
         result.error(
@@ -348,8 +276,7 @@ internal class GpuPreviewChannel(
     }
 
     private fun number(call: MethodCall, key: String): Number =
-        call.argument<Number>(key)
-            ?: throw IllegalArgumentException("$key is required")
+        call.argument<Number>(key) ?: throw IllegalArgumentException("$key is required")
 
     private fun notifyRuntimeFailure(rendererId: String, message: String) {
         capabilityProbe.invalidate()
