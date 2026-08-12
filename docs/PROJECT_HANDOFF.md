@@ -32,7 +32,7 @@ Hard contracts:
 3. Camera Film is preview-only; capture remains clean.
 4. Live camera frame buffers never cross Dart MethodChannel or Flutter Rust Bridge.
 5. Canonical Film/Creative LUT data is Rust-owned.
-6. Native/GPU failure must fail closed to a valid Rust preview.
+6. Native/GPU failure must fail closed to a valid Rust preview/product state.
 7. Unsupported Rust operation order must fall back; never silently reorder operations to fit the GPU.
 8. Film Profiles are reusable configuration data, not captured pixels or per-image Editor sessions.
 9. Imported recipe fields must be reported as exact / approximated / unsupported; never silently drop unsupported fields.
@@ -65,9 +65,9 @@ G1  Camera GPU Preview                          CLOSED
 G2  Editor GPU Preview Foundation               CLOSED / MERGED
 G3  Production Rendering Pipeline               CLOSED / MERGED
 G4  Product Editor UX / Session Workflow        CLOSED / MERGED
-G5  Editing Feature Completeness                CLOSED / VERIFIED
-G6  Reliability / Performance / Device Matrix   NEXT
-G7  Release / Beta / Store Readiness            PLANNED
+G5  Editing Feature Completeness                CLOSED / VERIFIED / MERGED
+G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED / MERGED
+G7  Release / Beta / Store Readiness            IN PROGRESS
 ```
 
 Branches / PRs:
@@ -76,49 +76,34 @@ Branches / PRs:
 G2  feature/camera-film-preview
 G3  feature/editor-gpu-production      PR #6 merged
 G4  feature/editor-product-ux          PR #7 merged
-G5  feature/editor-tone-controls       PR #8 open at handoff time
+G5  feature/editor-tone-controls       PR #8 merged
+G6  feature/g6-reliability-matrix      PR #9 merged
+G7  feature/g7-release-readiness       current
+```
+
+G6 merge commit:
+
+```text
+9106b15adbd78760ecfdac2041eed4fdfd98ff87
 ```
 
 ---
 
-# 3. G1 — Camera GPU Preview — CLOSED
+# 3. Closed milestone records
 
-Android:
+## G1 — Camera GPU Preview
 
-```text
-Camera2
- -> SurfaceTexture
- -> GL_TEXTURE_EXTERNAL_OES
- -> GLES
- -> canonical Film LUT atlas
- -> TextureView / AndroidView
-```
+Android uses Camera2 -> SurfaceTexture -> GLES and canonical Film LUT assets. iOS uses AVCaptureVideoDataOutput -> CVPixelBuffer -> Metal. Capture remains clean.
 
-iOS:
+See:
 
 ```text
-AVCaptureSession
- -> AVCaptureVideoDataOutput
- -> CVPixelBuffer
- -> CVMetalTextureCache
- -> Metal
- -> canonical 33^3 Film LUT
- -> MTKView / UiKitView
+docs/G1_IOS_VERIFICATION.md
 ```
 
-Capture stays clean on both platforms.
+## G2 — Editor GPU Preview Foundation
 
-Recorded evidence includes Android Film LUT max errors around `0.0017-0.0019`, iOS ~60 FPS preview characterization and Metal command p95 around `1.31 ms`.
-
-See `docs/G1_IOS_VERIFICATION.md`.
-
----
-
-# 4. G2 — Editor GPU Preview Foundation — CLOSED / MERGED
-
-Primary record: `docs/G2_FINAL_VERIFICATION.md`.
-
-Transaction model:
+Transaction contract:
 
 ```text
 slider drag    -> GPU-only draft when supported
@@ -128,316 +113,77 @@ Undo/Redo      -> Rust history
 Export         -> Rust full-resolution replay
 ```
 
-G2 established:
-
-- Brightness / Contrast / Saturation GPU parity
-- Sharpen semantics
-- deterministic Gaussian Blur parity
-- Creative compute/LUT paths
-- crop / straighten / rotate / flip
-- renderer generation guards
-- stale activation protection
-- Rust fallback on native failure
-
-Draft composition:
-
-- independent Adjust slots
-- one Creative slot
-- one Film slot
-- tool switching is not Apply/Discard
-
 See:
 
 ```text
+docs/G2_FINAL_VERIFICATION.md
 docs/G2_5_TRANSFORM_PREVIEW_CONTRACT.md
 docs/G2_6_EDITOR_GPU_HARDENING.md
 docs/EDITOR_DRAFT_COMPOSITION.md
 ```
 
----
+## G3 — Production Rendering Pipeline
 
-# 5. G3 — Production Rendering Pipeline — CLOSED / MERGED
+Unsupported operation order/composition falls back to Rust. Recorded Apple A13 evidence remains authoritative.
 
-Records:
+See:
 
 ```text
 docs/G3_FINAL_VERIFICATION.md
 docs/G3_DEVICE_VERIFICATION.md
 ```
 
-`GpuEditorRenderPlan` reads:
+## G4 — Product Editor UX / Session Workflow
+
+Implemented recipe-derived state, Apply/Discard, Before, History, Undo/Redo, atomic recovery, back policy, and Rust full-resolution PNG/JPEG/WEBP export.
+
+Current export does not re-attach original EXIF/metadata; do not claim metadata preservation.
+
+See:
 
 ```text
-operations[checkpoint_cursor .. cursor]
+docs/G4_PRODUCT_UX_VERIFICATION.md
 ```
 
-Current verified Metal topology:
+## G5 — Editing Feature Completeness
 
-```text
-optional Creative compute
- -> Gaussian Blur
- -> Sharpen
- -> Brightness
- -> Contrast
- -> Saturation
- -> optional final LUT
-```
+Rust-authoritative additions include Tone, Color/WB bias, Vignette, deterministic Grain, Film Profile V1, profile creator/import/export, tone-zone curves and six-sector HSL.
 
-Unsupported order/composition falls back to Rust.
+GPU continuous preview remains enabled only for controls with verified faithful parity. Newer G5 controls remain Rust-on-release unless a parity-safe GPU path is separately verified.
 
-Recorded Apple A13 evidence:
-
-```text
-Adjustment parity max error     0.0019263029098510742
-Gaussian Blur max error         0.0
-Creative compute max error      0.0
-Adjustment + Film p95           1.104 ms
-Heavy Gaussian Blur p95         11.418 ms
-Renderer recreate               12/12 PASS
-```
-
----
-
-# 6. G4 — Product Editor UX / Session Workflow — CLOSED / MERGED
-
-Record: `docs/G4_PRODUCT_UX_VERIFICATION.md`.
-
-Implemented:
-
-- recipe-derived changed indicators
-- Reset current Adjust
-- Reset Adjust / Creative / Film
-- Before press-and-hold against latest Apply checkpoint
-- recipe-derived History with Applied/Draft distinction
-- Rust Undo/Redo
-- generation-based atomic recovery
-- source fingerprint / recipe bounds validation
-- corrupt newest-generation fallback
-- Back policy: Continue Editing / Discard / Apply & Exit
-- PNG / JPEG / WEBP full-resolution Rust export
-- gallery/app backup/share
-
-Current export path does not re-attach original EXIF/metadata; do not claim metadata preservation.
-
----
-
-# 7. G5 — Editing Feature Completeness — CLOSED / VERIFIED
-
-Branch:
-
-```text
-feature/editor-tone-controls
-```
-
-PR #8:
-
-```text
-G5.1-G5.7: editing completeness and Film Lab
-```
-
-Primary docs:
+See:
 
 ```text
 docs/G5_EDITING_FEATURE_COMPLETENESS.md
 docs/G5_TONE_CONTROLS.md
 ```
 
-## G5.1 Tone
+## G6 — Reliability / Performance / Device Matrix
 
-Rust-authoritative additions:
+Status: **CLOSED / VERIFIED / MERGED**.
 
-```text
-Exposure    -2 ... +2 EV   neutral 0
-Highlights  -1 ... +1      neutral 0
-Shadows     -1 ... +1      neutral 0
-```
-
-Exposure uses `2^EV` multiplicative semantics. Highlights/Shadows use luminance-selective masks. Alpha is preserved.
-
-Shared Editor metadata is now in:
+Primary record:
 
 ```text
-lib/state/editor_adjustment_catalog.dart
+docs/G6_RELIABILITY_MATRIX.md
 ```
 
-Current catalog also fixes Sharpness neutral to `0.0`.
+Recorded evidence includes:
 
-GPU continuous preview remains enabled only for the already verified faithful controls:
+- clean host baseline
+- 12/24/48 MP host characterization
+- 10/50/100-cycle physical soak on iPhone 11
+- 15-minute / 420-cycle sustained workload
+- deterministic failure injection
+- physical/manual product and failure checks
+- isolated verifier app/worktree that preserves the installed main app
+- final G6 PR head CI green before merge
 
-```text
-Brightness
-Contrast
-Saturation
-Sharpness
-Gaussian Blur
-```
-
-New G5 controls remain Rust-on-release until a parity-safe GPU implementation exists.
-
-## G5.2 Color / WB bias
-
-Added:
-
-```text
-Temperature  -1 ... +1
-Tint         -1 ... +1
-Vibrance     -1 ... +1
-```
-
-These are image-edit color-bias semantics, not calibrated camera sensor white-balance controls.
-
-## G5.3 Finish / Texture
-
-Added:
-
-```text
-Vignette  -1 ... +1
-Grain      0 ... 1
-```
-
-Grain is deterministic via coordinate-based hashing; replay/export does not depend on hidden RNG state.
-
-## G5.4 Film Profile Foundation
-
-Model:
-
-```text
-lib/core/film_profile_v1.dart
-```
-
-Schema:
-
-```text
-schema            pixelcraft-film-profile
-schemaVersion     1
-minEngineVersion  1
-origin             builtIn / user / imported
-```
-
-A reusable profile can contain:
-
-- id / name / description
-- base Film ID + strength
-- normalized parameter map
-- tags
-- compatibility versions
-
-It does not contain source image, crop/rotate state, history, checkpoint or captured GPU pixels.
-
-## G5.5 Film Profile Creator V1
-
-UI:
-
-```text
-lib/ui/screens/film_profiles_screen.dart
-lib/ui/screens/film_profile_creator_screen.dart
-```
-
-Workflow:
-
-```text
-Create
-Edit user profile
-Duplicate
-Choose base Film
-Tune Tone / Color / Texture / Curve / HSL
-Save
-Load from My Films into Editor
-```
-
-Local persistence:
-
-```text
-lib/core/film_profile_store.dart
-```
-
-## G5.6 Profile import/export
-
-`FilmProfileV1` supports versioned PixelCraft JSON.
-
-Generic recipe importer reports each mapped field as:
-
-```text
-exact
-approximated
-unsupported
-```
-
-Do not claim proprietary third-party camera processing is reproduced 1:1 unless separately verified.
-
-## G5.7 Advanced Film Lab V1
-
-Rust implementation:
-
-```text
-rust/src/advanced_filters.rs
-```
-
-Tone-zone operations:
-
-```text
-curve_shadows
-curve_midtones
-curve_highlights
-```
-
-HSL sectors:
-
-```text
-red / yellow / green / cyan / blue / magenta
-```
-
-Each sector supports:
-
-```text
-hue / sat / lum
-```
-
-These are replayable scalar recipe operations, not a separate Film Lab session model.
-
-## Film Profile → Editor recipe
-
-Materializer:
-
-```text
-lib/core/film_profile_recipe.dart
-```
-
-Flow:
-
-```text
-FilmProfileV1
- -> preserve operations before checkpoint_cursor
- -> upsert optional film_profile draft operation
- -> upsert scalar filter draft operations
- -> truncate stale redo tail
- -> restore rewritten recipe through Rust
- -> normal history / checkpoint / recovery / export
-```
-
-Loading a custom profile therefore does not bypass Rust authority.
-
-## G5 verification
-
-Recorded at closure:
-
-```text
-latest host CI                               PASS
-Pixel Craft CI run #109                      PASS before closure docs
-Flutter analyzer/state/widget/golden gates   PASS
-Rust fmt/clippy/tests                        PASS
-FRB generated bridge checks                  PASS
-GPU LUT verification                         PASS
-physical/product G5 smoke                    PASS (reported 2026-08-12)
-```
-
-Physical/product smoke is functional evidence. It is not a numeric GPU parity claim for G5 controls that intentionally use Rust on release.
-
-**Decision: G5 CLOSED / VERIFIED.**
+Do not invent unavailable Android/device-tier evidence beyond what G6 recorded.
 
 ---
 
-# 8. Important current files
+# 4. Important current files
 
 ```text
 Startup
@@ -489,175 +235,76 @@ docs/CODE_WALKTHROUGH.md
 
 ---
 
-# 9. G6 — Reliability / Performance / Device Matrix — NEXT
+# 5. G7 — Release / Beta / Store Readiness — IN PROGRESS
 
-Create:
-
-```text
-docs/G6_RELIABILITY_MATRIX.md
-```
-
-Recommended branch after PR #8 merge:
+Primary record:
 
 ```text
-feature/g6-reliability-matrix
+docs/G7_RELEASE_READINESS.md
 ```
 
-## G6.0 Transition
-
-1. confirm latest PR #8 head after closure docs is green
-2. mark PR #8 Ready for review if still Draft
-3. review / resolve findings
-4. merge PR #8 into `main`
-5. update local `main`
-6. create G6 branch
-7. run a clean baseline
-
-Baseline:
-
-```bash
-flutter analyze
-make test
-make golden-test
-make rust-fmt
-make rust-clippy
-make rust-test
-make gpu-lut-verify
-```
-
-## G6.1 Image-size matrix
-
-Test where hardware permits:
+Branch:
 
 ```text
-small fixture
-~12 MP
-~24 MP
-~48 MP
+feature/g7-release-readiness
 ```
 
-Cover portrait/landscape/square, JPEG/PNG/WebP paths, EXIF orientation and alpha where applicable.
-
-Measure where practical:
-
-- Editor startup/decode
-- reduced-preview preparation
-- operation latency
-- Apply latency
-- export time
-- peak RSS / memory-pressure behavior
-
-## G6.2 Long-session / soak
-
-Stress:
-
-- repeated G5 slider edits
-- Curve/HSL
-- Apply/Discard
-- Undo/Redo
-- transforms
-- repeated export
-- Editor reopen
-- Camera→Editor loops
-- lifecycle loops
-- Film Profile create/edit/duplicate/load/import/export
-
-Watch for memory growth, renderer leaks, stale temp/recovery data, native crashes, recipe/profile corruption and progressive slowdown.
-
-## G6.3 Device matrix
-
-When available:
+G7 scope:
 
 ```text
-iOS: A13 reference + newer tier + lower-memory supported tier
-Android: materially different Mali + Adreno devices
+G7.0 release baseline
+G7.1 Android production build/signing/native packaging
+G7.2 iOS production build/signing
+G7.3 privacy/permissions/diagnostics
+G7.4 CI/CD release gates
+G7.5 internal beta distribution
+G7.6 store metadata/readiness
+G7.7 release-candidate physical smoke
 ```
 
-## G6.4 Thermal / sustained workload
+Initial audit found Android `release` was signed with the debug keystore. G7 removes that behavior. Release builds are unsigned unless an explicit ignored `android/key.properties` supplies production signing material.
 
-Observe long camera/editor/export sessions for throttling and responsiveness degradation. Avoid unnecessary continuous rendering while idle.
+Current package version remains:
 
-## G6.5 Failure injection
+```text
+0.1.0+1
+```
 
-Test:
-
-- missing/corrupt LUT
-- native renderer failure
-- missing source
-- corrupt recovery recipe
-- corrupt Film Profile JSON
-- unsupported imported fields
-- export failure
-- gallery write failure
-- permission denied
-- lifecycle interruption during processing
-
-Required behavior remains fail-closed to valid Rust/product state.
+Do not finalize v1.0.0 until signed internal-beta artifacts and RC smoke are verified.
 
 ---
 
-# 10. G7 — Release / Beta / Store Readiness
+# 6. Verification rules
 
-Planned areas:
-
-- production build hygiene
-- Android ABI/native-lib verification
-- iOS signing/build settings
-- min/target OS policy
-- privacy/permissions
-- crash diagnostics without image pixels
-- CI/CD release checks
-- beta distribution
-- store assets/copy/privacy disclosure
-- release-candidate real-device smoke
-
----
-
-# 11. Verification rules
-
-1. Never claim a test/device/benchmark passed unless actually run or reported.
+1. Never claim a test/device/build/benchmark passed unless actually run or reported.
 2. Keep recorded numeric evidence unchanged unless superseded by a new measured result.
-3. Distinguish numeric parity, functional smoke and characterization.
-4. Record device/OS/backend for new performance evidence where possible.
+3. Distinguish numeric parity, functional smoke, characterization, unsigned release build, signed beta build and store readiness.
+4. Record device/OS/backend for new physical evidence where possible.
 5. Rust remains authoritative even when GPU output looks correct.
 6. Unsupported GPU composition fails closed rather than approximating order/semantics.
 7. Do not create numeric GPU parity claims for G5 controls that currently use Rust on release.
-8. A documentation-only closure commit triggers new CI; merge only when the latest PR head is green.
+8. Never treat debug signing as production signing.
+9. Never commit signing keys/passwords/provisioning secrets.
+10. Release diagnostics must not contain photo pixels or user image content.
 
 ---
 
-# 12. Current next action
+# 7. Current next action
 
-**G5 is CLOSED / VERIFIED as of 2026-08-12.**
+**G6 is merged. G7 is now the active milestone.**
 
 Start here:
 
 ```text
-1. confirm latest PR #8 head after these documentation commits is green
-2. mark PR #8 Ready for review if still Draft
-3. review / resolve findings
-4. merge PR #8 into main
-5. update local main
-6. create feature/g6-reliability-matrix
-7. create docs/G6_RELIABILITY_MATRIX.md
-8. run and record clean G6 baseline
-9. begin G6.1 image-size matrix + G6.2 long-session soak
+1. continue on feature/g7-release-readiness
+2. let CI validate the new Android release and iOS no-codesign release jobs
+3. fix release-only compile/link/package failures without weakening architecture invariants
+4. inspect Android APK native ABI contents and resolved SDK levels
+5. verify iOS release bundle, deployment target and signing configuration
+6. document secure Android/iOS signed-build procedures
+7. audit privacy/permission manifests and store disclosures
+8. produce signed Internal Testing / TestFlight builds
+9. run G7.7 release-candidate physical smoke
 ```
 
-Suggested commands after PR #8 merge:
-
-```bash
-git switch main
-git pull
-git switch -c feature/g6-reliability-matrix
-
-flutter analyze
-make test
-make golden-test
-make rust-fmt
-make rust-clippy
-make rust-test
-make gpu-lut-verify
-```
-
-Do not continue G6 reliability work on `feature/editor-tone-controls` after G5 merge.
+Do not add unrelated editing features during G7 unless they are required to resolve a release blocker.
