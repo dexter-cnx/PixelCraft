@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-12, G7A / PR #18 after release CI run #211**.
+Last refresh: **2026-08-12, G7A finalization / PR #18 after CI run #216**.
 
 ---
 
@@ -60,7 +60,7 @@ P1  pixelcraft_gpu extraction                   MERGED
 P2  pixelcraft_editing extraction               MERGED
 P3  pixelcraft_film extraction                  MERGED
 
-G7A Release Engineering / Store Preparation     ACTIVE — PR #18
+G7A Release Engineering / Store Preparation     ACTIVE — FINALIZATION / PR #18
 G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
 ```
 
@@ -78,7 +78,7 @@ PR: #18
 base: post-P3 main @ fb5c05493478eedea7223d8bbf790ea63e175729
 ```
 
-Old PR #10 is historical/preserved only. Do not merge it unchanged.
+PR #10 (`feature/g7-release-readiness`) predates P0–P3. Do not merge or rebase it as the active G7 line. After PR #18 merges, audit PR #10 file-by-file, migrate any genuinely missing work, then close PR #10 as superseded. Keep its branch as historical reference unless the user explicitly asks to delete it.
 
 ---
 
@@ -115,7 +115,7 @@ unsigned/no-codesign production packaging
 native Rust/LUT artifact verification
 version/build identity audit
 privacy/permission audit
-store metadata/asset preparation
+store metadata/privacy drafts
 release notes + RC QA preparation
 CI release artifact generation
 ```
@@ -129,35 +129,33 @@ actual Data Safety / App Privacy submissions
 actual store review/submission
 ```
 
-Absence of the accounts is an external G7B blocker, not a G7A code blocker.
+The absence of Apple/Google accounts is an external G7B blocker, not a G7A code blocker.
 
 ---
 
 # 5. Current G7A implementation
 
-Android:
+Android release engineering:
 
 ```text
 android/app/build.gradle.kts
   - release no longer uses debug signing
-  - optional android/key.properties explicit release signing
-  - secrets remain outside git
+  - optional ignored android/key.properties release signing
+  - current first-RC policy keeps minification/R8 off
 
 android/app/src/main/AndroidManifest.xml
   - CAMERA remains
-  - legacy WRITE_EXTERNAL_STORAGE limited through API 28
-  - unused RECORD_AUDIO is now explicitly removed from dependency merge
+  - WRITE_EXTERNAL_STORAGE limited through API 28
+  - dependency RECORD_AUDIO is explicitly removed
 ```
 
-The Flutter fallback camera uses:
+The fallback Flutter camera is still-photo only:
 
 ```dart
 enableAudio: false
 ```
 
-so microphone permission is not part of the intended still-photo product flow.
-
-CI:
+CI release jobs:
 
 ```text
 android-release
@@ -174,22 +172,47 @@ ios-release
   -> artifact upload
 ```
 
+Privacy hardening:
+
+```text
+EditorSessionStore
+  - private app-support recovery storage
+  - max 3 coherent generations
+  - obsolete generation pruning
+  - abandoned .tmp cleanup during load/save
+  - Discard removes recovery directory
+
+ExportFileService
+  - export is user initiated
+  - local app-documents/gallery persistence
+  - Share is explicit and passes only the exported file to the system share sheet
+
+Diagnostics
+  - renderer/profile/sample/error metrics only
+  - no user image bytes or live frame buffers in Dart diagnostics
+```
+
+Current app dependency set contains no analytics, advertising, or remote crash-reporting SDK.
+
 Docs:
 
 ```text
-docs/G7A_RELEASE_READINESS.md
 docs/G7A_ANDROID_SIGNING.md
+docs/G7A_RELEASE_READINESS.md
+docs/G7A_PRIVACY_STORE_DRAFTS.md
 docs/PROJECT_HANDOFF.md
 ```
 
 ---
 
-# 6. Verified release evidence — run #211
+# 6. Verified evidence
+
+Latest verified implementation baseline before the current final documentation commits:
 
 ```text
-GitHub Actions run: #211
-run id: 31604232738
-HEAD: 043cc3700aedf10cec3f58c22cb0977ce195408b
+GitHub Actions run: #216
+run id: 31609170884
+HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
 conclusion: SUCCESS
 ```
 
@@ -203,7 +226,9 @@ Android release artifact
 iOS release no-codesign
 ```
 
-Android release evidence from the produced APK:
+Run #216 includes the recovery `.tmp` cleanup regression test.
+
+Android release evidence:
 
 ```text
 package: dev.cnxdev.pixelcraft
@@ -217,49 +242,64 @@ Film/Creative GPU LUT assets: present
 release debug-signing guard: PASS
 ```
 
-Android artifact:
-
-```text
-zip size: 35,998,416 bytes
-SHA-256: 7d426470d48fd4ead710ee642dcede7fbe9b562478e52634edc4d430f662a56e
-```
+The post-permission-cleanup run #214 APK was inspected and `RECORD_AUDIO` was absent from the packaged manifest.
 
 iOS release evidence:
 
 ```text
 bundle id: dev.cnxdev.pixelcraft
 deployment target: 13.0
-Runner.app: 37.7 MB
+Runner.app: ~37.7 MB
 pixelcraft_engine.framework: present
 Film/Creative GPU LUT assets: present
 release --no-codesign: PASS
 ```
 
-iOS artifact:
+Dependency Privacy Manifests are present for Flutter/multiple plugins in the release bundle. PixelCraft currently has no app-owned `PrivacyInfo.xcprivacy`; do not invent one without final app-owned required-reason evidence. Re-audit the final signed Xcode archive in G7B.
+
+Evidence categories remain distinct:
 
 ```text
-zip size: 16,679,854 bytes
-SHA-256: 501ab348ecdad488fd294c76493da7c1a61e282e0c8b88169b7175977997cd66
+semantic/unit tests
+package-boundary tests
+native packaging smoke
+unsigned/no-codesign release build
+physical-device RC smoke
+store upload/beta validation
 ```
 
-Dependency Privacy Manifests were observed in the release app for Flutter and multiple iOS plugins. App-owned required-reason API / Privacy Manifest audit is still open.
+Never promote one category as proof of another.
 
 ---
 
-# 7. Known release/tooling debt
+# 7. Release identity / RC policy
 
-Non-blocking for current G7A builds:
+```text
+app display name: Pixel Craft
+marketing version: 0.1.0 while pre-1.0 beta/RC work continues
+current build: 1
+Android applicationId: dev.cnxdev.pixelcraft
+iOS bundle id: dev.cnxdev.pixelcraft
+iOS deployment target: 13.0
+Android min/target/compile SDK: 24 / 36 / 36
+```
+
+Build-number policy for future externally distributed signed builds: monotonically increment each distributed build. Actual enforcement starts in G7B when signing/accounts exist.
+
+---
+
+# 8. Known non-blocking tooling debt
 
 ```text
 pixelcraft_engine + pixelcraft_gpu still rely on CocoaPods and lack Swift Package Manager support
-pixelcraft_gpu + share_plus currently apply Kotlin Gradle Plugin; Flutter warns future releases will require Built-in Kotlin compatibility
+future Flutter/Kotlin integration warnings may require migration work later
 ```
 
-Do not mix these warnings with current release-build correctness: run #211 is green on Flutter 3.44.7.
+Do not confuse future-tooling warnings with current build correctness; current release CI is green on Flutter 3.44.7 at run #216.
 
 ---
 
-# 8. Verification rules
+# 9. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
 2. Never commit keystores, passwords, private certificates, provisioning profiles, or store credentials.
@@ -268,10 +308,11 @@ Do not mix these warnings with current release-build correctness: run #211 is gr
 5. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
 6. Native release changes require CI packaging evidence; signed RCs later require physical-device smoke.
 7. Store-account-dependent items remain BLOCKED until accounts exist.
+8. Do not delete the preserved PR #10 branch unless the user explicitly requests deletion.
 
 ---
 
-# 9. Important files
+# 10. Important files
 
 ```text
 .github/workflows/ci.yml
@@ -279,8 +320,11 @@ android/app/build.gradle.kts
 android/app/src/main/AndroidManifest.xml
 ios/Runner/Info.plist
 ios/Runner.xcodeproj/project.pbxproj
+lib/core/editor_session_store.dart
+lib/core/export_file_service.dart
 docs/G7A_ANDROID_SIGNING.md
 docs/G7A_RELEASE_READINESS.md
+docs/G7A_PRIVACY_STORE_DRAFTS.md
 docs/PROJECT_HANDOFF.md
 docs/CODE_WALKTHROUGH.md
 README.md
@@ -288,22 +332,17 @@ README.md
 
 ---
 
-# 10. Current next action
+# 11. Current next action
 
-**G7A is ACTIVE in PR #18. Run #211 is the verified pre-permission-cleanup release baseline.**
-
-Current latest work after that baseline removes the unused Android `RECORD_AUDIO` permission.
-
-Continue with:
+**G7A is in finalization on PR #18.**
 
 ```text
-1. wait for fresh CI on the RECORD_AUDIO removal
-2. inspect the new release APK merged manifest and verify RECORD_AUDIO is absent
-3. if green, continue privacy audit: recovery/temp retention, share/export, diagnostics/log payloads
-4. decide first-RC version/build-number policy
-5. prepare store metadata/assets/release-notes drafts without accounts
-6. refresh root README and docs/CODE_WALKTHROUGH with stable G7A evidence
-7. inspect PR #18 review threads
-8. keep PR #18 draft until G7A account-independent readiness is materially complete
-9. do not start G7B upload/signing claims until Apple/Google accounts exist
+1. finish root README + docs/CODE_WALKTHROUGH G7A status refresh
+2. update PR #18 description with run #216 / privacy evidence
+3. inspect PR #18 review threads
+4. wait for full CI on the final documentation HEAD
+5. if latest CI is green and no review blocker exists, mark PR #18 Ready for Review
+6. merge G7A when approved
+7. after merge, audit PR #10 file-by-file; migrate missing work, close it as superseded, preserve its branch
+8. G7B remains blocked until Apple/Google store accounts exist
 ```
