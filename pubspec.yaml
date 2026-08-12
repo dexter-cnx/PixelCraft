@@ -22,6 +22,8 @@ dependencies:
     path: packages/pixelcraft_editing
   pixelcraft_engine:
     path: packages/pixelcraft_engine
+  pixelcraft_film:
+    path: packages/pixelcraft_film
   pixelcraft_gpu:
     path: packages/pixelcraft_gpu
 

@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:pixelcraft_editing/pixelcraft_editing.dart';
+import 'package:pixelcraft_film/pixelcraft_film.dart';
 
-import 'film_profile_v1.dart';
-
-class FilmProfileStore {
+class FilmProfileStore implements FilmProfileRepository {
   FilmProfileStore({Future<Directory> Function()? directoryProvider})
       : _directoryProvider = directoryProvider ?? getApplicationDocumentsDirectory;
 
@@ -20,6 +20,7 @@ class FilmProfileStore {
     return File('${folder.path}/profiles_v1.json');
   }
 
+  @override
   Future<List<FilmProfileV1>> loadAll() async {
     final file = await _file();
     if (!await file.exists()) return const [];
@@ -41,9 +42,12 @@ class FilmProfileStore {
     }
   }
 
+  @override
   Future<void> save(FilmProfileV1 profile) async {
     if (profile.isBuiltIn) {
-      throw StateError('Built-in Film Profiles are immutable; duplicate before editing.');
+      throw StateError(
+        'Built-in Film Profiles are immutable; duplicate before editing.',
+      );
     }
     final profiles = (await loadAll()).toList();
     final index = profiles.indexWhere((item) => item.id == profile.id);
@@ -55,6 +59,7 @@ class FilmProfileStore {
     await _writeAtomically(profiles);
   }
 
+  @override
   Future<void> delete(String id) async {
     final profiles = (await loadAll()).where((item) => item.id != id).toList();
     await _writeAtomically(profiles);
