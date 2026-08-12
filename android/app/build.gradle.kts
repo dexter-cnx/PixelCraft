@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.OutputDirectory
@@ -53,6 +54,12 @@ val generateGpuLutAssets = tasks.register<GenerateGpuLutAssetsTask>("generateGpu
     inputs.file(repoRoot.resolve("tool/gpu_lut_parity_fixtures.json"))
 }
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
+}
+
 android {
     namespace = "dev.pixelcraft.pixelcraft"
     compileSdk = flutter.compileSdkVersion
@@ -71,10 +78,25 @@ android {
         versionName = flutter.versionName
     }
 
+    if (keystorePropertiesFile.exists()) {
+        signingConfigs {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never sign a production artifact with the debug key.
+            // Local/CI release builds remain unsigned unless android/key.properties
+            // supplies an explicit release keystore. Store signing secrets stay out of git.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
