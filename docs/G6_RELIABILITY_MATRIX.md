@@ -93,6 +93,19 @@ Gaussian Blur  existing heavy path
 Film Profile   multi-operation materialization/replay
 ```
 
+Host characterization harness:
+
+```bash
+# Defaults to the 12 MP tier.
+cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -- --ignored --nocapture
+
+# Extend through 24 MP or 48 MP only on a host with sufficient memory.
+G6_MAX_MP=24 cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -- --ignored --nocapture
+G6_MAX_MP=48 cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -- --ignored --nocapture
+```
+
+The harness synthesizes deterministic JPEG input at runtime so the repository does not need to commit huge camera fixtures. Output lines are prefixed `PIXELCRAFT_G6_IMAGE`.
+
 Device runner:
 
 ```bash
@@ -138,6 +151,20 @@ Suggested cycle levels:
 10   smoke
 50   normal soak
 100  extended soak
+```
+
+Automated native cycle:
+
+```text
+integration_test/g6_reliability_soak_test.dart
+```
+
+Run repeated physical-device cycles with:
+
+```bash
+DEVICE=<flutter-device-id> G6_CYCLES=10 bash tool/g6_device_reliability.sh
+DEVICE=<flutter-device-id> G6_CYCLES=50 bash tool/g6_device_reliability.sh
+DEVICE=<flutter-device-id> G6_CYCLES=100 bash tool/g6_device_reliability.sh
 ```
 
 Watch for:
@@ -232,6 +259,14 @@ Repeated full-resolution export        10+ exports
 Camera -> Editor -> export loop         10+ cycles
 ```
 
+A repeatable engine workload is available as:
+
+```bash
+DEVICE=<flutter-device-id> G6_DURATION_MIN=15 bash tool/g6_thermal_observe.sh
+```
+
+It repeatedly executes the existing native performance profile and records timestamped metrics. Physical heat/thermal-state observations still have to be entered here manually; the script must not invent them.
+
 Observe:
 
 - preview FPS degradation
@@ -305,4 +340,4 @@ G6 may be closed only when:
 
 ## Current continuation point
 
-The branch and automation scaffolding are part of G6 implementation. After host CI is green, run the device script on each available physical device and append measured evidence to this document. Do not replace `pending` cells with estimates.
+The G6 automation/scaffolding is implemented. After host CI is green, run the device and thermal scripts on each available physical device, run the 12/24/48 MP characterization tiers appropriate for available memory, and append measured evidence to this document. Do not replace `pending` cells with estimates.
