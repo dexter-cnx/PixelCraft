@@ -22,3 +22,5 @@ flutter:
       android:
         package: dev.pixelcraft.pixelcraft
         pluginClass: PixelcraftGpuPlugin
+      ios:
+        pluginClass: PixelcraftGpuPlugin
