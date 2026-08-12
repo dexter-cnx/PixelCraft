@@ -18,7 +18,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(
+        child: MaterialApp(
           home: ProductEditorScreen(imageBytes: testPngBytes),
         ),
       ),
@@ -66,7 +66,7 @@ void main() {
 
     Widget editor() => UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(
+          child: MaterialApp(
             home: ProductEditorScreen(imageBytes: testPngBytes),
           ),
         );
@@ -104,7 +104,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [imageEngineProvider.overrideWithValue(engine)],
-        child: const MaterialApp(
+        child: MaterialApp(
           home: ProductEditorScreen(imageBytes: testPngBytes),
         ),
       ),
