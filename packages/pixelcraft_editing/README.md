@@ -48,15 +48,20 @@ The recipe materializer rewrites serialized draft data only. The caller must res
 - authoritative history/checkpoint mutation
 - recovery persistence
 - Film Profile persistence/storage
+- Film Profile product/library orchestration
 - export rendering
 
 ## Dependency direction
 
 ```text
 PixelCraft app
-   ├── pixelcraft_editing
+   ├── pixelcraft_film
    ├── pixelcraft_gpu
+   ├── pixelcraft_editing
    └── pixelcraft_engine
+
+pixelcraft_film
+   └── pixelcraft_editing
 
 pixelcraft_gpu
    └── pixelcraft_editing
@@ -118,9 +123,16 @@ Reusable Film Profiles contain configuration only: profile metadata, optional ba
 
 Import mapping never silently drops unsupported source fields; every recognized input is reported as exact, approximated, or unsupported.
 
-## Compatibility during P2
+`pixelcraft_film` builds product/library/creator orchestration on top of these contracts. The dependency must remain one-way:
 
-Former app paths remain compatibility adapters/exports while call sites are migrated:
+```text
+pixelcraft_film -> pixelcraft_editing
+pixelcraft_editing -X-> pixelcraft_film
+```
+
+## App compatibility adapters
+
+Root app compatibility paths may remain for existing call sites:
 
 ```text
 lib/core/edit_graph.dart
@@ -129,7 +141,7 @@ lib/core/film_profile_recipe.dart
 lib/state/editor_adjustment_catalog.dart
 ```
 
-The app adjustment compatibility layer now adds `gpuPreview` policy on top of the package-owned semantic spec instead of embedding backend support in the domain model.
+They are not the canonical package API. The app adjustment adapter adds `gpuPreview` policy on top of the package-owned semantic spec instead of embedding backend support in the domain model.
 
 New package/infrastructure code should import:
 
@@ -137,11 +149,11 @@ New package/infrastructure code should import:
 import 'package:pixelcraft_editing/pixelcraft_editing.dart';
 ```
 
-rather than depending on compatibility paths.
+rather than depending on root compatibility paths.
 
 ## Validation
 
-P2 adds independent package gates:
+Independent package gates:
 
 ```bash
 cd packages/pixelcraft_editing
@@ -150,4 +162,6 @@ dart analyze
 dart test
 ```
 
-See [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md) for the detailed boundary and extension rules.
+The package-boundary gate and these tests also run in root CI. The final G7A PR head passed editing package dependencies/analyze/tests in CI run #221 (`31611799174`).
+
+See [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md) for detailed boundary and extension rules.

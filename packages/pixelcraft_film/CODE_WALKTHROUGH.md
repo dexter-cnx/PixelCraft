@@ -1,6 +1,6 @@
 # pixelcraft_film Code Walkthrough
 
-`pixelcraft_film` is the P3 product/domain orchestration boundary for reusable Film Profiles.
+`pixelcraft_film` is the pure-Dart product/domain orchestration boundary for reusable Film Profiles. P3 is merged and this package is part of the canonical PixelCraft package graph.
 
 ## 1. Position in the package graph
 
@@ -96,8 +96,6 @@ The package does not generate IDs from time/randomness. The caller supplies `new
 
 `FilmProfileDraft` uses the parameter catalog from `pixelcraft_editing` rather than duplicating ranges or neutral values.
 
-This preserves the dependency direction:
-
 ```text
 pixelcraft_film
       ↓
@@ -107,10 +105,6 @@ pixelcraft_editing
 `pixelcraft_film` owns Film product workflow; `pixelcraft_editing` owns reusable editing/profile configuration semantics.
 
 ## 6. Import flow
-
-Before P3 the screen decoded JSON and selected the mapping path itself.
-
-After P3:
 
 ```text
 UI pasted source
@@ -138,21 +132,17 @@ approximated
 unsupported
 ```
 
-`pixelcraft_film` owns orchestration and result transport, not the meaning of individual image adjustments.
-
-Unsupported source fields remain visible in the import report and are never silently dropped.
+`pixelcraft_film` owns orchestration/result transport, not the meaning of individual image adjustments. Unsupported source fields remain visible in the import report and are never silently dropped.
 
 ## 8. Storage boundary
 
 The app currently persists profiles as JSON under its application documents directory and writes through a temporary file before rename.
 
-That implementation stays outside `pixelcraft_film` because it depends on Flutter platform storage (`path_provider` / `dart:io`).
-
-This gives a clean replacement seam for future storage backends without contaminating the Film product/domain package.
+That implementation stays outside `pixelcraft_film` because it depends on Flutter platform storage (`path_provider` / `dart:io`). This keeps the package pure Dart and gives a clean replacement seam for future storage backends.
 
 ## 9. Applying a profile to the Editor
 
-P3 does not bypass the existing authority chain:
+The package does not bypass the authority chain:
 
 ```text
 selected FilmProfileV1
@@ -168,7 +158,7 @@ Canonical Film LUT data remains Rust-owned.
 
 ## 10. Base Film catalog boundary
 
-The current creator UI still presents known base-Film IDs. P3 deliberately does not make `pixelcraft_film` authoritative for LUT inventory because canonical Film LUT data belongs to Rust.
+The current creator UI presents known base-Film IDs, but `pixelcraft_film` is deliberately not authoritative for LUT inventory because canonical Film LUT data belongs to Rust.
 
 A future base-Film discovery API should be fed from the authoritative engine/catalog rather than hard-coding a second canonical LUT registry into this package.
 
@@ -228,17 +218,15 @@ pixelcraft_editing -> pixelcraft_film
 
 The root boundary gate verifies these rules in CI.
 
-## 14. P3 validation status
+## 14. Current validation status
 
-Latest verified implementation baseline before final documentation commits:
+P3 is merged. The latest fully verified G7A PR head also validated this package:
 
 ```text
-HEAD: cbd70e509018eed1842c162e85b463662e0905f4
-CI run #202
-GitHub Actions run id: 31598466536
+HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
+CI run #221
+GitHub Actions run id: 31611799174
 conclusion: SUCCESS
 ```
 
-That run covered package boundaries, Film package analyze/tests, root Flutter suites, Rust/GPU suites, Android/iOS packaging, golden tests, and wgpu core on Linux/macOS/Windows.
-
-The final documentation-only HEAD still requires a fresh full CI run before PR #17 is marked Ready or merged.
+That run passed Film package dependencies/analyze/tests together with package boundaries, root Flutter suites, Rust/GPU suites, Android/iOS packaging, golden tests, release artifacts, and wgpu Linux/macOS/Windows.

@@ -6,18 +6,18 @@ Preview-only Flutter plugin for PixelCraft's native GPU preview runtime.
 
 > GPU is an optimization and preview surface. Rust remains authoritative for committed recipes, history, checkpoints, recovery, and full-resolution export.
 
-## P2 dependency boundary
+## Dependency boundary
 
-`pixelcraft_gpu` now depends on the pure Dart `pixelcraft_editing` package for shared edit-graph contracts:
+`pixelcraft_gpu` depends on the pure Dart `pixelcraft_editing` package for shared edit-graph contracts:
 
 ```text
 pixelcraft_gpu
    └── pixelcraft_editing
 ```
 
-This removes the previous package-boundary blocker where GPU renderer/capability contracts needed app-owned `lib/core/edit_graph.dart` types.
+The package owns GPU renderer/capability/session transport contracts while shared edit-domain types come from `pixelcraft_editing`.
 
-The following contracts now live in `pixelcraft_gpu` itself:
+Key package-owned contracts include:
 
 - `GpuPreviewRenderer`
 - `GpuPreviewCapabilities`
@@ -26,12 +26,12 @@ The following contracts now live in `pixelcraft_gpu` itself:
 - `GpuPreviewCapabilityPolicy`
 - `GpuPreviewCapabilityDecision`
 
-The edit graph types they consume come from `pixelcraft_editing`:
+Shared graph types include:
 
 - `EditGraphDocument`
 - `EditNodeType`
 
-Root `lib/gpu/*` files remain compatibility exports during the migration.
+Root `lib/gpu/*` paths may remain as app compatibility exports, but new reusable GPU code must use package APIs rather than importing root app source.
 
 ## Responsibilities
 
@@ -57,6 +57,8 @@ It does **not** own:
 - generation/packaging of native LUT assets at the app build level
 
 ## Current platform scope
+
+The plugin manifest declares Android, iOS, Linux, macOS, and Windows integration points. The production mobile preview behavior documented here is intentionally narrower: Android camera preview and iOS camera/editor preview. Desktop declarations must not be interpreted as feature parity with the mobile native preview paths.
 
 ### Android
 
@@ -146,7 +148,7 @@ Unsupported ordering, unavailable platform support, or runtime failure falls bac
 
 Film and Creative LUT **semantics** originate from Rust-owned canonical data.
 
-Current native asset packaging is still app-owned:
+Current native asset packaging remains app-owned:
 
 - Android generation: `GenerateGpuLutAssetsTask` in `android/app/build.gradle.kts`
 - iOS generation/copy: Runner/Xcode build phase
@@ -163,9 +165,9 @@ Do not describe generated native LUT assets as package-owned until packaging is 
 
 ## Validation
 
-P1 closed only after Flutter/Rust/GPU tests, LUT parity, Android/iOS native packaging smoke, and physical-device smoke passed.
+The package is validated independently in root CI with dependency resolution, `flutter analyze`, and package tests. The final G7A PR head passed those gates in full CI run #221 (`31611799174`) alongside LUT parity, native packaging, release packaging, and wgpu Linux/macOS/Windows.
 
-P2 additionally requires package-boundary validation so `pixelcraft_gpu` does not import PixelCraft app source for shared edit-domain types.
+P1 physical smoke previously passed on both iOS and Android for the mobile native preview paths.
 
 ## Related documentation
 

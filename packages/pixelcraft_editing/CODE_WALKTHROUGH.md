@@ -2,18 +2,18 @@
 
 `pixelcraft_editing` is the pure Dart editing-domain boundary introduced in P2.
 
-Its job is to own reusable editing contracts that must be shared by the PixelCraft app and infrastructure packages without creating package -> app dependencies.
+Its job is to own reusable editing contracts shared by the PixelCraft app, `pixelcraft_gpu`, and `pixelcraft_film` without creating package -> app dependencies.
 
 ## 1. Architectural position
 
 ```text
-Flutter app / product state
-        ↓
-pixelcraft_editing domain contracts
-        ↓
-preview adapters / serialization boundaries
+PixelCraft app
+   ├── pixelcraft_film ──> pixelcraft_editing
+   ├── pixelcraft_gpu  ──> pixelcraft_editing
+   └── pixelcraft_editing
 
-Rust engine = authoritative committed semantics
+pixelcraft_editing -> Dart SDK only
+Rust engine        = authoritative committed semantics
 ```
 
 The package models editing intent, adjustment semantics, reusable Film Profile configuration, serialized graph structure, and deterministic draft shaping. It does not execute committed image processing.
@@ -29,14 +29,9 @@ lib/core/film_profile_recipe.dart
 lib/state/editor_adjustment_catalog.dart
 ```
 
-After P2:
+After P2/P3, reusable contracts live in `pixelcraft_editing`; GPU infrastructure and Film Profile product orchestration depend on those contracts without importing root app source.
 
-```text
-pixelcraft_gpu ──> pixelcraft_editing
-PixelCraft app ──> pixelcraft_editing
-```
-
-Former app paths remain compatibility exports/adapters during migration.
+Root app compatibility exports/adapters may remain for existing call sites, but they are not the canonical package API.
 
 ## 3. Public API
 
@@ -77,7 +72,7 @@ EditOverlay
 
 ## 5. Adjustment semantic catalog
 
-`EditorAdjustmentSpec` now lives in `pixelcraft_editing` and contains only semantic/product metadata:
+`EditorAdjustmentSpec` contains semantic/product metadata only:
 
 ```text
 id
@@ -100,9 +95,7 @@ adjustmentSpec(id)
 defaultAdjustmentValue(id)
 ```
 
-The former app catalog remains a compatibility/policy adapter. It wraps the package-owned semantic specs and adds whether a control currently has verified continuous GPU preview support.
-
-This separation prevents a pure editing-domain package from learning about Metal/OpenGL/backend rollout state.
+The root app adjustment adapter may add whether a control currently has verified continuous GPU preview support. This prevents a pure editing-domain package from learning about Metal/OpenGL/backend rollout state.
 
 ## 6. Film Profile model
 
@@ -117,6 +110,13 @@ minEngineVersion  1
 ```
 
 It carries profile metadata, optional base Film, strength, normalized parameter values, and tags. It excludes source pixels, history/checkpoint state, and GPU frames.
+
+`pixelcraft_film` builds library/import/creator orchestration on top of these models; the ownership direction remains:
+
+```text
+pixelcraft_film -> pixelcraft_editing
+pixelcraft_editing -X-> pixelcraft_film
+```
 
 ## 7. Import compatibility reporting
 
@@ -143,7 +143,7 @@ Rust engine               = semantic authority
 
 ## 9. Relationship to pixelcraft_gpu
 
-This dependency is allowed:
+Allowed:
 
 ```text
 pixelcraft_gpu -> pixelcraft_editing
@@ -153,20 +153,22 @@ The reverse direction is forbidden. `pixelcraft_editing` must not learn about Me
 
 GPU behavior remains preview-only and fail-closed.
 
-## 10. What remains app-owned
+## 10. What remains outside this package
+
+App/platform responsibilities:
 
 ```text
 EditorController / Riverpod state
 UI/navigation
 GPU rollout/capability policy
 recovery persistence
-Film Profile storage
+Film Profile filesystem storage
 export/file/gallery services
-Rust bridge implementation
+Rust bridge integration
 native GPU implementation
 ```
 
-P2 moves reusable semantics, not orchestration.
+Film Profile product/domain orchestration belongs to `pixelcraft_film`, not `pixelcraft_editing`.
 
 ## 11. Validation
 
@@ -181,10 +183,12 @@ dart test
 
 Package tests cover edit-graph behavior, semantic adjustment defaults/ranges, Film Profile normalization/round-trip, import mapping classification, and active-draft materialization/redo-tail truncation.
 
+The final G7A PR head passed editing package dependencies/analyze/tests in full CI run #221 (`31611799174`).
+
 ## 12. Dependency invariant
 
 ```text
 pixelcraft_editing -> Dart SDK only
 ```
 
-A future import of Flutter UI, Riverpod, `pixelcraft_gpu`, native APIs, or app source into this package is an architectural regression.
+A future import of Flutter UI, Riverpod, `pixelcraft_gpu`, `pixelcraft_film`, native APIs, or app source into this package is an architectural regression.

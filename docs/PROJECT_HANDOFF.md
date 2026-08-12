@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-12, G7A finalization / PR #18 after CI run #216**.
+Last refresh: **2026-08-12, post-G7A merge**.
 
 ---
 
@@ -60,7 +60,7 @@ P1  pixelcraft_gpu extraction                   MERGED
 P2  pixelcraft_editing extraction               MERGED
 P3  pixelcraft_film extraction                  MERGED
 
-G7A Release Engineering / Store Preparation     ACTIVE — FINALIZATION / PR #18
+G7A Release Engineering / Store Preparation     MERGED
 G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
 ```
 
@@ -70,15 +70,24 @@ P3 merge commit:
 fb5c05493478eedea7223d8bbf790ea63e175729
 ```
 
-G7A:
+G7A merge:
 
 ```text
-branch: feature/g7a-release-engineering
 PR: #18
-base: post-P3 main @ fb5c05493478eedea7223d8bbf790ea63e175729
+branch: feature/g7a-release-engineering
+merge commit: 507875b2e1187e2bc2f0a6d0535b77dc0455b69f
+final PR HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
+final PR CI: run #221 / 31611799174 — SUCCESS
 ```
 
-PR #10 (`feature/g7-release-readiness`) predates P0–P3. Do not merge or rebase it as the active G7 line. After PR #18 merges, audit PR #10 file-by-file, migrate any genuinely missing work, then close PR #10 as superseded. Keep its branch as historical reference unless the user explicitly asks to delete it.
+Historical G7 PR:
+
+```text
+PR #10: CLOSED / SUPERSEDED
+branch: feature/g7-release-readiness
+```
+
+PR #10 was audited file-by-file after G7A merged. Its five changed files were either recreated or superseded by PR #18; no missing implementation needed migration. Do not reopen or merge PR #10.
 
 ---
 
@@ -107,7 +116,7 @@ tool/check_package_boundaries.sh
 
 # 4. G7A / G7B split
 
-G7A can be completed without store accounts:
+G7A is complete and merged. It covered account-independent release work:
 
 ```text
 release signing architecture
@@ -115,7 +124,7 @@ unsigned/no-codesign production packaging
 native Rust/LUT artifact verification
 version/build identity audit
 privacy/permission audit
-store metadata/privacy drafts
+offline store metadata/privacy drafts
 release notes + RC QA preparation
 CI release artifact generation
 ```
@@ -129,18 +138,19 @@ actual Data Safety / App Privacy submissions
 actual store review/submission
 ```
 
-The absence of Apple/Google accounts is an external G7B blocker, not a G7A code blocker.
+The absence of Apple/Google accounts is an external G7B blocker, not a code or architecture failure.
 
 ---
 
-# 5. Current G7A implementation
+# 5. Merged G7A release engineering
 
-Android release engineering:
+Android:
 
 ```text
 android/app/build.gradle.kts
   - release no longer uses debug signing
   - optional ignored android/key.properties release signing
+  - signing secrets remain outside git
   - current first-RC policy keeps minification/R8 off
 
 android/app/src/main/AndroidManifest.xml
@@ -159,6 +169,7 @@ CI release jobs:
 
 ```text
 android-release
+  -> flutter pub get
   -> FRB codegen
   -> flutter build apk --release
   -> Rust native library check
@@ -166,6 +177,7 @@ android-release
   -> artifact upload
 
 ios-release
+  -> flutter pub get
   -> FRB codegen
   -> flutter build ios --release --no-codesign
   -> Runner.app/native check
@@ -194,20 +206,20 @@ Diagnostics
 
 Current app dependency set contains no analytics, advertising, or remote crash-reporting SDK.
 
-Docs:
-
-```text
-docs/G7A_ANDROID_SIGNING.md
-docs/G7A_RELEASE_READINESS.md
-docs/G7A_PRIVACY_STORE_DRAFTS.md
-docs/PROJECT_HANDOFF.md
-```
-
 ---
 
-# 6. Verified evidence
+# 6. Verified release evidence
 
-Latest verified implementation baseline before the current final documentation commits:
+Final G7A PR validation:
+
+```text
+GitHub Actions run: #221
+run id: 31611799174
+HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
+conclusion: SUCCESS
+```
+
+Verified implementation baseline including recovery temp cleanup:
 
 ```text
 GitHub Actions run: #216
@@ -216,7 +228,7 @@ HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
 conclusion: SUCCESS
 ```
 
-All jobs passed:
+Run #216 passed:
 
 ```text
 validate
@@ -225,8 +237,6 @@ wgpu Linux / macOS / Windows
 Android release artifact
 iOS release no-codesign
 ```
-
-Run #216 includes the recovery `.tmp` cleanup regression test.
 
 Android release evidence:
 
@@ -240,9 +250,8 @@ APK size: ~81.5 MB
 Rust ABIs: arm64-v8a, armeabi-v7a, x86_64
 Film/Creative GPU LUT assets: present
 release debug-signing guard: PASS
+RECORD_AUDIO in packaged release manifest: ABSENT
 ```
-
-The post-permission-cleanup run #214 APK was inspected and `RECORD_AUDIO` was absent from the packaged manifest.
 
 iOS release evidence:
 
@@ -288,18 +297,45 @@ Build-number policy for future externally distributed signed builds: monotonical
 
 ---
 
-# 8. Known non-blocking tooling debt
+# 8. G7B blockers
+
+Current external blockers:
+
+```text
+Apple Developer / App Store Connect account: unavailable
+Google Play Console account: unavailable
+```
+
+Therefore these remain pending, not failed:
+
+```text
+production iOS certificate/provisioning
+signed iOS archive / TestFlight upload
+Google Play App Signing enrollment
+signed Android AAB upload
+Play Internal Testing
+App Store Connect App Privacy submission
+Play Console Data Safety submission
+actual store review/submission
+signed-store-delivered RC physical-device smoke
+```
+
+When accounts become available, start G7B from current `main`; do not resurrect PR #10.
+
+---
+
+# 9. Known non-blocking tooling debt
 
 ```text
 pixelcraft_engine + pixelcraft_gpu still rely on CocoaPods and lack Swift Package Manager support
 future Flutter/Kotlin integration warnings may require migration work later
 ```
 
-Do not confuse future-tooling warnings with current build correctness; current release CI is green on Flutter 3.44.7 at run #216.
+Do not confuse future-tooling warnings with current build correctness; G7A release CI completed successfully on Flutter 3.44.7.
 
 ---
 
-# 9. Verification rules
+# 10. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
 2. Never commit keystores, passwords, private certificates, provisioning profiles, or store credentials.
@@ -308,11 +344,11 @@ Do not confuse future-tooling warnings with current build correctness; current r
 5. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
 6. Native release changes require CI packaging evidence; signed RCs later require physical-device smoke.
 7. Store-account-dependent items remain BLOCKED until accounts exist.
-8. Do not delete the preserved PR #10 branch unless the user explicitly requests deletion.
+8. PR #10 is closed/superseded and must not become the active G7 line again.
 
 ---
 
-# 10. Important files
+# 11. Important files
 
 ```text
 .github/workflows/ci.yml
@@ -332,17 +368,19 @@ README.md
 
 ---
 
-# 11. Current next action
+# 12. Current next action
 
-**G7A is in finalization on PR #18.**
+**P0–P3 and G7A are merged. G7B is externally blocked until Apple/Google store accounts exist.**
+
+Until those accounts are available:
 
 ```text
-1. finish root README + docs/CODE_WALKTHROUGH G7A status refresh
-2. update PR #18 description with run #216 / privacy evidence
-3. inspect PR #18 review threads
-4. wait for full CI on the final documentation HEAD
-5. if latest CI is green and no review blocker exists, mark PR #18 Ready for Review
-6. merge G7A when approved
-7. after merge, audit PR #10 file-by-file; migrate missing work, close it as superseded, preserve its branch
-8. G7B remains blocked until Apple/Google store accounts exist
+1. keep main green; do not weaken release/package/semantic gates
+2. treat docs/G7A_RELEASE_READINESS.md and docs/G7A_PRIVACY_STORE_DRAFTS.md as the prepared G7B input
+3. increment version/build only when an actual externally distributed signed build is prepared
+4. if product/editor work continues before G7B, branch from current main and preserve Rust/GPU/package invariants
+5. when Apple Developer/App Store Connect becomes available, start iOS G7B signing + TestFlight
+6. when Google Play Console becomes available, start Android G7B Play App Signing + Internal Testing
+7. re-audit final signed artifacts for permissions/privacy manifests before store form submission
+8. execute signed RC physical-device smoke before beta/store readiness is claimed
 ```

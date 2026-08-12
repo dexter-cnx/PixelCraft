@@ -1,20 +1,22 @@
 # G7A Release Engineering / Store Preparation
 
-Status: **ACTIVE — FINALIZATION**
+Status: **MERGED / CLOSED**
 
-Branch:
+Historical implementation branch:
 
 ```text
 feature/g7a-release-engineering
 ```
 
-Base:
+Merged by PR #18:
 
 ```text
-post-P3 main @ fb5c05493478eedea7223d8bbf790ea63e175729
+merge commit: 507875b2e1187e2bc2f0a6d0535b77dc0455b69f
+final PR HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
+final full CI: run #221 / 31611799174 — SUCCESS
 ```
 
-G7A covers release engineering and store-preparation work that does not require Apple Developer/App Store Connect or Google Play Console accounts. G7B contains account-dependent signing, beta distribution, and actual store submission.
+G7A covers release engineering and store-preparation work that does not require Apple Developer/App Store Connect or Google Play Console accounts. That work is complete and merged. G7B contains account-dependent signing, beta distribution, and actual store submission.
 
 ## Non-negotiable architecture rules
 
@@ -28,16 +30,16 @@ G7A covers release engineering and store-preparation work that does not require 
 
 ## G7A.0 Verified CI baseline
 
-Latest verified implementation baseline before final documentation commits:
+Final verified G7A baseline:
 
 ```text
-CI run: #216
-GitHub Actions run id: 31609170884
-HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
+CI run: #221
+GitHub Actions run id: 31611799174
+HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
 conclusion: SUCCESS
 ```
 
-Run #216 passed all current jobs:
+Run #221 passed all current jobs:
 
 ```text
 validate
@@ -47,7 +49,7 @@ Android release artifact
 iOS release --no-codesign
 ```
 
-It includes the recovery `.tmp` cleanup regression test. A later documentation-only HEAD still requires a fresh green CI before PR #18 is considered merge-ready.
+The implementation baseline in run #216 also included the recovery `.tmp` cleanup regression test. Runs #214/#216/#221 collectively provide the recorded G7A release/privacy evidence, with #221 being the final full PR validation before merge.
 
 ---
 
@@ -279,7 +281,7 @@ Actual store-distributed build numbers start being enforced in G7B when signing/
 
 ## G7A.6 Store asset / metadata preparation
 
-Account-independent work still suitable for a follow-up release-content slice:
+Account-independent content work that can continue before G7B:
 
 ```text
 [ ] app icon final visual audit
@@ -297,7 +299,7 @@ Account-independent work still suitable for a follow-up release-content slice:
 [ ] content/age-rating answer draft
 ```
 
-These are content/operational deliverables, not code blockers for merging the G7A release-engineering foundation.
+These are content/operational deliverables, not blockers to the already-merged G7A release-engineering foundation.
 
 Store copy must not claim unsupported behavior such as original EXIF preservation or proprietary third-party film processing reproduced 1:1.
 
@@ -353,14 +355,16 @@ actual store review
 
 ---
 
-## Current next action
+## Post-G7A continuation
+
+G7A is complete and merged. PR #10 was audited file-by-file and closed as superseded; no work should return to PR #10 or PR #18.
+
+Until the external store accounts are available, safe continuation work is limited to account-independent release content and maintenance:
 
 ```text
-1. refresh PROJECT_HANDOFF / README / CODE_WALKTHROUGH for G7A finalization
-2. update PR #18 summary with run #216 + privacy evidence
-3. wait for fresh CI on the final documentation HEAD
-4. if latest CI is green and review threads are clear, mark PR #18 Ready for Review
-5. merge G7A when approved
-6. after merge, audit PR #10 file-by-file; migrate any genuinely missing work, then close PR #10 as superseded while keeping its branch unless explicitly asked to delete it
-7. G7B remains blocked until Apple/Google store accounts exist
+1. use docs/PROJECT_HANDOFF.md as the canonical continuation source
+2. keep release CI green and preserve the G7A signing/privacy invariants
+3. optionally finish store-copy, screenshot, icon/splash, support URL, and public privacy-policy deliverables
+4. do not claim signed distribution, TestFlight, Play Internal Testing, or store-form submission without the required accounts/credentials
+5. when Apple/Google accounts become available, start G7B from the merged main branch and re-audit the final signed artifacts/archive before submission
 ```
