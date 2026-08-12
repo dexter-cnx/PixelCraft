@@ -19,7 +19,10 @@ fi
 mkdir -p "$OUT"
 cd "$ROOT"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-summary="$OUT/${stamp}-${DEVICE//[^A-Za-z0-9_.-]/_}-summary.txt"
+safe_device="${DEVICE//[^A-Za-z0-9_.-]/_}"
+summary="$OUT/${stamp}-${safe_device}-summary.txt"
+log="$OUT/${stamp}-${safe_device}-session.log"
+metrics="$OUT/${stamp}-${safe_device}-metrics.txt"
 
 {
   echo "PixelCraft G6 device reliability"
@@ -28,33 +31,30 @@ summary="$OUT/${stamp}-${DEVICE//[^A-Za-z0-9_.-]/_}-summary.txt"
   echo "branch=$(git branch --show-current 2>/dev/null || echo unknown)"
   echo "device=$DEVICE"
   echo "cycles=$CYCLES"
+  echo "session=single flutter drive"
+  echo "main_app_policy=do not uninstall or overwrite dev.cnxdev.pixelcraft"
   flutter devices
 } | tee "$summary"
 
-run_test() {
-  local name="$1"
-  shift
-  local log="$OUT/${stamp}-${DEVICE//[^A-Za-z0-9_.-]/_}-${name}.log"
-  echo "[G6] START $name" | tee -a "$summary"
-  if "$@" 2>&1 | tee "$log"; then
-    echo "[G6] PASS  $name" | tee -a "$summary"
-  else
-    local status=${PIPESTATUS[0]}
-    echo "[G6] FAIL  $name status=$status log=$log" | tee -a "$summary"
-    exit "$status"
-  fi
-}
+echo "[G6] START consolidated reliability session" | tee -a "$summary"
 
-run_test native_engine_smoke flutter test integration_test/native_engine_smoke_test.dart -d "$DEVICE"
-run_test performance_profile flutter test integration_test/performance_profile_test.dart -d "$DEVICE"
+if DEVICE="$DEVICE" \
+  G6_MODE=reliability \
+  G6_CYCLES="$CYCLES" \
+  G6_SESSION_LOG="$log" \
+  bash tool/g6_run_device_session.sh; then
+  echo "[G6] PASS consolidated reliability session" | tee -a "$summary"
+else
+  status=$?
+  echo "[G6] FAIL consolidated reliability session status=$status log=$log" | tee -a "$summary"
+  exit "$status"
+fi
 
-for ((i=1; i<=CYCLES; i++)); do
-  echo "[G6.2] soak cycle $i/$CYCLES" | tee -a "$summary"
-  run_test "soak-${i}" flutter test integration_test/g6_reliability_soak_test.dart -d "$DEVICE"
-done
+# Keep numeric/diagnostic lines in one compact file for later matrix transcription.
+grep -hE 'PIXELCRAFT_(PROFILE|MEMORY|G6_)' "$log" > "$metrics" || true
 
-# Keep the numeric lines in one compact file for later matrix transcription.
-grep -hE 'PIXELCRAFT_(PROFILE|MEMORY|G6_)' "$OUT/${stamp}-${DEVICE//[^A-Za-z0-9_.-]/_}-"*.log \
-  > "$OUT/${stamp}-${DEVICE//[^A-Za-z0-9_.-]/_}-metrics.txt" || true
-
-echo "[G6] DEVICE RUN PASS evidence=$OUT" | tee -a "$summary"
+{
+  echo "[G6] metrics=$metrics"
+  echo "[G6] DEVICE RUN PASS evidence=$OUT"
+  echo "[G6] NOTE: the installed PixelCraft main app was not targeted by this runner"
+} | tee -a "$summary"
