@@ -13,6 +13,7 @@ G6 does not change image semantics. Rust remains authoritative for committed edi
 - Record device, OS, backend and commit SHA for device measurements.
 - Do not infer numeric parity for G5 controls that intentionally commit through Rust.
 - A failure is useful G6 evidence; do not hide it by changing thresholds until root cause is understood.
+- Physical-device automation must not uninstall or overwrite the developer's installed PixelCraft main app (`dev.cnxdev.pixelcraft`). G6 uses an isolated verifier app id (`dev.cnxdev.pixelcraft.g6verify`).
 
 ---
 
@@ -112,7 +113,9 @@ Device runner:
 DEVICE=<flutter-device-id> G6_CYCLES=10 bash tool/g6_device_reliability.sh
 ```
 
-The runner uses the committed native smoke/profile tests and stores logs under `build/g6/device/`.
+The runner launches one consolidated `flutter drive` session using `integration_test/g6_device_verification_test.dart`. Before launch it temporarily changes the iOS bundle id and Android application id to `dev.cnxdev.pixelcraft.g6verify`, then restores the project files exactly when the run exits or is interrupted. The installed PixelCraft main app (`dev.cnxdev.pixelcraft`) is not the install/uninstall target. Flutter may install/remove the isolated G6 verifier app as part of the drive lifecycle; that is intentional and does not replace the main app.
+
+Logs are stored under `build/g6/device/`.
 
 ### Results
 
@@ -153,10 +156,16 @@ Suggested cycle levels:
 100  extended soak
 ```
 
-Automated native cycle:
+The individual soak workload remains available in:
 
 ```text
 integration_test/g6_reliability_soak_test.dart
+```
+
+Physical-device G6 runs use the consolidated target:
+
+```text
+integration_test/g6_device_verification_test.dart
 ```
 
 Run repeated physical-device cycles with:
@@ -166,6 +175,8 @@ DEVICE=<flutter-device-id> G6_CYCLES=10 bash tool/g6_device_reliability.sh
 DEVICE=<flutter-device-id> G6_CYCLES=50 bash tool/g6_device_reliability.sh
 DEVICE=<flutter-device-id> G6_CYCLES=100 bash tool/g6_device_reliability.sh
 ```
+
+`G6_CYCLES` is executed inside one app process. Do not replace this with a shell loop of `flutter test -d ...`: that would reinstall/reset the test app each cycle and invalidate long-session memory/lifecycle evidence.
 
 Watch for:
 
@@ -265,7 +276,7 @@ A repeatable engine workload is available as:
 DEVICE=<flutter-device-id> G6_DURATION_MIN=15 bash tool/g6_thermal_observe.sh
 ```
 
-It repeatedly executes the existing native performance profile and records timestamped metrics. Physical heat/thermal-state observations still have to be entered here manually; the script must not invent them.
+The thermal runner now keeps one isolated verifier process alive for the entire requested duration and repeats the workload inside that process. It does not repeatedly call `flutter test`, so the PixelCraft main app remains untouched and the thermal session is not reset by reinstall cycles. Physical heat/thermal-state observations still have to be entered here manually; the script must not invent them.
 
 Observe:
 
