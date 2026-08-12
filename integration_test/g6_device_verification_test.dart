@@ -19,7 +19,12 @@ void main() {
     await initializeRustBridge();
 
     if (_mode == 'thermal') {
-      await _runThermalWorkload();
+      final completed = await _runThermalWorkload();
+      // This sentinel is consumed by the shell runner. `flutter drive` can
+      // occasionally return success after a physical-device session drops, so
+      // the process exit code alone is not sufficient G6 evidence.
+      // ignore: avoid_print
+      print('PIXELCRAFT_G6_COMPLETE mode=thermal completed_cycles=$completed');
       return;
     }
 
@@ -29,13 +34,21 @@ void main() {
     await _runNativeSmoke();
     await _runPerformanceProfile();
 
+    var completedCycles = 0;
     for (var cycle = 1; cycle <= _cycles; cycle++) {
       // ignore: avoid_print
       print('PIXELCRAFT_G6_CYCLE start=$cycle total=$_cycles');
       await _runSoakCycle(cycle: cycle);
+      completedCycles = cycle;
       // ignore: avoid_print
       print('PIXELCRAFT_G6_CYCLE pass=$cycle total=$_cycles');
     }
+
+    expect(completedCycles, _cycles);
+    // Keep this as the final G6 application-side output. The device runner
+    // requires it before accepting the session as valid evidence.
+    // ignore: avoid_print
+    print('PIXELCRAFT_G6_COMPLETE mode=reliability cycles=$completedCycles');
   });
 }
 
@@ -253,7 +266,7 @@ Future<void> _runSoakCycle({required int cycle}) async {
   print('PIXELCRAFT_G6_SOAK cycle=$cycle export_webp_bytes=${webp.length}');
 }
 
-Future<void> _runThermalWorkload() async {
+Future<int> _runThermalWorkload() async {
   expect(_durationMinutes, greaterThan(0));
   final deadline = DateTime.now().add(Duration(minutes: _durationMinutes));
   var cycle = 0;
@@ -272,4 +285,5 @@ Future<void> _runThermalWorkload() async {
 
   // ignore: avoid_print
   print('PIXELCRAFT_G6_THERMAL completed_cycles=$cycle');
+  return cycle;
 }
