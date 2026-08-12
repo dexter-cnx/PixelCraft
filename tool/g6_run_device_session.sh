@@ -54,13 +54,22 @@ done
 backup_dir="$(mktemp -d -t pixelcraft-g6-session.XXXXXX)"
 cp "$PBXPROJ" "$backup_dir/project.pbxproj"
 cp "$ANDROID_GRADLE" "$backup_dir/build.gradle.kts"
+restored=0
 
 restore_project() {
-  cp "$backup_dir/project.pbxproj" "$PBXPROJ"
-  cp "$backup_dir/build.gradle.kts" "$ANDROID_GRADLE"
-  rm -rf "$backup_dir"
+  if [[ "$restored" -eq 1 ]]; then
+    return
+  fi
+  if [[ -d "$backup_dir" ]]; then
+    cp "$backup_dir/project.pbxproj" "$PBXPROJ"
+    cp "$backup_dir/build.gradle.kts" "$ANDROID_GRADLE"
+    rm -rf "$backup_dir"
+  fi
+  restored=1
 }
-trap restore_project EXIT INT TERM
+trap restore_project EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 python3 - "$PBXPROJ" "$ANDROID_GRADLE" \
   "$IOS_MAIN_BUNDLE_ID" "$IOS_VERIFY_BUNDLE_ID" \
@@ -130,5 +139,8 @@ else
   "${cmd[@]}"
 fi
 
+restore_project
+trap - EXIT
+
 echo "[PixelCraft G6] DEVICE SESSION PASS"
-echo "[PixelCraft G6] project bundle/application-id configuration restored on exit"
+echo "[PixelCraft G6] restored project bundle/application-id configuration"
