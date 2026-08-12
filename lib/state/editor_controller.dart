@@ -6,14 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/editor_session_store.dart';
 import '../core/image_engine.dart';
+import 'editor_adjustment_catalog.dart' as adjustment_catalog;
 
-const coreFilters = <String>[
-  'brightness',
-  'contrast',
-  'saturation',
-  'gaussian_blur',
-  'sharpen',
-];
+const coreFilters = adjustment_catalog.coreFilters;
 
 const creativeFilters = <String>[
   'grayscale',
@@ -31,7 +26,10 @@ const editorPreviewMaxEdge = 1024;
 bool isCreativeFilter(String filter) => creativeFilters.contains(filter);
 
 double defaultAdjustmentValue(String filter) =>
-    filter == 'gaussian_blur' ? 0 : 1;
+    adjustment_catalog.defaultAdjustmentValue(filter);
+
+adjustment_catalog.EditorAdjustmentSpec adjustmentSpec(String filter) =>
+    adjustment_catalog.adjustmentSpec(filter);
 
 enum EditorTool { adjust, filters, film, crop, rotate, details }
 
