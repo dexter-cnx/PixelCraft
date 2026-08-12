@@ -50,11 +50,31 @@ Expected architecture rule: native/GPU failure must fail closed to a valid Rust/
 
 ## Thermal/manual observation
 
-- [ ] 15-minute sustained workload completed.
-- Device heat: not warm / warm / hot but comfortable / very hot
-- UI responsiveness: normal / minor slowdown / obvious slowdown
-- Unexpected restart/termination: yes / no
-- Notes: ____________________
+- [x] 15-minute sustained workload completed on iPhone 11 / iOS 26.6.
+- Device heat: not warm
+- UI responsiveness: normal
+- Unexpected restart/termination: no
+- Notes: 15:03 automated sustained workload completed 420 cycles; user observed no heat and no perceived lag.
+
+## Automated closure evidence
+
+The remaining automated validation has been completed successfully on commit `6c63e60d9e9776bc4f10fc7273b17d35c7c19a6f`.
+
+- [x] G6.0 host baseline PASS.
+- [x] G6.1 configured image-size characterization through `G6_MAX_MP=48` PASS.
+- [x] G6.5 deterministic host failure injection PASS.
+- [x] Consolidated physical-device smoke PASS on iPhone 11 verifier app.
+- [x] PixelCraft main app was not uninstalled or overwritten.
+- [x] Main Xcode checkout was not mutated; isolated worktree was removed after the run.
+- [x] Final GitHub CI run #136 PASS on the same branch head.
+
+Automated evidence root from the physical run:
+
+`build/g6/final/`
+
+Device metrics from the final smoke run:
+
+`build/g6/device/20260812T062943Z-00008030-0004694C3E68C02E-metrics.txt`
 
 ## Result
 
