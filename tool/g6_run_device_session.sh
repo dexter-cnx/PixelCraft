@@ -125,22 +125,51 @@ cmd=(
   "--dart-define=G6_DURATION_MIN=$DURATION_MIN"
 )
 
-if [[ -n "$LOG" ]]; then
-  mkdir -p "$(dirname "$LOG")"
-  set +e
-  "${cmd[@]}" 2>&1 | tee "$LOG"
-  status=${PIPESTATUS[0]}
-  set -e
-  if [[ "$status" -ne 0 ]]; then
-    echo "[PixelCraft G6] DEVICE SESSION FAIL status=$status log=$LOG" >&2
-    exit "$status"
+session_log="$LOG"
+if [[ -z "$session_log" ]]; then
+  session_log="$(mktemp -t pixelcraft-g6-drive.XXXXXX.log)"
+  cleanup_session_log=1
+else
+  cleanup_session_log=0
+  mkdir -p "$(dirname "$session_log")"
+fi
+
+set +e
+"${cmd[@]}" 2>&1 | tee "$session_log"
+status=${PIPESTATUS[0]}
+set -e
+
+if [[ "$status" -ne 0 ]]; then
+  echo "[PixelCraft G6] DEVICE SESSION FAIL status=$status log=$session_log" >&2
+  exit "$status"
+fi
+
+if [[ "$MODE" == "reliability" ]]; then
+  if ! grep -qF "PIXELCRAFT_G6_CYCLE pass=$CYCLES total=$CYCLES" "$session_log"; then
+    echo "[PixelCraft G6] DEVICE SESSION FAIL: flutter drive returned success before cycle $CYCLES completed" >&2
+    echo "[PixelCraft G6] required marker: PIXELCRAFT_G6_CYCLE pass=$CYCLES total=$CYCLES" >&2
+    echo "[PixelCraft G6] log=$session_log" >&2
+    exit 3
+  fi
+  if ! grep -qF "PIXELCRAFT_G6_COMPLETE mode=reliability cycles=$CYCLES" "$session_log"; then
+    echo "[PixelCraft G6] DEVICE SESSION FAIL: missing reliability completion sentinel" >&2
+    echo "[PixelCraft G6] log=$session_log" >&2
+    exit 3
   fi
 else
-  "${cmd[@]}"
+  if ! grep -qF "PIXELCRAFT_G6_COMPLETE mode=thermal completed_cycles=" "$session_log"; then
+    echo "[PixelCraft G6] DEVICE SESSION FAIL: missing thermal completion sentinel" >&2
+    echo "[PixelCraft G6] log=$session_log" >&2
+    exit 3
+  fi
 fi
 
 restore_project
 trap - EXIT
+
+if [[ "$cleanup_session_log" -eq 1 ]]; then
+  rm -f "$session_log"
+fi
 
 echo "[PixelCraft G6] DEVICE SESSION PASS"
 echo "[PixelCraft G6] restored project bundle/application-id configuration"
