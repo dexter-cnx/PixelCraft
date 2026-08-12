@@ -14,6 +14,7 @@ G6 does not change image semantics. Rust remains authoritative for committed edi
 - Do not infer numeric parity for G5 controls that intentionally commit through Rust.
 - A failure is useful G6 evidence; do not hide it by changing thresholds until root cause is understood.
 - Physical-device automation must not uninstall or overwrite the developer's installed PixelCraft main app (`dev.cnxdev.pixelcraft`). G6 uses an isolated verifier app id (`dev.cnxdev.pixelcraft.g6verify`).
+- Physical-device automation must not mutate the checkout/Xcode project that the developer has open. Verifier bundle/application-id changes are applied only inside a temporary detached git worktree and that worktree is removed when the run exits.
 
 ---
 
@@ -113,7 +114,7 @@ Device runner:
 DEVICE=<flutter-device-id> G6_CYCLES=10 bash tool/g6_device_reliability.sh
 ```
 
-The runner launches one consolidated `flutter drive` session using `integration_test/g6_device_verification_test.dart`. Before launch it temporarily changes the iOS bundle id and Android application id to `dev.cnxdev.pixelcraft.g6verify`, then restores the project files exactly when the run exits or is interrupted. The installed PixelCraft main app (`dev.cnxdev.pixelcraft`) is not the install/uninstall target. Flutter may install/remove the isolated G6 verifier app as part of the drive lifecycle; that is intentional and does not replace the main app.
+The runner launches one consolidated `flutter drive` session using `integration_test/g6_device_verification_test.dart`. It first creates a temporary detached git worktree at the current `HEAD`, changes the iOS bundle id and Android application id only inside that worktree to `dev.cnxdev.pixelcraft.g6verify`, and runs the verifier from there. The checkout that may be open in Xcode is never edited, so the Runner scheme cannot retain the temporary verifier bundle id. The installed PixelCraft main app (`dev.cnxdev.pixelcraft`) is not the install/uninstall target. Flutter may install/remove the isolated G6 verifier app as part of the drive lifecycle; that is intentional and does not replace the main app. The temporary worktree is removed on normal exit or interruption.
 
 Logs are stored under `build/g6/device/`.
 
