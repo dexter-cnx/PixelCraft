@@ -17,17 +17,17 @@ class StoredEditorSession {
 }
 
 class EditorSessionStore {
-  EditorSessionStore({Directory? rootDirectory}) : _rootDirectory = rootDirectory;
+  EditorSessionStore({this.rootDirectory});
 
   static const _generationVersion = 2;
   static const _generationsToKeep = 3;
 
-  final Directory? _rootDirectory;
+  final Directory? rootDirectory;
   Future<void> _writeTail = Future.value();
   int _generationCounter = 0;
 
   Future<Directory> _directory() async {
-    final root = _rootDirectory ?? await getApplicationSupportDirectory();
+    final root = rootDirectory ?? await getApplicationSupportDirectory();
     return Directory('${root.path}/pixelcraft-session');
   }
 
