@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pixelcraft_film/pixelcraft_film.dart';
 
 import '../../core/film_profile_store.dart';
 import '../../core/film_profile_v1.dart';
@@ -23,6 +22,7 @@ class FilmProfilesScreen extends StatefulWidget {
 
 class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   late final FilmProfileStore _store = widget.store ?? FilmProfileStore();
+  late final FilmProfileLibrary _library = FilmProfileLibrary(_store);
   List<FilmProfileV1> _profiles = const [];
   bool _loading = true;
 
@@ -33,7 +33,7 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   }
 
   Future<void> _refresh() async {
-    final profiles = await _store.loadAll();
+    final profiles = await _library.loadAll();
     if (!mounted) return;
     setState(() {
       _profiles = profiles;
@@ -54,10 +54,10 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   }
 
   Future<void> _duplicate(FilmProfileV1 profile) async {
-    final duplicate = profile.duplicate(
+    await _library.duplicate(
+      profile,
       newId: 'user_${DateTime.now().microsecondsSinceEpoch}',
     );
-    await _store.save(duplicate);
     await _refresh();
   }
 
@@ -80,7 +80,7 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
       ),
     );
     if (confirmed != true) return;
-    await _store.delete(profile.id);
+    await _library.delete(profile.id);
     await _refresh();
   }
 
@@ -126,26 +126,13 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
     if (source == null || source.trim().isEmpty) return;
 
     try {
-      FilmProfileV1 profile;
-      FilmProfileImportReport? report;
-      final decoded = jsonDecode(source);
-      if (decoded is Map<String, dynamic> &&
-          decoded['schema'] == pixelCraftProfileSchema) {
-        profile = FilmProfileV1.decode(source).copyWith(
-          origin: FilmProfileOrigin.imported,
-        );
-      } else if (decoded is Map<String, dynamic>) {
-        report = importRecipeMap(
-          decoded.cast<String, Object?>(),
-          id: 'imported_${DateTime.now().microsecondsSinceEpoch}',
-        );
-        profile = report.profile;
-      } else {
-        throw const FormatException('Import must be a JSON object.');
-      }
-      await _store.save(profile);
+      final result = await _library.importSource(
+        source,
+        importedId: 'imported_${DateTime.now().microsecondsSinceEpoch}',
+      );
       await _refresh();
       if (!mounted) return;
+      final report = result.report;
       if (report != null) {
         await _showMappingReport(report);
       }
