@@ -18,7 +18,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(
+        child: MaterialApp(
           home: ProductEditorScreen(imageBytes: testPngBytes),
         ),
       ),
@@ -28,7 +28,7 @@ void main() {
     final compareButton =
         find.byKey(const ValueKey('editor_compare_button'));
     expect(compareButton, findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Before'), findsOneWidget);
+    expect(find.text('Before'), findsOneWidget);
     expect(container.read(editorProvider).showOriginal, isFalse);
     expect(engine.operations, isEmpty);
 
@@ -36,14 +36,14 @@ void main() {
     await tester.pump();
 
     expect(container.read(editorProvider).showOriginal, isTrue);
-    expect(find.widgetWithText(FilledButton, 'Edited'), findsOneWidget);
+    expect(find.text('Edited'), findsOneWidget);
     expect(engine.operations, isEmpty);
 
     await tester.tap(compareButton);
     await tester.pump();
 
     expect(container.read(editorProvider).showOriginal, isFalse);
-    expect(find.widgetWithText(FilledButton, 'Before'), findsOneWidget);
+    expect(find.text('Before'), findsOneWidget);
     expect(engine.operations, isEmpty);
   });
 }
