@@ -1,315 +1,264 @@
 # PixelCraft
 
-PixelCraft is an offline-first image editor with a Material 3 Flutter UI and a native Rust processing engine. Images never need to leave the device.
+PixelCraft is an offline-first mobile photo editor and film-emulation camera built with Flutter, Rust, and native GPU preview runtimes.
 
-## Architecture
+The core architectural rule is simple:
 
-```mermaid
-flowchart LR
-  UI[Flutter Material 3 UI] --> RP[Riverpod EditorController]
-  RP --> FRB[flutter_rust_bridge v2]
-  FRB --> API[rust/src/api.rs]
-  API --> ENG[Engine transaction + history]
-  API --> CORE[Core filters]
-  API --> CREATIVE[Creative filters]
-  API --> RESIZE[Resize pipeline]
-  CORE --> RAYON[Rayon pixel loops]
-  CORE --> IMAGEPROC[imageproc convolution]
-  CREATIVE --> PHOTON[photon-rs presets]
-  RESIZE --> FIR[fast_image_resize]
-  ENG --> UNDO[Compressed undo / redo stack]
+> **Rust owns committed image semantics. GPU owns low-latency preview only. Flutter owns product UI and control flow.**
+
+## Current architecture
+
+After the P0/P1 package extraction, PixelCraft is moving toward a package-oriented monorepo:
+
+```text
+PixelCraft/
+├── apps/
+│   └── pixelcraft/                # target app shell
+├── packages/
+│   ├── pixelcraft_engine/         # Flutter FFI/native build integration for Rust
+│   ├── pixelcraft_gpu/            # preview-only GPU control plane + native runtime
+│   ├── pixelcraft_editing/        # planned P2 editing domain package
+│   └── pixelcraft_film/           # planned film/profile package
+├── rust/                           # authoritative image engine and recipe semantics
+├── docs/
+└── melos.yaml
 ```
 
-### Responsibility boundaries
+The current root Flutter app still contains application code that will be migrated incrementally into `apps/pixelcraft` and domain packages.
+
+## Responsibility boundaries
 
 | Layer | Responsibility |
 |---|---|
-| Flutter | Material 3 UI, gestures, navigation, Riverpod state projection |
-| flutter_rust_bridge | Typed Dart-to-Rust bridge and synchronous preview calls |
-| PixelCraft engine | Decoding, preview transaction, history, histogram and timing |
-| Rayon | Parallel pixel-local brightness, contrast, saturation and blending |
-| imageproc | Gaussian blur and sharpen convolution |
-| photon-rs | Creative effects and presets |
-| fast_image_resize | High-quality Lanczos resizing |
+| Flutter app | UI, gestures, navigation, Riverpod state projection, product workflow |
+| `pixelcraft_engine` | FRB/CargoKit/native build integration for the repository Rust crate |
+| Rust `rust/` | authoritative edits, recipe, history, checkpoints, recovery and full-resolution export |
+| `pixelcraft_gpu` | preview-only Dart control plane plus Android OpenGL ES/Camera2 and iOS Metal/AVFoundation runtime |
+| Native GPU | realtime camera/editor preview only; never final render authority |
 
-Photon is intentionally used as an internal Rust module rather than through a second Flutter wrapper. This keeps one FFI boundary and lets PixelCraft control memory, history and filter behavior.
+Hard contracts:
 
-## Filters
+1. Rust owns committed edit semantics, recipe, history, checkpoints, recovery and export.
+2. GPU preview is never the final source of truth.
+3. Camera Film is preview-only; captured source remains clean.
+4. Live camera frame buffers never cross Dart `MethodChannel` or Flutter Rust Bridge.
+5. Canonical Film/Creative LUT data originates from Rust-owned data.
+6. Unsupported operation order or native failure falls back to a valid Rust/product state.
+7. New effects are defined and tested in Rust first; GPU support is optional and must be faithful.
+8. Film Profiles are reusable configuration data, not captured pixels or per-image session state.
 
-### Core filters
+## Package status
 
-- Brightness
-- Contrast
-- Saturation
-- Gaussian blur
-- Sharpen
+### `packages/pixelcraft_engine`
 
-Core filters use a normalized `0.0..2.0` control. `1.0` is neutral for brightness, contrast, saturation and sharpen; Gaussian blur starts at `0.0`.
+P0 extracted the Flutter FFI/native build plugin into a dedicated package. It contains the CargoKit/platform glue required to compile and bundle the repository-level Rust engine.
 
-### Photon creative filters
+See [`packages/pixelcraft_engine/README.md`](packages/pixelcraft_engine/README.md).
 
-- Grayscale
-- Invert
-- Vintage
-- Oceanic
-- Lofi
-- Dramatic
-- Golden
-- Pastel pink
+### `packages/pixelcraft_gpu`
 
-Creative filters use a `0.0..1.0` intensity. PixelCraft applies the Photon effect once and blends its RGB output with the immutable transaction base in parallel using Rayon. Unknown preset names are rejected explicitly instead of accepting Photon’s fallback preset.
+P1 extracted the reusable preview control plane and native GPU runtime into a Flutter plugin package.
 
-## Realtime preview transaction
+It contains:
 
-The editor does not repeatedly apply a slider value on top of the previous frame:
+- Dart camera/editor GPU bridges
+- GPU render-plan/draft-session support
+- Android OpenGL ES + Camera2 runtime
+- iOS Metal + AVFoundation runtime
+- diagnostics and frame-pacing bridges
+
+The app retains thin adapters where GPU policy still depends on app-owned editing models. Those are the main P2 extraction target.
+
+See [`packages/pixelcraft_gpu/README.md`](packages/pixelcraft_gpu/README.md).
+
+## Rendering model
 
 ```text
-onChangeStart  -> begin_filter(filter)
-                   decode current committed preview once
-
-onChanged      -> update_filter_preview(filter, value)
-                   clone immutable decoded base
-                   process in Rust
-                   encode preview
-                   do not add history
-
-onChangeEnd    -> commit_filter()
-                   add exactly one compressed history entry
+Camera / imported image
+        ↓
+clean source image
+        ↓
+Flutter product state
+        ↓
+interactive native GPU preview when faithfully representable
+        ↓ gesture release / command
+Rust semantic recipe
+        ↓
+authoritative reduced preview + history + checkpoint
+        ↓
+full-resolution Rust replay/export
 ```
 
-This fixes two common editor problems:
+### Camera preview
 
-1. Slider values no longer compound on every tick.
-2. A drag gesture creates one undo step rather than dozens of history entries.
+Android eligible path:
 
-A max-1280px preview is generated in Rust for interactive work. The original compressed input remains in the engine for a future full-resolution export pipeline.
+```text
+Camera2
+ -> SurfaceTexture / OES
+ -> OpenGL ES canonical LUT/effects
+ -> Android PlatformView
+```
 
-## Rust API
+iOS eligible path:
 
-- `load_image`
-- `prepare_preview`
-- `begin_filter`
-- `update_filter_preview`
-- `commit_filter`
-- `cancel_filter`
-- `apply_filter` / `apply_filter_timed` — stateless compatibility and benchmark API
-- `photon_filter_names`
-- `get_histogram` — 768 values: 256 bins per RGB channel
-- `resize_image`
-- `undo`, `redo`, `current_image`
+```text
+AVCaptureVideoDataOutput
+ -> CVPixelBuffer
+ -> CVMetalTextureCache
+ -> Metal canonical LUT/effects
+ -> UIKit PlatformView
+```
 
-All interactive APIs use `#[frb(sync)]` as requested. Synchronous native calls reduce scheduling overhead, but they still run on the Dart caller thread. Keep the preview bounded and benchmark on target hardware.
+If native preview is unavailable or fails, PixelCraft fails closed to its valid fallback path.
 
-## Requirements
+### Editor preview
 
-- Flutter 3.44 or newer
-- Dart 3.12 or newer
+Interactive GPU preview may represent only operations whose order and semantics match the authoritative Rust recipe. Unsupported graphs do not get silently reordered or approximated.
+
+## Rust engine
+
+Rust authority lives under:
+
+```text
+rust/src/api.rs
+rust/src/engine.rs
+rust/src/filters.rs
+rust/src/advanced_filters.rs
+```
+
+Rust retains:
+
+- untouched source bytes
+- reduced editor preview
+- Apply checkpoint preview
+- complete operation list
+- cursor / checkpoint cursor
+- undo / redo state
+
+Export always replays the authoritative recipe from the clean source. Native GPU pixels are never export input.
+
+## Film Profiles
+
+PixelCraft supports reusable Film Profiles that can be created, edited, duplicated, imported and applied to an editor session.
+
+A Film Profile deliberately does not contain:
+
+- source image
+- crop/rotate session state
+- Editor history
+- checkpoint cursor
+- captured GPU pixels
+
+Imported recipe fields are classified as `exact`, `approximated`, or `unsupported`; unsupported settings must never be silently discarded.
+
+## Development requirements
+
+- Flutter 3.44+
+- Dart 3.12+
 - Rust stable
-- Android Studio or Xcode platform prerequisites
-- iOS 13.0 or newer
+- Android Studio / Android SDK
+- Xcode for iOS
+- iOS 13+
 - `flutter_rust_bridge_codegen` 2.12.0
 
-Pinned Rust dependencies include:
-
-```toml
-image = "0.24"
-imageproc = "0.23"
-rayon = "1.8"
-fast_image_resize = "3.0"
-photon-rs = "=0.3.3"
-flutter_rust_bridge = "=2.12.0"
-```
-
-## Makefile workflow
-
-The recommended workflow uses the project Makefile:
+## Common workflow
 
 ```bash
 make help
 make setup
+make codegen
+make check
+```
+
+Run the app:
+
+```bash
 make run
 ```
 
-When Android reports that `libpixelcraft_engine.so` is missing, repair and verify the native integration with:
-
-```bash
-make frb-info
-```
-
-The Makefile invokes the pinned binary at `~/.cargo/bin/flutter_rust_bridge_codegen` and force-reinstalls the requested version when another older executable shadows it on `PATH`.
-
-```bash
-make repair
-make verify-native
-make run
-```
-
-Useful targets:
-
-```bash
-make codegen          # regenerate FRB bridge files
-make codegen-watch    # watch Rust API changes
-make check            # Flutter analysis/tests and Rust checks
-make run-release      # run on a physical device in release mode
-make adb-abi          # print the connected Android device ABI
-```
-
-Specify a Flutter device explicitly when needed:
+Specify a device when needed:
 
 ```bash
 make run DEVICE=<device-id>
 ```
 
-## Setup
-
-```bash
-unzip PixelCraft.zip
-cd PixelCraft
-./tool/bootstrap.sh
-flutter run
-```
-
-The bootstrap script creates missing Flutter platform directories, integrates Cargokit, generates bridge code and downloads Dart packages.
-
-After changing Rust APIs:
-
-```bash
-./tool/codegen.sh
-```
-
-Continuous code generation:
-
-```bash
-./tool/codegen.sh --watch
-```
-
-Manual generator installation:
-
-```bash
-cargo install flutter_rust_bridge_codegen --version 2.12.0
-flutter_rust_bridge_codegen generate
-```
-
-## iOS dependency migration: CocoaPods -> SwiftPM
-
-PixelCraft is migrating iOS plugin dependencies toward Swift Package Manager, but the native Rust engine must keep working throughout the migration.
-
-Current state:
-
-- `saver_gallery` is pinned to `5.0.3`, which provides SwiftPM support while preserving the API currently used by `ExportFileService`.
-- The Runner and Podfile deployment target are aligned at iOS 13.0.
-- `pixelcraft_engine` still uses CocoaPods/Cargokit on iOS.
-- CocoaPods must **not** be removed yet because `rust_builder/ios/pixelcraft_engine.podspec` runs the Rust build phase and force-loads `libpixelcraft_engine.a` into the iOS target.
-
-A `Package.swift` file by itself is not an equivalent replacement for this native integration. The SwiftPM path must reproduce the Rust build, architecture selection, archive output and linker behavior before the podspec can be removed.
-
-Detailed migration plan and verification checklist:
-
-- [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md)
-
-## Benchmark
-
-Tap **Benchmark** in the editor. It reports:
-
-1. Filter processing time measured inside Rust.
-2. End-to-end synchronous bridge wall time.
-3. A simple Dart byte-loop baseline.
-
-Run meaningful tests in release mode on a physical device:
-
-```bash
-flutter run --release
-```
-
-No fabricated benchmark results are committed. Performance varies by CPU, codec, image size and filter. The `<16ms` value is an interactive-preview target, not a universal guarantee. Gaussian blur and PNG encoding can exceed one frame on slower devices.
-
-## Memory strategy
-
-For a `4000 x 3000` RGBA image, one decoded buffer is about 48 MB. PixelCraft therefore:
-
-- retains the original as compressed bytes;
-- processes a bounded preview during interaction;
-- keeps undo/redo entries as compressed PNG data;
-- decodes one immutable base at gesture start;
-- stores only the latest pending preview before commit;
-- caps history at 20 entries.
-
-A production full-resolution export should replay committed filter operations against the original or use a tile-based pipeline. Codec-level streaming is not uniformly available across all selected formats in `image 0.24`.
-
-## Code walkthrough
-
-เอกสารอธิบาย runtime flow, Riverpod state, FRB bridge, Rust transaction engine, filters, histogram, undo/redo, benchmark และ memory trade-offs อยู่ที่:
-
-- [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md)
-- [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md) — สถานะและแผนย้าย iOS dependencies จาก CocoaPods ไป SwiftPM โดยรักษา Rust/Cargokit linking contract
-
-## Source layout
-
-```text
-lib/
-  core/bridge.dart
-  state/editor_controller.dart
-  ui/screens/home_screen.dart
-  ui/screens/editor_screen.dart
-  ui/widgets/filter_slider.dart
-  ui/widgets/histogram_widget.dart
-  ui/widgets/image_preview.dart
-rust/src/
-  api.rs
-  engine.rs
-  filters.rs
-  photon_filters.rs
-  lib.rs
-flutter_rust_bridge.yaml
-```
-
-## Validation
-
-Before publishing a release, run:
-
-```bash
-cargo fmt --manifest-path rust/Cargo.toml --check
-cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path rust/Cargo.toml
-flutter analyze
-flutter test
-flutter run --release
-```
-
-The archive is source-ready, but this generation environment does not include Flutter or Rust toolchains, so native code generation and compilation must be run locally using the commands above.
-
-## License
-
-MIT
-
-## Android: `libpixelcraft_engine.so` not found
-
-This means the FRB Dart bindings were generated, but the Rust native library was not bundled into the APK. Repair the Cargokit integration from the project root:
+Native integration repair/verification:
 
 ```bash
 make repair
 make verify-native
-make run
 ```
 
-Verify the debug APK contains the Android library:
+Useful targets:
 
 ```bash
-unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep libpixelcraft_engine.so
+make codegen
+make codegen-watch
+make rust-fmt
+make rust-clippy
+make rust-test
+make gpu-lut-verify
+make golden-test
+make run-release
+make adb-abi
 ```
 
-For a typical physical Android phone, the expected entry is under `lib/arm64-v8a/`.
+## CI / validation gates
 
-### Flutter 3.44 / Gradle 9
+The primary CI validates:
 
-FRB 2.12.0 bundles a CargoKit Gradle script that still calls `Project.exec`, which
-was removed in Gradle 9. PixelCraft patches the generated script automatically
-during `make integrate` and `make repair`.
+- FRB regeneration consistency
+- Rust fmt / clippy / tests
+- G6 image characterization
+- GPU LUT parity
+- Flutter analyze
+- state tests
+- GPU plan/session tests
+- widget tests
+- Android native packaging smoke
+- golden tests
+- iOS native packaging smoke
 
-Manual repair:
+P1 was closed only after CI passed and physical smoke testing succeeded on both iOS and Android.
+
+Before release, use at minimum:
 
 ```bash
-make patch-cargokit
-make clean-all
-make build-apk
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path rust/Cargo.toml
+flutter analyze
+flutter test
+make verify-native
 ```
+
+## Current roadmap
+
+```text
+G1  Camera GPU Preview                          CLOSED
+G2  Editor GPU Preview Foundation               CLOSED
+G3  Production Rendering Pipeline               CLOSED
+G4  Product Editor UX / Session Workflow        CLOSED
+G5  Editing Feature Completeness                CLOSED / VERIFIED
+G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
+P0  Extract pixelcraft_engine                   CLOSED / MERGED
+P1  Extract pixelcraft_gpu                      CLOSED / MERGED
+P2  Extract pure editing models/semantics       NEXT
+G7  Release / Beta / Store Readiness            PRESERVED / TO REBASE
+```
+
+P2 should move app-owned pure editing models such as `EditGraphDocument` / `EditNodeType` into `packages/pixelcraft_editing`, allowing remaining GPU renderer/capability adapters to stop depending on root app code.
+
+## Documentation
+
+- [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md)
+- [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md)
+- [`docs/G6_RELIABILITY_MATRIX.md`](docs/G6_RELIABILITY_MATRIX.md)
+- [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md)
+- [`packages/pixelcraft_engine/README.md`](packages/pixelcraft_engine/README.md)
+- [`packages/pixelcraft_gpu/README.md`](packages/pixelcraft_gpu/README.md)
+
+## License
+
+MIT
