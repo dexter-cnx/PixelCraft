@@ -2,7 +2,7 @@
 
 `pixelcraft_editing` is the pure Dart editing-domain boundary introduced in P2.
 
-Its job is to own reusable edit-graph contracts that must be shared by the PixelCraft app and infrastructure packages without creating package -> app dependencies.
+Its job is to own reusable editing contracts that must be shared by the PixelCraft app and infrastructure packages without creating package -> app dependencies.
 
 ## 1. Architectural position
 
@@ -16,19 +16,19 @@ preview adapters / serialization boundaries
 Rust engine = authoritative committed semantics
 ```
 
-The package models editing intent and serialized graph structure. It does not execute committed image processing.
+The package models editing intent, reusable Film Profile configuration, serialized graph structure, and deterministic draft shaping. It does not execute committed image processing.
 
 ## 2. Why this package exists
 
-Before P2:
+Before P2, shared GPU/domain code reached into app-owned files such as:
 
 ```text
 lib/core/edit_graph.dart
-        ↑
-lib/gpu/gpu_preview_renderer.dart
+lib/core/film_profile_v1.dart
+lib/core/film_profile_recipe.dart
 ```
 
-That coupling prevented GPU renderer/capability contracts from moving fully into `pixelcraft_gpu` because they needed app-owned types.
+That prevented infrastructure packages from depending on stable domain types without depending back on the application.
 
 After P2:
 
@@ -37,33 +37,25 @@ pixelcraft_gpu ──> pixelcraft_editing
 PixelCraft app ──> pixelcraft_editing
 ```
 
-No package needs to import PixelCraft application source to understand `EditGraphDocument` or `EditNodeType`.
+The former app paths remain compatibility exports during migration.
 
 ## 3. Public API
 
-The package exports its public domain surface through:
+Public barrel:
 
 ```text
 lib/pixelcraft_editing.dart
 ```
 
-Current primary implementation:
+Primary implementation files:
 
 ```text
 lib/src/edit_graph.dart
+lib/src/film_profile_v1.dart
+lib/src/film_profile_recipe.dart
 ```
 
-Public types:
-
-```text
-EditGraphDocument
-EditGraphNode
-EditNodeType
-EditMask
-EditOverlay
-```
-
-## 4. Schema model
+## 4. Edit graph model
 
 Current schema:
 
@@ -84,95 +76,130 @@ Serialized shape:
 }
 ```
 
-The schema is intentionally explicit so transport boundaries do not silently accept incompatible graph formats.
-
-## 5. Node semantics
-
-`EditNodeType` currently contains:
+Public graph types:
 
 ```text
-adjustment
-filmProfile
-crop
-rotate
-flip
-resize
-overlay
+EditGraphDocument
+EditGraphNode
+EditNodeType
+EditMask
+EditOverlay
 ```
 
-Each `EditGraphNode` carries:
+`EditGraphDocument.decode()` / `fromJson()` validate schema compatibility, object/list shapes, known node types, opacity bounds, mask references, and unique IDs. Invalid data throws `FormatException` rather than being coerced into a partially valid graph.
+
+## 5. Film Profile model
+
+`FilmProfileV1` is reusable configuration, not a per-image edit session.
+
+Schema identifiers:
 
 ```text
-id
-type
-enabled
-opacity
-params
-maskId
+schema            pixelcraft-film-profile
+schemaVersion     1
+minEngineVersion  1
 ```
 
-`params` remains a JSON-compatible map because individual operation semantics continue to be defined authoritatively in Rust and higher-level adapters.
-
-## 6. Validation
-
-`EditGraphDocument.decode()` / `fromJson()` fail early for malformed or incompatible data.
-
-Validation includes:
+It carries:
 
 ```text
-schemaVersion must be an integer
-schemaVersion must match the supported version
-document must be an object
-nodes/masks/overlays must be object arrays
-node types must be known
-opacity must stay within 0...1
-mask references must exist
-node/mask/overlay IDs must be unique
+id / name / description
+origin
+optional base Film ID
+base Film strength
+normalized parameter map
+tags
+compatibility versions
 ```
 
-Invalid input throws `FormatException`; it is not coerced into a partially valid graph.
+It deliberately excludes source pixels, crop/rotate session state, history, checkpoint state, and captured GPU frames.
 
-## 7. Relationship to Rust
+Parameter values are clamped by `FilmProfileParameterSpec`; neutral values are normalized out of persisted profile parameter maps.
 
-A crucial distinction:
+## 6. Import compatibility reporting
+
+Generic recipe import uses:
 
 ```text
-pixelcraft_editing = shared Dart domain/transport model
-Rust               = authoritative processing semantics
+FilmProfileMappingKind.exact
+FilmProfileMappingKind.approximated
+FilmProfileMappingKind.unsupported
 ```
 
-Moving a model into this package does not move semantic authority out of Rust.
+Unsupported fields remain visible in the import report. PixelCraft must not silently discard them or claim proprietary vendor processing is reproduced 1:1.
 
-The package must not become a second independent recipe engine, history implementation, or final renderer.
+## 7. Film Profile recipe materialization
+
+`applyFilmProfileToSessionRecipe()` operates on serialized Rust recipe JSON:
+
+```text
+current recipe
+ -> preserve operations before checkpoint_cursor
+ -> inspect active draft
+ -> upsert base Film operation
+ -> upsert profile scalar filters
+ -> truncate stale redo tail
+ -> return rewritten recipe JSON
+```
+
+The helper does **not** commit editor state by itself. The application must restore the rewritten recipe through the Rust engine before presenting it as authoritative state.
+
+This distinction is critical:
+
+```text
+pixelcraft_editing helper = deterministic draft transformation
+Rust engine               = semantic authority
+```
 
 ## 8. Relationship to pixelcraft_gpu
 
-`pixelcraft_gpu` may depend on this package for:
+`pixelcraft_gpu` may depend on this package for graph types and other pure editing-domain contracts.
 
-- supported edit-node capability sets
-- `EditGraphDocument` transport
-- preview renderer contracts
+This direction is allowed:
 
-GPU behavior remains preview-only and fail-closed. Unsupported graph order/composition must fall back to the valid Rust/product path rather than mutate or reinterpret the graph.
+```text
+pixelcraft_gpu -> pixelcraft_editing
+```
 
-## 9. What belongs here next
+The reverse direction is forbidden. `pixelcraft_editing` must not learn about Metal, OpenGL ES, MethodChannels, renderer lifecycle, or platform capability policy.
 
-A type is a good P2 candidate when it is:
+GPU behavior remains preview-only and fail-closed. Unsupported graph order/composition must fall back to the valid Rust/product path.
 
-- pure Dart
-- editing-domain focused
-- independent of Flutter widgets/Riverpod/navigation
-- independent of native GPU implementation
-- useful to more than one package/app adapter
+## 9. What remains app-owned
 
-Do not move app orchestration here merely to reduce file count.
+P2 does not move orchestration merely to reduce file count. These remain outside this package:
 
-## 10. Dependency rule
+```text
+EditorController / Riverpod state
+UI/navigation
+recovery persistence
+Film Profile storage
+export/file/gallery services
+Rust bridge implementation
+native GPU implementation
+```
 
-The package should remain at the bottom of the Dart package graph:
+`EditorAdjustmentSpec.gpuPreview` also mixes product metadata with backend capability policy; it should not be moved wholesale into the pure domain package without first separating semantic adjustment metadata from GPU support policy.
+
+## 10. Validation
+
+The package is validated independently:
+
+```bash
+cd packages/pixelcraft_editing
+dart pub get
+dart analyze
+dart test
+```
+
+Package tests cover Film Profile normalization/round-trip, import mapping classification, and active-draft materialization/redo-tail truncation. Root compatibility tests continue to protect existing application call sites during migration.
+
+## 11. Dependency invariant
+
+The intended bottom-of-graph rule is:
 
 ```text
 pixelcraft_editing -> Dart SDK only
 ```
 
-If it begins importing `pixelcraft_gpu`, app UI, Riverpod, or native platform APIs, the boundary has regressed.
+A future import of Flutter UI, Riverpod, `pixelcraft_gpu`, native APIs, or app source into this package is an architectural regression.
