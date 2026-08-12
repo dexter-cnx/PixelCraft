@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/editor_controller.dart';
-import '../ui/screens/editor_screen.dart';
+import '../ui/screens/product_editor_screen.dart';
 
 /// Opens the normal Editor for a camera capture, then applies the Film Profile
 /// selected in the live viewfinder once the new source has finished loading.
@@ -64,6 +64,6 @@ class _CameraFilmEditorHandoffState
       });
     }
 
-    return EditorScreen(imagePath: widget.imagePath);
+    return ProductEditorScreen(imagePath: widget.imagePath);
   }
 }
