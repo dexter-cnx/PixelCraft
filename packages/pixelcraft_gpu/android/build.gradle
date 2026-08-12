@@ -1,4 +1,4 @@
-group 'dev.pixelcraft.pixelcraft'
+group 'dev.pixelcraft.gpu'
 version '1.0'
 
 buildscript {
@@ -16,7 +16,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    namespace 'dev.pixelcraft.pixelcraft'
+    namespace 'dev.pixelcraft.gpu'
     compileSdkVersion 36
 
     compileOptions {
