@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/image_engine.dart';
 import '../../state/editor_controller.dart';
+import '../../state/editor_recipe_summary.dart';
 import 'filter_slider.dart';
 import 'histogram_widget.dart';
 
@@ -13,21 +14,34 @@ typedef EditorGpuPreviewCallback = void Function(
   double value,
 );
 
+typedef EditorResetAdjustmentCallback = Future<void> Function(String filter);
+typedef EditorResetCallback = Future<void> Function();
+
 class EditorToolPanel extends StatelessWidget {
   const EditorToolPanel({
     super.key,
     required this.state,
     required this.controller,
+    required this.recipeSummary,
     this.onGpuPreviewStart,
     this.onGpuPreviewChanged,
     this.onGpuPreviewCommit,
+    this.onResetAdjustment,
+    this.onResetAdjustments,
+    this.onResetCreative,
+    this.onResetFilm,
   });
 
   final EditorState state;
   final EditorController controller;
+  final EditorRecipeSummary recipeSummary;
   final EditorGpuPreviewCallback? onGpuPreviewStart;
   final EditorGpuPreviewCallback? onGpuPreviewChanged;
   final EditorGpuPreviewCallback? onGpuPreviewCommit;
+  final EditorResetAdjustmentCallback? onResetAdjustment;
+  final EditorResetCallback? onResetAdjustments;
+  final EditorResetCallback? onResetCreative;
+  final EditorResetCallback? onResetFilm;
 
   @override
   Widget build(BuildContext context) {
@@ -41,16 +55,50 @@ class EditorToolPanel extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: SegmentedButton<EditorTool>(
               showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: EditorTool.adjust, icon: Icon(Icons.tune), label: Text('Adjust')),
-                ButtonSegment(value: EditorTool.filters, icon: Icon(Icons.auto_awesome), label: Text('Filters')),
-                ButtonSegment(value: EditorTool.film, icon: Icon(Icons.camera_roll_outlined), label: Text('Film')),
-                ButtonSegment(value: EditorTool.crop, icon: Icon(Icons.crop), label: Text('Crop')),
-                ButtonSegment(value: EditorTool.rotate, icon: Icon(Icons.rotate_90_degrees_ccw), label: Text('Rotate')),
-                ButtonSegment(value: EditorTool.details, icon: Icon(Icons.analytics_outlined), label: Text('Details')),
+              segments: [
+                ButtonSegment(
+                  value: EditorTool.adjust,
+                  icon: _ToolIcon(
+                    icon: Icons.tune,
+                    changed: recipeSummary.hasAdjustChanges,
+                  ),
+                  label: const Text('Adjust'),
+                ),
+                ButtonSegment(
+                  value: EditorTool.filters,
+                  icon: _ToolIcon(
+                    icon: Icons.auto_awesome,
+                    changed: recipeSummary.hasCreativeChange,
+                  ),
+                  label: const Text('Filters'),
+                ),
+                ButtonSegment(
+                  value: EditorTool.film,
+                  icon: _ToolIcon(
+                    icon: Icons.camera_roll_outlined,
+                    changed: recipeSummary.hasFilmChange,
+                  ),
+                  label: const Text('Film'),
+                ),
+                const ButtonSegment(
+                  value: EditorTool.crop,
+                  icon: Icon(Icons.crop),
+                  label: Text('Crop'),
+                ),
+                const ButtonSegment(
+                  value: EditorTool.rotate,
+                  icon: Icon(Icons.rotate_90_degrees_ccw),
+                  label: Text('Rotate'),
+                ),
+                const ButtonSegment(
+                  value: EditorTool.details,
+                  icon: Icon(Icons.analytics_outlined),
+                  label: Text('Details'),
+                ),
               ],
               selected: {state.selectedTool},
-              onSelectionChanged: (selection) => controller.selectTool(selection.first),
+              onSelectionChanged: (selection) =>
+                  controller.selectTool(selection.first),
             ),
           ),
           if (state.isPreviewProcessing) ...[
@@ -72,26 +120,34 @@ class EditorToolPanel extends StatelessWidget {
               EditorTool.adjust => _AdjustPanel(
                   state: state,
                   controller: controller,
+                  recipeSummary: recipeSummary,
                   onGpuPreviewStart: onGpuPreviewStart,
                   onGpuPreviewChanged: onGpuPreviewChanged,
                   onGpuPreviewCommit: onGpuPreviewCommit,
+                  onResetAdjustment: onResetAdjustment,
+                  onResetAdjustments: onResetAdjustments,
                 ),
               EditorTool.filters => _FilterPanel(
                   state: state,
                   controller: controller,
+                  recipeSummary: recipeSummary,
                   onGpuPreviewStart: onGpuPreviewStart,
                   onGpuPreviewChanged: onGpuPreviewChanged,
                   onGpuPreviewCommit: onGpuPreviewCommit,
+                  onResetCreative: onResetCreative,
                 ),
               EditorTool.film => _FilmPanel(
                   state: state,
                   controller: controller,
+                  recipeSummary: recipeSummary,
                   onGpuPreviewStart: onGpuPreviewStart,
                   onGpuPreviewChanged: onGpuPreviewChanged,
                   onGpuPreviewCommit: onGpuPreviewCommit,
+                  onResetFilm: onResetFilm,
                 ),
               EditorTool.crop => const _CropPanel(),
-              EditorTool.rotate => _RotatePanel(state: state, controller: controller),
+              EditorTool.rotate =>
+                _RotatePanel(state: state, controller: controller),
               EditorTool.details => _DetailsPanel(state: state),
             },
           ),
@@ -101,6 +157,22 @@ class EditorToolPanel extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _ToolIcon extends StatelessWidget {
+  const _ToolIcon({required this.icon, required this.changed});
+
+  final IconData icon;
+  final bool changed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Badge(
+      isLabelVisible: changed,
+      smallSize: 7,
+      child: Icon(icon),
     );
   }
 }
@@ -116,21 +188,46 @@ class _DraftActionBar extends StatelessWidget {
     final enabled = state.hasUnappliedEdits &&
         !state.isBusy &&
         !state.isPreviewProcessing;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        OutlinedButton.icon(
-          key: const ValueKey('cancel_edits_button'),
-          onPressed: enabled ? controller.cancelEdits : null,
-          icon: const Icon(Icons.close),
-          label: const Text('Cancel'),
+        Row(
+          children: [
+            Icon(
+              Icons.compare_rounded,
+              size: 16,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Press and hold the photo to compare with the last Apply checkpoint.',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          key: const ValueKey('apply_edits_button'),
-          onPressed: enabled ? controller.applyEdits : null,
-          icon: const Icon(Icons.check),
-          label: const Text('Apply'),
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              key: const ValueKey('cancel_edits_button'),
+              onPressed: enabled ? controller.cancelEdits : null,
+              icon: const Icon(Icons.restart_alt_rounded),
+              label: const Text('Discard Draft'),
+            ),
+            FilledButton.icon(
+              key: const ValueKey('apply_edits_button'),
+              onPressed: enabled ? controller.applyEdits : null,
+              icon: const Icon(Icons.check),
+              label: const Text('Apply'),
+            ),
+          ],
         ),
       ],
     );
@@ -141,16 +238,22 @@ class _AdjustPanel extends StatelessWidget {
   const _AdjustPanel({
     required this.state,
     required this.controller,
+    required this.recipeSummary,
     this.onGpuPreviewStart,
     this.onGpuPreviewChanged,
     this.onGpuPreviewCommit,
+    this.onResetAdjustment,
+    this.onResetAdjustments,
   });
 
   final EditorState state;
   final EditorController controller;
+  final EditorRecipeSummary recipeSummary;
   final EditorGpuPreviewCallback? onGpuPreviewStart;
   final EditorGpuPreviewCallback? onGpuPreviewChanged;
   final EditorGpuPreviewCallback? onGpuPreviewCommit;
+  final EditorResetAdjustmentCallback? onResetAdjustment;
+  final EditorResetCallback? onResetAdjustments;
 
   bool get _gpuSupported =>
       state.selectedFilter == 'brightness' ||
@@ -163,16 +266,62 @@ class _AdjustPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final filter = state.selectedFilter;
     final useGpuCallbacks = _gpuSupported && onGpuPreviewChanged != null;
+    final neutral = defaultAdjustmentValue(filter);
+    final currentChanged = recipeSummary.isAdjustmentChanged(filter);
+    final resetBlocked = state.isBusy || state.isPreviewProcessing;
+
     return Column(
       key: const ValueKey('adjust'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Wrap(
           spacing: 8,
-          children: coreFilters.map((filter) => ChoiceChip(
-            label: Text(filter.replaceAll('_', ' ')),
-            selected: state.selectedFilter == filter,
-            onSelected: (_) => controller.selectFilter(filter),
-          )).toList(),
+          runSpacing: 8,
+          children: coreFilters
+              .map(
+                (item) => ChoiceChip(
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(item.replaceAll('_', ' ')),
+                      if (recipeSummary.isAdjustmentChanged(item)) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          key: ValueKey('adjust_changed_$item'),
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  selected: filter == item,
+                  onSelected: (_) => controller.selectFilter(item),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${filter.replaceAll('_', ' ')} · neutral ${neutral.toStringAsFixed(1)}',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+            TextButton.icon(
+              key: const ValueKey('reset_adjustment_button'),
+              onPressed: currentChanged && !resetBlocked && onResetAdjustment != null
+                  ? () => onResetAdjustment!(filter)
+                  : null,
+              icon: const Icon(Icons.restart_alt_rounded, size: 18),
+              label: const Text('Reset'),
+            ),
+          ],
         ),
         FilterSlider(
           value: state.value,
@@ -193,6 +342,18 @@ class _AdjustPanel extends StatelessWidget {
             }
           },
         ),
+        if (recipeSummary.hasAdjustChanges) ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: const ValueKey('reset_adjust_section_button'),
+              onPressed: !resetBlocked && onResetAdjustments != null
+                  ? onResetAdjustments
+                  : null,
+              child: const Text('Reset Adjust'),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -202,16 +363,20 @@ class _FilterPanel extends StatelessWidget {
   const _FilterPanel({
     required this.state,
     required this.controller,
+    required this.recipeSummary,
     this.onGpuPreviewStart,
     this.onGpuPreviewChanged,
     this.onGpuPreviewCommit,
+    this.onResetCreative,
   });
 
   final EditorState state;
   final EditorController controller;
+  final EditorRecipeSummary recipeSummary;
   final EditorGpuPreviewCallback? onGpuPreviewStart;
   final EditorGpuPreviewCallback? onGpuPreviewChanged;
   final EditorGpuPreviewCallback? onGpuPreviewCommit;
+  final EditorResetCallback? onResetCreative;
 
   @override
   Widget build(BuildContext context) {
@@ -244,9 +409,24 @@ class _FilterPanel extends StatelessWidget {
         ),
         if (selected.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Text(
-            '${selected.replaceAll('_', ' ')} intensity',
-            style: Theme.of(context).textTheme.labelLarge,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${selected.replaceAll('_', ' ')} intensity',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: recipeSummary.hasCreativeChange &&
+                        !state.isPreviewProcessing &&
+                        onResetCreative != null
+                    ? onResetCreative
+                    : null,
+                icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                label: const Text('Reset Filter'),
+              ),
+            ],
           ),
           FilterSlider(
             value: state.creativeFilterValue,
@@ -277,16 +457,20 @@ class _FilmPanel extends StatelessWidget {
   const _FilmPanel({
     required this.state,
     required this.controller,
+    required this.recipeSummary,
     this.onGpuPreviewStart,
     this.onGpuPreviewChanged,
     this.onGpuPreviewCommit,
+    this.onResetFilm,
   });
 
   final EditorState state;
   final EditorController controller;
+  final EditorRecipeSummary recipeSummary;
   final EditorGpuPreviewCallback? onGpuPreviewStart;
   final EditorGpuPreviewCallback? onGpuPreviewChanged;
   final EditorGpuPreviewCallback? onGpuPreviewCommit;
+  final EditorResetCallback? onResetFilm;
 
   @override
   Widget build(BuildContext context) {
@@ -323,11 +507,29 @@ class _FilmPanel extends StatelessWidget {
         ),
         if (selectedProfile != null) ...[
           const SizedBox(height: 10),
-          Text(selectedProfile.description, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 6),
           Text(
-            '${selectedProfile.name} strength',
-            style: Theme.of(context).textTheme.labelLarge,
+            selectedProfile.description,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${selectedProfile.name} strength',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: recipeSummary.hasFilmChange &&
+                        !state.isPreviewProcessing &&
+                        onResetFilm != null
+                    ? onResetFilm
+                    : null,
+                icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                label: const Text('Reset Film'),
+              ),
+            ],
           ),
           FilterSlider(
             value: state.filmProfileStrength,
@@ -433,7 +635,10 @@ class _PreviewCard extends StatelessWidget {
                         ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 7,
+                  ),
                   child: Text(
                     label,
                     maxLines: 1,
@@ -490,10 +695,26 @@ class _RotatePanel extends StatelessWidget {
           spacing: 8,
           alignment: WrapAlignment.center,
           children: [
-            IconButton.filledTonal(onPressed: controller.rotateLeft, tooltip: 'Rotate left', icon: const Icon(Icons.rotate_left)),
-            IconButton.filledTonal(onPressed: controller.rotateRight, tooltip: 'Rotate right', icon: const Icon(Icons.rotate_right)),
-            IconButton.filledTonal(onPressed: controller.flipHorizontal, tooltip: 'Flip horizontal', icon: const Icon(Icons.flip)),
-            IconButton.filledTonal(onPressed: controller.flipVertical, tooltip: 'Flip vertical', icon: const RotatedBox(quarterTurns: 1, child: Icon(Icons.flip))),
+            IconButton.filledTonal(
+              onPressed: controller.rotateLeft,
+              tooltip: 'Rotate left',
+              icon: const Icon(Icons.rotate_left),
+            ),
+            IconButton.filledTonal(
+              onPressed: controller.rotateRight,
+              tooltip: 'Rotate right',
+              icon: const Icon(Icons.rotate_right),
+            ),
+            IconButton.filledTonal(
+              onPressed: controller.flipHorizontal,
+              tooltip: 'Flip horizontal',
+              icon: const Icon(Icons.flip),
+            ),
+            IconButton.filledTonal(
+              onPressed: controller.flipVertical,
+              tooltip: 'Flip vertical',
+              icon: const RotatedBox(quarterTurns: 1, child: Icon(Icons.flip)),
+            ),
           ],
         ),
         Row(
@@ -529,7 +750,10 @@ class _DetailsPanel extends StatelessWidget {
       children: [
         HistogramWidget(bins: state.histogram),
         const SizedBox(height: 8),
-        Text('Rust ${state.processingMs.toStringAsFixed(2)} ms · ${state.cursor}/${state.operationCount} edits'),
+        Text(
+          'Rust ${state.processingMs.toStringAsFixed(2)} ms · '
+          '${state.cursor}/${state.operationCount} edits',
+        ),
       ],
     );
   }

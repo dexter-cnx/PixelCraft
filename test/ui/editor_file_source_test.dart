@@ -36,19 +36,21 @@ void main() {
       ),
     );
 
-    expect(find.text('Preparing photo…'), findsOneWidget);
+    expect(find.text('Preparing photo and editing tools…'), findsOneWidget);
 
     // Advance only the frames needed by the async widget initialization. The
     // real File I/O is intentionally injected above so this widget test stays
     // deterministic and does not block on dart:io inside FakeAsync.
     for (var attempt = 0; attempt < 20; attempt++) {
       await tester.pump(const Duration(milliseconds: 16));
-      if (find.text('Preparing photo…').evaluate().isEmpty) break;
+      if (find.text('Preparing photo and editing tools…').evaluate().isEmpty) {
+        break;
+      }
     }
 
     expect(requestedPath, '/camera/capture.png');
     expect(engine.backgroundLoadCalls, 1);
-    expect(find.textContaining('Editor · 0/0 edits'), findsOneWidget);
-    expect(find.text('Preparing photo…'), findsNothing);
+    expect(find.text('Editor · Applied'), findsOneWidget);
+    expect(find.text('Preparing photo and editing tools…'), findsNothing);
   });
 }
