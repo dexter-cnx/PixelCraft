@@ -8,3 +8,4 @@ export 'gpu_frame_pacing_bridge.dart';
 export 'ios_gpu_camera_preview.dart';
 export 'ios_gpu_editor_preview.dart';
 export 'native_gpu_camera_bridge.dart';
+export 'wgpu_gpu_core.dart';

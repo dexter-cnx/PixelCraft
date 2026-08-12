@@ -24,3 +24,9 @@ flutter:
         pluginClass: PixelcraftGpuPlugin
       ios:
         pluginClass: PixelcraftGpuPlugin
+      linux:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
