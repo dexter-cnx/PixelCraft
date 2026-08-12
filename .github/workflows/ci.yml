@@ -12,7 +12,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -79,10 +79,13 @@ jobs:
       - name: Widget tests
         run: flutter test test/ui --exclude-tags=golden
 
+      - name: Android Rust plugin packaging smoke
+        run: make verify-native
+
   golden:
     name: Golden tests (macOS)
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -117,6 +120,9 @@ jobs:
 
       - name: Golden tests
         run: flutter test test/golden
+
+      - name: iOS Rust plugin packaging smoke
+        run: flutter build ios --debug --no-codesign
 
       - name: Upload golden failures
         if: failure()

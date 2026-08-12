@@ -24,6 +24,9 @@ flutter_rust_bridge_codegen integrate \
   --rust-crate-name pixelcraft_engine \
   --rust-crate-dir rust
 
+python3 tool/normalize_rust_builder_layout.py
+python3 tool/patch_cargokit_gradle9.py
+
 echo "[PixelCraft] Regenerating bridge..."
 flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 
@@ -33,8 +36,8 @@ rm -rf build android/.gradle rust/target
 flutter pub get
 
 echo
-if [[ ! -d rust_builder/cargokit ]]; then
-  echo "ERROR: rust_builder/cargokit was not created." >&2
+if [[ ! -d packages/pixelcraft_engine/cargokit ]]; then
+  echo "ERROR: packages/pixelcraft_engine/cargokit was not created." >&2
   echo "Run: flutter_rust_bridge_codegen integrate --template app" >&2
   exit 1
 fi

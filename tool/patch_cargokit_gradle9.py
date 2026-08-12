@@ -16,9 +16,10 @@ from pathlib import Path
 import re
 import sys
 
-GRADLE_PATH = Path("rust_builder/cargokit/gradle/plugin.gradle")
+PACKAGE_DIR = Path("packages/pixelcraft_engine")
+GRADLE_PATH = PACKAGE_DIR / "cargokit/gradle/plugin.gradle"
 GRADLE_BACKUP = GRADLE_PATH.with_suffix(".gradle.pre-gradle9")
-ANDROID_PLUGIN_PATH = Path("rust_builder/android/build.gradle")
+ANDROID_PLUGIN_PATH = PACKAGE_DIR / "android/build.gradle"
 
 
 def patch_android_plugin() -> None:
