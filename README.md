@@ -102,9 +102,11 @@ All interactive APIs use `#[frb(sync)]` as requested. Synchronous native calls r
 
 ## Requirements
 
-- Flutter 3.22 or newer
+- Flutter 3.44 or newer
+- Dart 3.12 or newer
 - Rust stable
 - Android Studio or Xcode platform prerequisites
+- iOS 13.0 or newer
 - `flutter_rust_bridge_codegen` 2.12.0
 
 Pinned Rust dependencies include:
@@ -117,7 +119,6 @@ fast_image_resize = "3.0"
 photon-rs = "=0.3.3"
 flutter_rust_bridge = "=2.12.0"
 ```
-
 
 ## Makefile workflow
 
@@ -189,6 +190,23 @@ cargo install flutter_rust_bridge_codegen --version 2.12.0
 flutter_rust_bridge_codegen generate
 ```
 
+## iOS dependency migration: CocoaPods -> SwiftPM
+
+PixelCraft is migrating iOS plugin dependencies toward Swift Package Manager, but the native Rust engine must keep working throughout the migration.
+
+Current state:
+
+- `saver_gallery` is pinned to `5.0.3`, which provides SwiftPM support while preserving the API currently used by `ExportFileService`.
+- The Runner and Podfile deployment target are aligned at iOS 13.0.
+- `pixelcraft_engine` still uses CocoaPods/Cargokit on iOS.
+- CocoaPods must **not** be removed yet because `rust_builder/ios/pixelcraft_engine.podspec` runs the Rust build phase and force-loads `libpixelcraft_engine.a` into the iOS target.
+
+A `Package.swift` file by itself is not an equivalent replacement for this native integration. The SwiftPM path must reproduce the Rust build, architecture selection, archive output and linker behavior before the podspec can be removed.
+
+Detailed migration plan and verification checklist:
+
+- [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md)
+
 ## Benchmark
 
 Tap **Benchmark** in the editor. It reports:
@@ -223,6 +241,7 @@ A production full-resolution export should replay committed filter operations ag
 เอกสารอธิบาย runtime flow, Riverpod state, FRB bridge, Rust transaction engine, filters, histogram, undo/redo, benchmark และ memory trade-offs อยู่ที่:
 
 - [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md)
+- [`docs/IOS_SWIFTPM_MIGRATION.md`](docs/IOS_SWIFTPM_MIGRATION.md) — สถานะและแผนย้าย iOS dependencies จาก CocoaPods ไป SwiftPM โดยรักษา Rust/Cargokit linking contract
 
 ## Source layout
 
