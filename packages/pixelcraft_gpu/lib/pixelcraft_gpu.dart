@@ -5,6 +5,8 @@ export 'gpu_editor_draft_session.dart';
 export 'gpu_editor_preview_bridge.dart';
 export 'gpu_editor_render_plan.dart';
 export 'gpu_frame_pacing_bridge.dart';
+export 'gpu_preview_capability.dart';
+export 'gpu_preview_renderer.dart';
 export 'ios_gpu_camera_preview.dart';
 export 'ios_gpu_editor_preview.dart';
 export 'native_gpu_camera_bridge.dart';
