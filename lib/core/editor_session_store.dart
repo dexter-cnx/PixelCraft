@@ -38,6 +38,7 @@ class EditorSessionStore {
       await _writeTail;
       final directory = await _directory();
       if (!await directory.exists()) return null;
+      await _deleteTemporaryFiles(directory);
 
       final generations = await _generationFiles(directory);
       for (final generation in generations) {
@@ -71,6 +72,7 @@ class EditorSessionStore {
     final completer = _writeTail.then((_) async {
       final directory = await _directory();
       await directory.create(recursive: true);
+      await _deleteTemporaryFiles(directory);
 
       final fingerprint = _fingerprint(originalBytes);
       final safeFingerprint = fingerprint.replaceAll(':', '_');
@@ -225,6 +227,7 @@ class EditorSessionStore {
 
   Future<void> _pruneOldGenerations(Directory directory) async {
     try {
+      await _deleteTemporaryFiles(directory);
       final generations = await _generationFiles(directory);
       if (generations.length <= _generationsToKeep) return;
 
@@ -250,12 +253,25 @@ class EditorSessionStore {
         if (entity is! File) continue;
         final name = entity.uri.pathSegments.last;
         final isPayload = name.startsWith('source.') || name.startsWith('recipe.');
-        if (isPayload && !name.endsWith('.tmp') && !referenced.contains(name)) {
+        if (isPayload && !referenced.contains(name)) {
           await entity.delete();
         }
       }
     } catch (_) {
       // Cleanup is best-effort. Published generations remain valid if it fails.
+    }
+  }
+
+  Future<void> _deleteTemporaryFiles(Directory directory) async {
+    try {
+      await for (final entity in directory.list()) {
+        if (entity is! File) continue;
+        if (entity.uri.pathSegments.last.endsWith('.tmp')) {
+          await entity.delete();
+        }
+      }
+    } catch (_) {
+      // Stale temp cleanup is best-effort and must not invalidate recovery.
     }
   }
 
