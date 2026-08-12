@@ -17,6 +17,16 @@ Pure editing-domain contracts and serialization models for PixelCraft.
 - `EditOverlay`
 - edit-graph schema versioning and JSON validation
 
+### Adjustment semantics
+
+- `EditorAdjustmentSpec`
+- `editorAdjustmentSpecs`
+- `coreFilters`
+- neutral/default values
+- semantic ranges, labels, groups, and units
+
+GPU support is deliberately **not** part of this package's adjustment metadata. The application/GPU layer decides which adjustments have a verified continuous native preview path.
+
 ### Film Profile domain
 
 - `FilmProfileV1`
@@ -32,6 +42,7 @@ The recipe materializer rewrites serialized draft data only. The caller must res
 
 - Flutter UI or Riverpod state
 - `EditorController`
+- GPU capability policy
 - native GPU runtime
 - Rust engine implementation
 - authoritative history/checkpoint mutation
@@ -78,6 +89,21 @@ overlay
 
 Decoding validates object shape, schema version, node types, opacity bounds, mask references, and unique IDs.
 
+## Adjustment contract
+
+Adjustment ranges and neutral values are shared semantic metadata. Examples:
+
+```text
+Exposure       -2 ... +2   neutral 0 EV
+Brightness      0 ...  2   neutral 1
+Contrast        0 ...  2   neutral 1
+Saturation      0 ...  2   neutral 1
+Sharpness       0 ...  2   neutral 0
+Gaussian Blur   0 ...  2   neutral 0
+```
+
+Whether one of these has a GPU drag-preview implementation is a separate infrastructure capability and must remain outside `pixelcraft_editing`.
+
 ## Film Profile contract
 
 Current identifiers:
@@ -94,13 +120,16 @@ Import mapping never silently drops unsupported source fields; every recognized 
 
 ## Compatibility during P2
 
-The former app paths remain compatibility exports while call sites are migrated:
+Former app paths remain compatibility adapters/exports while call sites are migrated:
 
 ```text
 lib/core/edit_graph.dart
 lib/core/film_profile_v1.dart
 lib/core/film_profile_recipe.dart
+lib/state/editor_adjustment_catalog.dart
 ```
+
+The app adjustment compatibility layer now adds `gpuPreview` policy on top of the package-owned semantic spec instead of embedding backend support in the domain model.
 
 New package/infrastructure code should import:
 
@@ -108,7 +137,7 @@ New package/infrastructure code should import:
 import 'package:pixelcraft_editing/pixelcraft_editing.dart';
 ```
 
-rather than depending on the compatibility paths.
+rather than depending on compatibility paths.
 
 ## Validation
 
