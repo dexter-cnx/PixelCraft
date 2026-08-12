@@ -48,6 +48,6 @@ android {
 
 apply from: "../cargokit/gradle/plugin.gradle"
 cargokit {
-    manifestDir = "../../rust"
+    manifestDir = "../../../rust"
     libname = "pixelcraft_engine"
 }

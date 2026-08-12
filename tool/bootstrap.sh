@@ -19,12 +19,14 @@ flutter_rust_bridge_codegen integrate \
   --rust-crate-name pixelcraft_engine \
   --rust-crate-dir rust
 
+python3 tool/normalize_rust_builder_layout.py
+python3 tool/patch_cargokit_gradle9.py
 flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 flutter clean
 rm -rf build android/.gradle rust/target
 flutter pub get
 
-test -d rust_builder/cargokit || {
+test -d packages/pixelcraft_engine/cargokit || {
   echo "Cargokit integration is missing. Run ./tool/repair_native.sh" >&2
   exit 1
 }

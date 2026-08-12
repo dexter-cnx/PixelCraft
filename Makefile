@@ -9,7 +9,7 @@ FRB_VERSION ?= 2.12.0
 DEVICE ?=
 APK ?= build/app/outputs/flutter-apk/app-debug.apk
 RUST_CRATE_DIR ?= rust
-RUST_BUILDER_DIR ?= rust_builder
+RUST_BUILDER_DIR ?= packages/pixelcraft_engine
 GPU_LUT_DIR ?= build/gpu_luts
 
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
@@ -54,6 +54,7 @@ ensure-rust-plugin: ## Verify local Rust plugin registration
 integrate: install-frb platforms ## Install CargoKit integration
 	$(FRB_CODEGEN) integrate --template app --no-write-lib --no-integration-test \
 		--rust-crate-name pixelcraft_engine --rust-crate-dir $(RUST_CRATE_DIR)
+	@python3 tool/normalize_rust_builder_layout.py
 	@test -d $(RUST_BUILDER_DIR)/cargokit
 	@$(MAKE) patch-cargokit
 	@$(MAKE) pub-get

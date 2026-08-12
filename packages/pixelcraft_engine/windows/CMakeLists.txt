@@ -9,7 +9,7 @@ set(PROJECT_NAME "pixelcraft_engine")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 include("../cargokit/cmake/cargokit.cmake")
-apply_cargokit(${PROJECT_NAME} ../../../../../../rust pixelcraft_engine "")
+apply_cargokit(${PROJECT_NAME} ../../../../../../../rust pixelcraft_engine "")
 
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
