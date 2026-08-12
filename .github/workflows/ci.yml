@@ -38,6 +38,9 @@ jobs:
       - name: Flutter dependencies
         run: flutter pub get
 
+      - name: Package dependency boundaries
+        run: bash tool/check_package_boundaries.sh
+
       - name: Install flutter_rust_bridge codegen
         run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
 
