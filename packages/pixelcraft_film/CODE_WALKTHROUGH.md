@@ -82,8 +82,9 @@ Before save:
 
 ```text
 UI text fields
- -> copyWith(name / description / parsed tags)
- -> toProfile(newId)
+ -> FilmProfileDraft.parseTags(...)
+ -> copyWith(name / description / parsed tags / base Film / strength)
+ -> toProfile(newId: ...)
  -> FilmProfileV1 normalization
  -> FilmProfileLibrary.save
  -> repository adapter
@@ -224,3 +225,20 @@ pixelcraft_film -> pixelcraft_engine
 pixelcraft_film -> Flutter / path_provider / dart:io
 pixelcraft_editing -> pixelcraft_film
 ```
+
+The root boundary gate verifies these rules in CI.
+
+## 14. P3 validation status
+
+Latest verified implementation baseline before final documentation commits:
+
+```text
+HEAD: cbd70e509018eed1842c162e85b463662e0905f4
+CI run #202
+GitHub Actions run id: 31598466536
+conclusion: SUCCESS
+```
+
+That run covered package boundaries, Film package analyze/tests, root Flutter suites, Rust/GPU suites, Android/iOS packaging, golden tests, and wgpu core on Linux/macOS/Windows.
+
+The final documentation-only HEAD still requires a fresh full CI run before PR #17 is marked Ready or merged.
