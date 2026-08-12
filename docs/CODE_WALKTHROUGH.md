@@ -1,6 +1,6 @@
 # PixelCraft Code Walkthrough
 
-เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft หลัง G6 และการแยก package P0/P1 เสร็จแล้ว
+เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft หลัง G6 และ package extraction P0–P3
 
 สถานะ ณ 2026-08-12:
 
@@ -14,11 +14,21 @@ G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
 
 P0  pixelcraft_engine package extraction        MERGED
 P1  pixelcraft_gpu package extraction           MERGED
-P2  pixelcraft_editing package extraction        NEXT
-G7  Release / Beta / Store Readiness            PLANNED
+P2  pixelcraft_editing package extraction       MERGED
+P3  pixelcraft_film package extraction          ACTIVE — PR #17, implementation green
+G7  Release / Beta / Store Readiness            DEFERRED UNTIL P3 MERGES
 ```
 
-> Rust เป็น authoritative source สำหรับ semantic edits, recipe, history, checkpoint, recovery และ full-resolution export. Flutter เป็น product/control/presentation plane. Native GPU เป็น faithful low-latency preview path เท่านั้น
+Latest verified P3 implementation baseline before this documentation-only finalization:
+
+```text
+CI run #202
+GitHub Actions run: 31598466536
+HEAD: cbd70e509018eed1842c162e85b463662e0905f4
+conclusion: success
+```
+
+> Rust เป็น authoritative source สำหรับ committed semantic edits, recipe, history, checkpoint, recovery และ full-resolution export. Flutter เป็น product/control/presentation plane. Native GPU เป็น faithful low-latency preview path เท่านั้น
 
 ---
 
@@ -33,7 +43,7 @@ Flutter product / control state
         ↓
 interactive GPU preview where faithfully representable
         ↓ gesture release / command
-Rust semantic edit graph / recipe
+Rust semantic edit / recipe
         ↓
 authoritative reduced preview + history + checkpoint
         ↓
@@ -42,28 +52,30 @@ full-resolution Rust replay/export
 
 Hard contracts:
 
-1. Rust owns committed edit semantics.
+1. Rust owns committed edit semantics, history, checkpoints, recovery recipe, and export.
 2. GPU preview never becomes final-render source of truth.
 3. Camera Film is preview-only; capture source remains clean.
-4. Live camera frames never cross Dart MethodChannel or FRB.
-5. Film/Creative LUT data is generated from Rust-owned canonical data.
-6. Unsupported GPU order or native failure falls back to valid Rust preview.
+4. Live camera frames never cross Dart MethodChannel or Flutter Rust Bridge.
+5. Canonical Film/Creative LUT data remains Rust-owned.
+6. Unsupported GPU order or native failure falls back to valid Rust/product state.
 7. Flutter presentation state must not become a parallel semantic recipe.
-8. Film Profiles are reusable configuration data, not Editor session state or captured GPU pixels.
-9. Imported recipe fields report exact / approximated / unsupported mapping explicitly.
-10. New effects are defined in Rust first; GPU support is enabled only when semantics can be represented faithfully.
+8. Film Profiles are reusable configuration, not Editor session state or captured pixels.
+9. Imported recipe fields report exact / approximated / unsupported mappings explicitly.
+10. New effects are defined and tested in Rust first; GPU support is optional and only enabled when faithful.
 
 ---
 
-# 2. Monorepo package boundary after P0/P1
+# 2. Monorepo package boundary after P3
 
 ```text
 PixelCraft/
-├── lib/                          # app UI / state / app-side adapters
+├── lib/                          # app UI / state / adapters / compatibility exports
 ├── rust/                         # authoritative image engine
 ├── packages/
-│   ├── pixelcraft_engine/        # FRB/CargoKit build integration
-│   └── pixelcraft_gpu/           # preview-only GPU plugin
+│   ├── pixelcraft_engine/        # FRB/CargoKit integration for rust/
+│   ├── pixelcraft_gpu/           # preview-only GPU/native runtime
+│   ├── pixelcraft_editing/       # pure-Dart editing/configuration contracts
+│   └── pixelcraft_film/          # pure-Dart Film Profile product orchestration
 ├── android/
 ├── ios/
 ├── test/
@@ -75,20 +87,40 @@ Dependency direction:
 
 ```text
 PixelCraft App
-   ├── pixelcraft_gpu
-   └── pixelcraft_engine
-          |
-          v
-        rust/
+ ├── pixelcraft_film
+ ├── pixelcraft_gpu
+ ├── pixelcraft_editing
+ └── pixelcraft_engine
+
+pixelcraft_film -> pixelcraft_editing
+pixelcraft_gpu  -> pixelcraft_editing
+
+pixelcraft_editing -> Dart SDK only
+pixelcraft_engine  -> repository rust/ crate through build integration
 ```
 
-Packages must never depend back on PixelCraft app source.
+Forbidden directions:
+
+```text
+packages/* -> package:pixelcraft/...
+pixelcraft_editing -> Flutter / Riverpod / GPU / Film
+pixelcraft_film -> Flutter / dart:io / path_provider / GPU / engine / app
+pixelcraft_editing -> pixelcraft_film
+```
+
+The guard is enforced by:
+
+```text
+tool/check_package_boundaries.sh
+```
 
 Detailed package walkthroughs:
 
 ```text
 packages/pixelcraft_engine/CODE_WALKTHROUGH.md
 packages/pixelcraft_gpu/CODE_WALKTHROUGH.md
+packages/pixelcraft_editing/CODE_WALKTHROUGH.md
+packages/pixelcraft_film/CODE_WALKTHROUGH.md
 ```
 
 ---
@@ -105,7 +137,7 @@ Startup flow:
 
 ```text
 WidgetsFlutterBinding
- -> portrait orientation policy
+ -> orientation / platform setup
  -> Flutter/platform error handlers
  -> ProviderScope
  -> RustBootstrapScreen
@@ -119,7 +151,7 @@ Home:
 lib/ui/screens/home_screen.dart
 ```
 
-Editor entry sources include Film Camera, system camera, gallery, bundled sample and saved recovery sessions.
+Editor entry sources include Film Camera, system camera, gallery, bundled sample, and saved recovery sessions.
 
 Recovery remains explicit:
 
@@ -128,13 +160,13 @@ Resume last edit
 [Discard] [Resume]
 ```
 
-Resume passes stored source bytes plus the authoritative recipe into `EditorScreen`.
+Resume passes stored source plus the authoritative recipe into `EditorScreen`.
 
 ---
 
 # 4. pixelcraft_engine and Rust authority
 
-`packages/pixelcraft_engine` is not the semantic image engine. It is the Flutter FFI/build package around the root Rust crate.
+`packages/pixelcraft_engine` is the Flutter FFI/build integration package around the root Rust crate. It is not a second semantic engine.
 
 ```text
 Flutter app
@@ -151,17 +183,19 @@ rust/src/api.rs
 rust/src/engine.rs
 rust/src/filters.rs
 rust/src/advanced_filters.rs
+rust/src/film_profiles.rs
 ```
 
 Rust retains:
 
 - untouched source bytes
-- reduced editor preview
+- reduced Editor preview
 - Apply checkpoint preview
-- complete operation list
+- complete semantic operation list
 - cursor
 - checkpoint cursor
 - undo/redo state
+- authoritative replay/export semantics
 
 Recipe model:
 
@@ -179,9 +213,9 @@ operations[checkpoint_cursor .. cursor]
 
 Operations before `checkpoint_cursor` belong to the last Apply checkpoint.
 
-Full-resolution replay is deferred to Export.
+Full-resolution replay is deferred to export.
 
-P0 moved the former generated/native build layout under:
+P0 moved Flutter/FRB/CargoKit integration under:
 
 ```text
 packages/pixelcraft_engine/
@@ -222,50 +256,55 @@ make repair
 make verify-native
 ```
 
-FRB can regenerate a conventional root `rust_builder/`. PixelCraft normalizes it back into `packages/pixelcraft_engine` using project tooling.
+FRB can regenerate a conventional root `rust_builder/`. PixelCraft normalizes it back into `packages/pixelcraft_engine` using repository tooling.
 
 ---
 
-# 6. Editor adjustment catalog
+# 6. pixelcraft_editing after P2
 
-Central metadata:
+P2 moved reusable editing/configuration semantics into:
+
+```text
+packages/pixelcraft_editing/
+```
+
+The package is pure Dart and owns reusable contracts such as:
+
+```text
+EditGraphDocument
+EditGraphNode
+EditNodeType
+EditMask
+EditOverlay
+
+EditorAdjustmentSpec
+semantic ranges / groups / units / neutral values
+coreFilters
+
+FilmProfileV1
+FilmProfileOrigin
+FilmProfileParameterSpec
+FilmProfileImportReport
+applyFilmProfileToSessionRecipe()
+```
+
+Important split:
+
+```text
+pixelcraft_editing = semantic adjustment/profile configuration
+app/GPU layer      = renderer/backend capability policy
+Rust               = committed pixel/edit authority
+```
+
+`gpuPreview` is therefore intentionally not part of the pure semantic `EditorAdjustmentSpec`.
+
+The app compatibility/policy adapter remains:
 
 ```text
 lib/state/editor_adjustment_catalog.dart
 ```
 
-`EditorAdjustmentSpec` defines:
-
-```text
-id
-label
-min
-max
-neutral
-group
-unit
-gpuPreview
-```
-
-Current Editor controls include:
-
-```text
-Exposure
-Brightness
-Contrast
-Highlights
-Shadows
-Saturation
-Temperature
-Tint
-Vibrance
-Vignette
-Grain
-Sharpness
-Gaussian Blur
-```
-
-The `gpuPreview` flag is intentional: controls without a verified faithful native implementation commit through Rust on release instead of using an approximate shader.
+It can combine semantic metadata with current GPU rollout/capability information without polluting the package contract.
 
 ---
 
@@ -277,7 +316,7 @@ Primary controller:
 lib/state/editor_controller.dart
 ```
 
-It projects Rust state into Flutter:
+It projects Rust state into Flutter presentation state:
 
 - preview/checkpoint bytes
 - histogram
@@ -293,11 +332,11 @@ Typical Adjust transaction:
 
 ```text
 slider drag
-  -> GPU-only preview draft when faithfully representable
+  -> GPU-only draft preview when faithfully representable
 
 slider release
   -> EditorController commits semantic value
-  -> Rust semantic commit/replace
+  -> Rust commit/replace
   -> authoritative Rust preview
   -> recovery persistence
 ```
@@ -306,16 +345,17 @@ Tool switching does not Apply or Discard the active draft implicitly.
 
 ---
 
-# 8. pixelcraft_gpu after P1
+# 8. pixelcraft_gpu after P1/P2
 
-`packages/pixelcraft_gpu` now owns the app-independent preview runtime.
+`packages/pixelcraft_gpu` owns app-independent preview runtime and now consumes pure edit graph/configuration contracts from `pixelcraft_editing` where required.
 
 It contains:
 
 - Dart GPU transport/session/render-plan infrastructure
 - native camera control bridges
-- Android Camera2/OpenGL ES runtime
-- iOS AVFoundation/Metal runtime
+- Android Camera2/OpenGL ES camera runtime
+- iOS AVFoundation/Metal camera runtime
+- iOS native Editor GPU path
 - plugin registration
 - diagnostics / frame pacing
 
@@ -335,36 +375,36 @@ Flutter app
 Rust
 ```
 
-Some `lib/gpu/*` code still remains app-side where it adapts app-owned edit graph types. P1 deliberately did not move those files into the package because doing so would create a package → app dependency.
+Platform scope remains intentionally asymmetric:
 
-P2 is intended to extract those pure editing-domain contracts.
+```text
+Android
+  Camera2/OpenGL ES camera preview
+  no native Editor GPU channel/view today
+
+iOS
+  AVFoundation/Metal camera preview
+  Metal Editor GPU preview
+```
+
+Do not claim Android Editor GPU parity until an Android implementation exists and is parity-verified.
 
 ---
 
 # 9. Editor GPU render plan
 
-Primary package-level concepts:
+Primary package concepts include:
 
 ```text
 GpuEditorRenderPlan
 GpuEditorDraftSession
+GpuPreviewRenderer
+GpuPreviewCapabilities
 native preview bridge
 renderer/session generation
 ```
 
-The render plan is accepted only when operation order can be represented faithfully.
-
-Current verified native topology conceptually includes stages such as:
-
-```text
-optional Creative stage
- -> Gaussian Blur
- -> Sharpen
- -> Brightness
- -> Contrast
- -> Saturation
- -> optional Film/final LUT
-```
+A render plan is accepted only when operation order can be represented faithfully.
 
 If an operation or ordering cannot be represented safely:
 
@@ -387,7 +427,7 @@ Typical lifecycle:
 ```text
 activate GPU draft
  -> native renderer active
- -> newer editor state arrives
+ -> newer Editor state arrives
  -> generation advances
  -> stale work ignored
 ```
@@ -396,7 +436,7 @@ Important invalidation reasons include:
 
 ```text
 Rust checkpoint changed
-editor entered busy state
+Editor entered busy state
 active tool changed
 renderer dropped
 new activation superseded old activation
@@ -417,23 +457,7 @@ Camera2
  -> Flutter PlatformView
 ```
 
-P1 moved production registration out of `MainActivity` and into the plugin.
-
-Conceptually:
-
-```text
-GeneratedPluginRegistrant
- -> PixelcraftGpuPlugin
- -> FlutterPlugin + ActivityAware
- -> MethodChannel / PlatformView
- -> Camera2 / GLES runtime
-```
-
-Android plugin namespace:
-
-```text
-dev.pixelcraft.gpu
-```
+P1 moved production registration out of `MainActivity` and into `PixelcraftGpuPlugin`.
 
 Camera capture remains clean. Dart receives a clean file path/control metadata, not live processed frame buffers.
 
@@ -459,15 +483,13 @@ packages/pixelcraft_gpu/ios/Classes/
 
 P1 moved production GPU registration out of `AppDelegate` into the plugin registrar.
 
-The app `AppDelegate` remains an app shell rather than the production GPU composition root.
-
-Any Runner compatibility stubs are build-project compatibility only and must not contain production GPU implementation.
+Runner compatibility stubs, where still required by the existing Xcode project references, are compatibility-only and must not contain production GPU implementation.
 
 ---
 
 # 13. Canonical Film / Creative LUT architecture
 
-Rust-owned Film data:
+Canonical Film data remains Rust-owned:
 
 ```text
 rust/film_profiles/*/look.json
@@ -481,7 +503,15 @@ Rust canonical data
       ├── Rust renderer
       └── generated native GPU assets
              ↓
-        pixelcraft_gpu
+        pixelcraft_gpu runtime consumer
+```
+
+Ownership split:
+
+```text
+LUT semantic/canonical authority = Rust
+LUT asset packaging              = app build integration
+LUT runtime consumer             = pixelcraft_gpu
 ```
 
 Current built-in Film IDs include:
@@ -495,27 +525,29 @@ ektar_inspired
 chrome64_inspired
 ```
 
-Creative LUT presets use the same principle: one canonical semantic source, multiple faithful render paths.
+Do not duplicate this canonical inventory into `pixelcraft_film` as an independent source of truth.
 
 ---
 
-# 14. FilmProfileV1
+# 14. FilmProfileV1 semantics
 
-Main schema/model:
+The canonical reusable Dart profile schema is owned by `pixelcraft_editing`:
 
 ```text
-lib/core/film_profile_v1.dart
+packages/pixelcraft_editing/lib/src/film_profile_v1.dart
 ```
+
+Root compatibility export remains available where app migration still needs it.
 
 A Film Profile stores reusable configuration such as:
 
 - id / name / description
 - origin
-- optional base Film
-- strength
+- optional base Film id
+- base strength
 - normalized parameter map
 - tags
-- schema/engine compatibility
+- schema / engine compatibility
 
 It deliberately does not contain:
 
@@ -525,11 +557,177 @@ It deliberately does not contain:
 - checkpoint cursor
 - captured GPU pixels
 
-Loading a Film Profile materializes normal recipe operations and restores those semantics through Rust.
+Loading a Film Profile materializes normal semantic recipe operations and restores them through Rust.
 
 ---
 
-# 15. Recovery / Exit / Export
+# 15. pixelcraft_film after P3
+
+P3 introduces:
+
+```text
+packages/pixelcraft_film/
+```
+
+This is a pure-Dart Film Profile product/domain orchestration package sitting above `pixelcraft_editing`.
+
+It owns:
+
+```text
+FilmProfileRepository
+FilmProfileLibrary
+FilmProfileImportService
+FilmProfileImportResult
+FilmProfileDraft
+```
+
+It does not own:
+
+```text
+LUT pixels
+Rust filter semantics
+final rendering/export
+GPU preview
+Flutter widgets/navigation
+filesystem/path_provider implementation
+Editor history/checkpoints
+canonical built-in Film inventory
+```
+
+---
+
+# 16. Film library flow
+
+Before P3, `FilmProfilesScreen` decoded and classified imports itself.
+
+After P3:
+
+```text
+Flutter UI pasted source
+   ↓
+FilmProfileLibrary.importSource
+   ↓
+FilmProfileImportService.parse
+   ├─ PixelCraft schema -> FilmProfileV1.decode -> imported origin
+   └─ generic object    -> pixelcraft_editing.importRecipeMap
+                           -> profile + mapping report
+   ↓
+FilmProfileRepository.save
+   ↓
+UI refreshes + renders optional mapping report
+```
+
+Mapping semantics remain:
+
+```text
+exact
+approximated
+unsupported
+```
+
+Unsupported source fields are retained in the report and are never silently discarded.
+
+---
+
+# 17. Film creator flow
+
+`FilmProfileCreatorScreen` remains Flutter presentation, but reusable draft semantics moved into `FilmProfileDraft`.
+
+Conceptual flow:
+
+```text
+initial FilmProfileV1?
+   ↓
+FilmProfileDraft.fromProfile / FilmProfileDraft.fresh
+   ↓
+semantic defaults from pixelcraft_editing
+   ↓ user edits
+setParameter / resetParameter / metadata changes
+   ↓ Save
+FilmProfileDraft.build(profileId)
+   ↓
+FilmProfileLibrary.save
+   ↓
+FilmProfileRepository
+```
+
+`FilmProfileDraft` owns reusable behavior such as:
+
+- neutral-value initialization
+- parameter clamping
+- reset semantics
+- name fallback/trim
+- description trim
+- comma-separated tag normalization
+- deterministic `FilmProfileV1` composition
+
+Flutter keeps:
+
+- `TextEditingController`
+- widgets
+- navigation/dialogs
+- save-progress state
+- time-based ID generation
+
+Keeping ID generation outside the package makes package tests deterministic.
+
+---
+
+# 18. Film persistence adapter
+
+Current persistence implementation remains app-owned:
+
+```text
+lib/core/film_profile_store.dart
+```
+
+It implements:
+
+```text
+FilmProfileRepository
+```
+
+and uses:
+
+```text
+dart:io
+path_provider
+atomic temp-file replacement
+```
+
+This is intentionally outside `pixelcraft_film`, preserving a pure-Dart package and a replaceable platform-storage seam.
+
+---
+
+# 19. Film authority chain
+
+Creation/import does not make Dart the pixel authority.
+
+```text
+Flutter UI
+   ↓
+pixelcraft_film product orchestration
+   ↓
+pixelcraft_editing configuration/mapping semantics
+```
+
+Applying a profile:
+
+```text
+FilmProfileV1
+   ↓
+pixelcraft_editing recipe materializer
+   ↓
+restore rewritten recipe through Rust
+   ↓
+Rust-authoritative preview/history/checkpoint/recovery/export
+```
+
+Third-party recipe imports may be semantically approximated; do not claim vendor processing is reproduced 1:1 unless separately verified.
+
+---
+
+# 20. Recovery / Exit / Export
 
 Recovery:
 
@@ -537,7 +735,7 @@ Recovery:
 lib/core/editor_session_store.dart
 ```
 
-Generation-based publishing stores source + recipe and writes the manifest last. Load validates bounds/fingerprint and can fall back from corrupt newest data to an older coherent generation.
+Generation-based publishing stores source + recipe and writes the manifest last. Load validates coherence and can fall back from a corrupt newest generation to an older valid one.
 
 Exit policy with an active draft:
 
@@ -561,7 +759,7 @@ Native GPU preview pixels are never export input.
 
 ---
 
-# 16. Failure / fallback model
+# 21. Failure / fallback model
 
 Native GPU is optional for correctness.
 
@@ -579,17 +777,44 @@ runtime renderer failure
 unsupported edit order
 ```
 
-All such cases fail closed to the valid Rust/product state.
+All such cases fail closed to valid Rust/product state.
 
-Rust/native engine packaging failures are different: they are build/integration failures and should fail CI visibly rather than silently switch semantic implementation.
+Rust/native engine packaging failures are build/integration failures and must fail CI visibly rather than silently changing semantic implementation.
 
 ---
 
-# 17. Verification layers
+# 22. Verification layers
 
-Host / Flutter:
+Root / Flutter:
 
 ```bash
+flutter analyze
+flutter test
+```
+
+Editing package:
+
+```bash
+cd packages/pixelcraft_editing
+dart pub get
+dart analyze
+dart test
+```
+
+Film package:
+
+```bash
+cd packages/pixelcraft_film
+dart pub get
+dart analyze
+dart test
+```
+
+GPU package:
+
+```bash
+cd packages/pixelcraft_gpu
+flutter pub get
 flutter analyze
 flutter test
 ```
@@ -612,31 +837,41 @@ Native packaging:
 
 ```bash
 make verify-native
+flutter build ios --debug --no-codesign
 ```
 
-P1 merge gate included:
+CI currently covers:
 
 ```text
-FRB regeneration
-Rust checks/tests
+package dependency boundaries
+FRB regeneration + committed bridge checks
+Rust fmt / clippy / tests
 G6 12 MP characterization
 GPU LUT parity
-Flutter analyze
+pixelcraft_editing analyze + tests
+pixelcraft_film analyze + tests
+pixelcraft_gpu analyze + tests
+root Flutter analyze
 state tests
 GPU plan/session tests
 widget tests
-golden tests
 Android native packaging smoke
-iOS native packaging smoke
-Android physical-device smoke
-iOS physical-device smoke
+Golden tests
+ iOS no-codesign packaging smoke
+wgpu core Linux / macOS / Windows
 ```
 
-The final P1 CI run passed both Android and iOS packaging gates before merge.
+Latest verified P3 implementation run before this docs finalization:
+
+```text
+#202 / 31598466536 — SUCCESS
+```
+
+Physical-device smoke is required when native/runtime behavior changes. Pure-Dart/docs-only P3 changes do not automatically require a new device smoke cycle.
 
 ---
 
-# 18. Important files
+# 23. Important current files
 
 ```text
 Startup
@@ -649,51 +884,71 @@ Editor
   lib/ui/screens/editor_screen.dart
   lib/ui/widgets/editor_tool_panel.dart
 
-Editor presentation
+Editor presentation/policy
   lib/state/editor_controller.dart
   lib/state/editor_recipe_summary.dart
   lib/state/editor_adjustment_catalog.dart
 
-Film Profile
-  lib/core/film_profile_v1.dart
-  lib/core/film_profile_recipe.dart
+Film app adapter/UI
   lib/core/film_profile_store.dart
+  lib/ui/screens/film_profiles_screen.dart
+  lib/ui/screens/film_profile_creator_screen.dart
 
-Recovery
-  lib/core/editor_session_store.dart
+Editing package
+  packages/pixelcraft_editing/lib/pixelcraft_editing.dart
+  packages/pixelcraft_editing/lib/src/edit_graph.dart
+  packages/pixelcraft_editing/lib/src/editor_adjustment_catalog.dart
+  packages/pixelcraft_editing/lib/src/film_profile_v1.dart
+  packages/pixelcraft_editing/lib/src/film_profile_recipe.dart
 
-Rust adapter
-  lib/core/image_engine.dart
+Film package
+  packages/pixelcraft_film/lib/pixelcraft_film.dart
+  packages/pixelcraft_film/lib/src/film_profile_repository.dart
+  packages/pixelcraft_film/lib/src/film_profile_library.dart
+  packages/pixelcraft_film/lib/src/film_profile_import_service.dart
+  packages/pixelcraft_film/lib/src/film_profile_draft.dart
 
 Engine package
-  packages/pixelcraft_engine/README.md
-  packages/pixelcraft_engine/CODE_WALKTHROUGH.md
+  packages/pixelcraft_engine/
 
 GPU package
-  packages/pixelcraft_gpu/README.md
-  packages/pixelcraft_gpu/CODE_WALKTHROUGH.md
+  packages/pixelcraft_gpu/
 
 Rust authority
   rust/src/api.rs
   rust/src/engine.rs
   rust/src/filters.rs
   rust/src/advanced_filters.rs
+  rust/src/film_profiles.rs
 ```
 
 ---
 
-# 19. Current continuation point
+# 24. Current continuation point
 
 G6 is **CLOSED / VERIFIED**.
 
-P0 and P1 package extraction are **MERGED**.
+P0, P1, and P2 are **MERGED**.
 
-Current modularization continuation:
+P3 implementation is complete enough for final review and its latest pre-final-doc implementation HEAD passed full CI in run #202.
+
+Current branch / PR:
 
 ```text
-P2: extract pure editing models / contracts into packages/pixelcraft_editing
+refactor/p3-pixelcraft-film-package
+PR #17
 ```
 
-Primary motivation for P2 is to remove app-owned editing-domain dependencies from the remaining GPU renderer/capability adapters without creating a dependency from `pixelcraft_gpu` back into the app.
+After this documentation finalization:
 
-After modularization work is stable, G7 Release / Beta / Store Readiness can continue from the updated `main` architecture.
+```text
+1. require a fresh green CI on the latest docs head
+2. inspect review threads
+3. resolve any findings without weakening boundaries
+4. mark PR #17 Ready for Review
+5. merge using the latest expected head SHA
+6. verify post-merge main documentation/package graph
+7. return to G7 by rebasing/recreating the preserved PR #10 work over post-P3 main
+```
+
+Do not merge the old pre-refactor G7 branch unchanged.
