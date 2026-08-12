@@ -2,9 +2,36 @@
 
 Preview-only Flutter plugin for PixelCraft's native GPU preview runtime.
 
-`pixelcraft_gpu` provides low-latency native preview infrastructure while keeping committed image semantics in Rust.
+`pixelcraft_gpu` provides low-latency preview infrastructure while keeping committed image semantics in Rust.
 
 > GPU is an optimization and preview surface. Rust remains authoritative for committed recipes, history, checkpoints, recovery, and full-resolution export.
+
+## P2 dependency boundary
+
+`pixelcraft_gpu` now depends on the pure Dart `pixelcraft_editing` package for shared edit-graph contracts:
+
+```text
+pixelcraft_gpu
+   └── pixelcraft_editing
+```
+
+This removes the previous package-boundary blocker where GPU renderer/capability contracts needed app-owned `lib/core/edit_graph.dart` types.
+
+The following contracts now live in `pixelcraft_gpu` itself:
+
+- `GpuPreviewRenderer`
+- `GpuPreviewCapabilities`
+- `GpuPreviewFilmState`
+- `GpuPreviewViewport`
+- `GpuPreviewCapabilityPolicy`
+- `GpuPreviewCapabilityDecision`
+
+The edit graph types they consume come from `pixelcraft_editing`:
+
+- `EditGraphDocument`
+- `EditNodeType`
+
+Root `lib/gpu/*` files remain compatibility exports during the migration.
 
 ## Responsibilities
 
@@ -12,6 +39,7 @@ Preview-only Flutter plugin for PixelCraft's native GPU preview runtime.
 
 - app-independent Dart GPU transport/session infrastructure
 - editor GPU render-plan transport contracts
+- GPU renderer/capability contracts
 - native camera control bridges
 - Android Camera2/OpenGL ES **camera** runtime
 - iOS AVFoundation/Metal **camera and editor** runtime
@@ -42,11 +70,7 @@ Camera2
  -> Flutter PlatformView
 ```
 
-The Android `PixelcraftGpuPlugin.kt` registers the camera-facing `GpuPreviewChannel` and camera PlatformView/runtime.
-
-**There is currently no Android editor GPU channel/view implementation corresponding to the iOS `gpu_editor_preview_v1` / `GpuEditorPreviewPlugin` path.**
-
-Therefore `GpuEditorRenderPlan` must not be described as executing through Android OpenGL ES today. Android editor interaction remains on the valid Rust/product path until an Android editor renderer is implemented and parity-verified.
+There is currently no Android editor GPU channel/view equivalent to the iOS `gpu_editor_preview_v1` path. Android editor interaction therefore remains on the valid Rust/product path.
 
 ### iOS
 
@@ -62,8 +86,12 @@ packages/pixelcraft_gpu/ios/Classes/
 
 ```text
 Flutter app
-   ↓ small control/session messages
+   ↓ control/session intent
 pixelcraft_gpu
+   ↓ shared graph contracts
+pixelcraft_editing
+
+pixelcraft_gpu native runtime
    ├── Android: Camera2 / OpenGL ES camera preview
    └── iOS: AVFoundation / Metal camera + editor preview
 
@@ -97,11 +125,11 @@ Dart receives control data and the clean capture path, not processed live-frame 
 Where a verified native editor path exists and the requested operation graph is representable:
 
 ```text
-slider drag
+EditGraphDocument
    ↓
-GPU preview session
+GpuPreviewRenderer / render-plan transport
    ↓
-native low-latency preview
+native preview
 
 slider release
    ↓
@@ -110,80 +138,38 @@ Rust semantic commit
 authoritative Rust preview
 ```
 
-At present this native editor path is implemented on iOS Metal, not Android OpenGL ES.
+At present the native editor path is implemented on iOS Metal, not Android OpenGL ES.
 
-Unsupported operation ordering, unavailable platform support, or runtime failure falls back to the valid Rust path. The GPU layer must never silently reorder or approximate committed semantics.
+Unsupported ordering, unavailable platform support, or runtime failure falls back to the valid Rust path. The GPU layer must never silently reorder or approximate committed semantics.
 
-## Native ownership
-
-Android native camera registration belongs to the plugin rather than `MainActivity`.
-
-The Android library namespace is:
-
-```text
-dev.pixelcraft.gpu
-```
-
-iOS production Metal/AVFoundation sources live in:
-
-```text
-packages/pixelcraft_gpu/ios/Classes/
-```
-
-The app `AppDelegate` remains an app shell; it is not the production GPU composition root.
-
-## Canonical LUT data and current packaging ownership
+## Canonical LUT data and packaging ownership
 
 Film and Creative LUT **semantics** originate from Rust-owned canonical data.
 
-Conceptually:
+Current native asset packaging is still app-owned:
+
+- Android generation: `GenerateGpuLutAssetsTask` in `android/app/build.gradle.kts`
+- iOS generation/copy: Runner/Xcode build phase
+
+Therefore:
 
 ```text
-Rust canonical data
-   ↓
-33^3 LUTs / parity fixtures
-   ├── Rust renderer
-   └── generated native GPU assets
+LUT semantic authority = Rust
+LUT asset packaging    = app build integration
+LUT runtime consumer   = pixelcraft_gpu
 ```
 
-However, **native LUT asset generation/packaging is still app-owned today**, not fully owned by `pixelcraft_gpu`:
-
-- Android LUT generation is wired from the app build through `GenerateGpuLutAssetsTask` in `android/app/build.gradle.kts`.
-- iOS LUT generation/copying remains integrated through the Runner/Xcode build phase.
-- `packages/pixelcraft_gpu/android/build.gradle` and `packages/pixelcraft_gpu/ios/pixelcraft_gpu.podspec` do not yet declare equivalent self-contained generated LUT resources.
-
-So the plugin **consumes app-generated native LUT assets**. Do not describe those assets as package-owned until generation and packaging are actually relocated into `pixelcraft_gpu`.
-
-This distinction preserves two separate truths:
-
-```text
-LUT semantic authority  = Rust
-LUT native packaging    = app build integration (current)
-```
+Do not describe generated native LUT assets as package-owned until packaging is relocated.
 
 ## Validation
 
-P1 was closed only after all of the following passed:
+P1 closed only after Flutter/Rust/GPU tests, LUT parity, Android/iOS native packaging smoke, and physical-device smoke passed.
 
-```text
-Flutter analyze
-Rust checks/tests
-GPU plan/session tests
-GPU LUT parity
-Android native packaging smoke
-iOS native packaging smoke
-Android physical-device smoke
-iOS physical-device smoke
-```
+P2 additionally requires package-boundary validation so `pixelcraft_gpu` does not import PixelCraft app source for shared edit-domain types.
 
-The Android physical smoke validates the Android camera/plugin topology; it is not evidence that an Android editor GPU renderer exists.
-
-## Detailed walkthrough
-
-For the Dart control plane, editor session lifecycle, native registration, camera paths, fallback model, diagnostics, and extension rules, see:
+## Related documentation
 
 - [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md)
-
-For the overall application architecture, see:
-
+- [`../pixelcraft_editing/README.md`](../pixelcraft_editing/README.md)
+- [`../pixelcraft_editing/CODE_WALKTHROUGH.md`](../pixelcraft_editing/CODE_WALKTHROUGH.md)
 - [`../../docs/CODE_WALKTHROUGH.md`](../../docs/CODE_WALKTHROUGH.md)

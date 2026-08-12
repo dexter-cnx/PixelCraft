@@ -38,6 +38,9 @@ jobs:
       - name: Flutter dependencies
         run: flutter pub get
 
+      - name: Package dependency boundaries
+        run: bash tool/check_package_boundaries.sh
+
       - name: Install flutter_rust_bridge codegen
         run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
 
@@ -66,6 +69,18 @@ jobs:
 
       - name: GPU LUT parity
         run: make gpu-lut-verify
+
+      - name: Editing package dependencies
+        working-directory: packages/pixelcraft_editing
+        run: dart pub get
+
+      - name: Editing package analyze
+        working-directory: packages/pixelcraft_editing
+        run: dart analyze
+
+      - name: Editing package tests
+        working-directory: packages/pixelcraft_editing
+        run: dart test
 
       - name: GPU package dependencies
         working-directory: packages/pixelcraft_gpu
