@@ -30,7 +30,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('editor_zoom_percent')), findsOneWidget);
+    expect(find.byKey(const ValueKey('editor_zoom_value')), findsOneWidget);
     expect(find.text('100%'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('editor_zoom_in')));
