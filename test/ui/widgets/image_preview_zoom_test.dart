@@ -13,8 +13,7 @@ final _tinyPng = Uint8List.fromList(
 );
 
 void main() {
-  testWidgets('zoom controls expose zoom percentage and Fit resets to 100%',
-      (tester) async {
+  Future<void> pumpPreview(WidgetTester tester) async {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
@@ -29,6 +28,11 @@ void main() {
       ),
     );
     await tester.pump();
+  }
+
+  testWidgets('zoom controls expose zoom percentage and Fit resets to 100%',
+      (tester) async {
+    await pumpPreview(tester);
 
     expect(find.byKey(const ValueKey('editor_zoom_value')), findsOneWidget);
     expect(find.text('100%'), findsOneWidget);
@@ -40,5 +44,32 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('editor_zoom_fit')));
     await tester.pump();
     expect(find.text('100%'), findsOneWidget);
+  });
+
+  testWidgets('toolbar zoom preserves the viewport focal point after pan',
+      (tester) async {
+    await pumpPreview(tester);
+
+    final viewerFinder =
+        find.byKey(const ValueKey('editor_image_interactive_viewer'));
+    final viewer = tester.widget<InteractiveViewer>(viewerFinder);
+    final controller = viewer.transformationController!;
+
+    controller.value = Matrix4.diagonal3Values(1.5, 1.5, 1.0)
+      ..setTranslationRaw(40.0, 24.0, 0.0);
+    await tester.pump();
+
+    const viewportCenter = Offset(250, 200);
+    final focalBefore = controller.toScene(viewportCenter);
+
+    await tester.tap(find.byKey(const ValueKey('editor_zoom_in')));
+    await tester.pump();
+
+    final focalAfter = controller.toScene(viewportCenter);
+    expect(controller.value.getMaxScaleOnAxis(), closeTo(1.75, 0.001));
+    expect(focalAfter.dx, closeTo(focalBefore.dx, 0.001));
+    expect(focalAfter.dy, closeTo(focalBefore.dy, 0.001));
+    expect(controller.value.storage[12], isNot(closeTo(0.0, 0.001)));
+    expect(controller.value.storage[13], isNot(closeTo(0.0, 0.001)));
   });
 }
