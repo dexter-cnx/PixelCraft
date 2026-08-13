@@ -1,28 +1,42 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixelcraft/core/film_profile_store.dart';
-import 'package:pixelcraft/core/film_profile_v1.dart';
 import 'package:pixelcraft/ui/screens/film_profiles_screen.dart';
+import 'package:pixelcraft_film/pixelcraft_film.dart';
+
+class _MemoryFilmProfileRepository implements FilmProfileRepository {
+  _MemoryFilmProfileRepository(this._profiles);
+
+  final List<FilmProfileV1> _profiles;
+
+  @override
+  Future<List<FilmProfileV1>> loadAll() async => List.unmodifiable(_profiles);
+
+  @override
+  Future<void> save(FilmProfileV1 profile) async {
+    final index = _profiles.indexWhere((item) => item.id == profile.id);
+    if (index >= 0) {
+      _profiles[index] = profile;
+    } else {
+      _profiles.add(profile);
+    }
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _profiles.removeWhere((profile) => profile.id == id);
+  }
+}
 
 void main() {
   testWidgets('Film library searches metadata and filters imported profiles',
       (tester) async {
-    final directory =
-        await Directory.systemTemp.createTemp('pixelcraft-film-ui-');
-    addTearDown(() => directory.delete(recursive: true));
-    final store = FilmProfileStore(directoryProvider: () async => directory);
-
-    await store.save(
+    final repository = _MemoryFilmProfileRepository([
       FilmProfileV1(
         id: 'portrait_soft',
         name: 'Portrait Soft',
         description: 'Gentle skin tones',
         tags: const ['portrait'],
       ),
-    );
-    await store.save(
       FilmProfileV1(
         id: 'travel_chrome',
         name: 'Travel Chrome',
@@ -30,20 +44,15 @@ void main() {
         origin: FilmProfileOrigin.imported,
         tags: const ['travel'],
       ),
-    );
+    ]);
 
     await tester.pumpWidget(
-      MaterialApp(home: FilmProfilesScreen(store: store)),
+      MaterialApp(
+        home: FilmProfilesScreen(
+          library: FilmProfileLibrary(repository),
+        ),
+      ),
     );
-
-    // The screen starts with an indeterminate CircularProgressIndicator while
-    // FilmProfileStore performs real async file I/O. pumpAndSettle() cannot be
-    // used here because the spinner continuously schedules frames and can keep
-    // the test harness alive indefinitely. Yield to the real event loop so the
-    // store load can finish, then render the completed state once.
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    });
     await tester.pump();
 
     expect(find.text('Portrait Soft'), findsOneWidget);
