@@ -68,7 +68,12 @@ void main() {
     ThemeMode themeMode = ThemeMode.light,
   }) =>
       ProviderScope(
-        overrides: [imageEngineProvider.overrideWithValue(engine)],
+        overrides: [
+          imageEngineProvider.overrideWithValue(engine),
+          // Existing full-editor goldens intentionally remain stable and focus
+          // on the editor shell/tool states. Zoom has dedicated widget coverage.
+          editorZoomControlsVisibleProvider.overrideWithValue(false),
+        ],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: lightTheme(),

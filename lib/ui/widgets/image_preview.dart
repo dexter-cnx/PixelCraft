@@ -9,6 +9,8 @@ import '../../state/crop_commit_coordinator.dart';
 import '../../state/editor_controller.dart';
 import 'interactive_crop_overlay.dart';
 
+final editorZoomControlsVisibleProvider = Provider<bool>((ref) => true);
+
 class ImagePreview extends ConsumerStatefulWidget {
   const ImagePreview({super.key, required this.bytes});
 
@@ -19,16 +21,24 @@ class ImagePreview extends ConsumerStatefulWidget {
 }
 
 class _ImagePreviewState extends ConsumerState<ImagePreview> {
+  static const _minZoom = 0.75;
+  static const _maxZoom = 6.0;
+  static const _zoomStep = 0.25;
+
+  final TransformationController _transformationController =
+      TransformationController();
   CropDraft _cropDraft = const CropDraft();
   int _imageWidth = 1;
   int _imageHeight = 1;
   int _decodeGeneration = 0;
   bool _hasDecodedSize = false;
   bool _applyingCrop = false;
+  double _zoom = 1.0;
 
   @override
   void initState() {
     super.initState();
+    _transformationController.addListener(_syncZoomFromTransform);
     _decodeImageSize();
   }
 
@@ -36,11 +46,53 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
   void didUpdateWidget(covariant ImagePreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.bytes, widget.bytes)) {
-      // Pixel-only edits must not erase an in-progress crop just because the
-      // preview bytes changed. _decodeImageSize resets the crop only when the
-      // source geometry actually changes.
+      // Pixel-only edits must not erase an in-progress crop or reset the
+      // user's viewport. _decodeImageSize resets those presentation states
+      // only when the source geometry actually changes.
       _decodeImageSize();
     }
+  }
+
+  @override
+  void dispose() {
+    _transformationController.removeListener(_syncZoomFromTransform);
+    _transformationController.dispose();
+    super.dispose();
+  }
+
+  void _syncZoomFromTransform() {
+    final nextZoom = _transformationController.value.getMaxScaleOnAxis();
+    if (!mounted || (nextZoom - _zoom).abs() < 0.001) return;
+    setState(() => _zoom = nextZoom);
+  }
+
+  void _setZoom(double value) {
+    final nextZoom = value.clamp(_minZoom, _maxZoom).toDouble();
+    final current = _transformationController.value;
+    final currentZoom = current.getMaxScaleOnAxis();
+    if ((nextZoom - currentZoom).abs() < 0.001) return;
+
+    final viewportSize = context.size;
+    if (viewportSize == null || viewportSize.isEmpty) return;
+
+    // Preserve the scene point currently under the viewport center when
+    // changing scale from the toolbar. This keeps prior pan/focal state rather
+    // than replacing it with a zero-translation transform.
+    final viewportCenter = viewportSize.center(Offset.zero);
+    final currentTranslation = Offset(current.storage[12], current.storage[13]);
+    final focalScenePoint =
+        (viewportCenter - currentTranslation) / currentZoom;
+    final nextTranslation = viewportCenter - focalScenePoint * nextZoom;
+
+    _transformationController.value = Matrix4.diagonal3Values(
+      nextZoom,
+      nextZoom,
+      1.0,
+    )..setTranslationRaw(nextTranslation.dx, nextTranslation.dy, 0.0);
+  }
+
+  void _fitPreview() {
+    _transformationController.value = Matrix4.identity();
   }
 
   Future<void> _decodeImageSize() async {
@@ -64,6 +116,7 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
           _cropDraft = const CropDraft();
         }
       });
+      if (geometryChanged) _fitPreview();
     } catch (_) {
       // Image.memory will surface decode failures through its own rendering path.
     }
@@ -130,6 +183,7 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
         (state) => state.isBusy || state.isPreviewProcessing,
       ),
     );
+    final showZoomControls = ref.watch(editorZoomControlsVisibleProvider);
     final cropMode = selectedTool == EditorTool.crop;
     final radians = straightenDegrees * math.pi / 180.0;
 
@@ -193,20 +247,107 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
                   );
                 },
               )
-            : InteractiveViewer(
-                minScale: 0.75,
-                maxScale: 6,
-                child: Center(
-                  child: Transform.rotate(
-                    angle: radians,
-                    child: Image.memory(
-                      widget.bytes,
-                      fit: BoxFit.contain,
-                      gaplessPlayback: true,
+            : Stack(
+                children: [
+                  Positioned.fill(
+                    child: InteractiveViewer(
+                      key: const ValueKey('editor_image_interactive_viewer'),
+                      transformationController: _transformationController,
+                      minScale: _minZoom,
+                      maxScale: _maxZoom,
+                      child: Center(
+                        child: Transform.rotate(
+                          angle: radians,
+                          child: Image.memory(
+                            widget.bytes,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (showZoomControls)
+                    Positioned(
+                      left: 12,
+                      bottom: 12,
+                      child: _ZoomControls(
+                        zoom: _zoom,
+                        canZoomOut: !busy && _zoom > _minZoom + 0.001,
+                        canZoomIn: !busy && _zoom < _maxZoom - 0.001,
+                        enabled: !busy,
+                        onZoomOut: () => _setZoom(_zoom - _zoomStep),
+                        onZoomIn: () => _setZoom(_zoom + _zoomStep),
+                        onFit: _fitPreview,
+                      ),
+                    ),
+                ],
               ),
+      ),
+    );
+  }
+}
+
+class _ZoomControls extends StatelessWidget {
+  const _ZoomControls({
+    required this.zoom,
+    required this.canZoomOut,
+    required this.canZoomIn,
+    required this.enabled,
+    required this.onZoomOut,
+    required this.onZoomIn,
+    required this.onFit,
+  });
+
+  final double zoom;
+  final bool canZoomOut;
+  final bool canZoomIn;
+  final bool enabled;
+  final VoidCallback onZoomOut;
+  final VoidCallback onZoomIn;
+  final VoidCallback onFit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 2,
+      borderRadius: BorderRadius.circular(16),
+      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.94),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              key: const ValueKey('editor_zoom_out'),
+              tooltip: 'Zoom out',
+              visualDensity: VisualDensity.compact,
+              onPressed: canZoomOut ? onZoomOut : null,
+              icon: const Icon(Icons.remove_rounded),
+            ),
+            SizedBox(
+              width: 52,
+              child: Text(
+                '${(zoom * 100).round()}%',
+                key: const ValueKey('editor_zoom_value'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+            IconButton(
+              key: const ValueKey('editor_zoom_in'),
+              tooltip: 'Zoom in',
+              visualDensity: VisualDensity.compact,
+              onPressed: canZoomIn ? onZoomIn : null,
+              icon: const Icon(Icons.add_rounded),
+            ),
+            TextButton(
+              key: const ValueKey('editor_zoom_fit'),
+              onPressed: enabled ? onFit : null,
+              child: const Text('Fit'),
+            ),
+          ],
+        ),
       ),
     );
   }
