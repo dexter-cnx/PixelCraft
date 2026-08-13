@@ -42,7 +42,12 @@ class _ProductEditorScreenState extends ConsumerState<ProductEditorScreen> {
     // showOriginal is presentation-only state held by the app-wide editor
     // provider. Reset it at every product-editor session boundary so a Compare
     // choice from the previous photo cannot leak into a new/recovered session.
-    ref.read(editorProvider.notifier).setShowOriginal(false);
+    // Riverpod forbids provider mutation while the widget tree is mounting, so
+    // defer the reset until the first frame has completed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(editorProvider.notifier).setShowOriginal(false);
+    });
   }
 
   double _compareRightInset(double width) {
