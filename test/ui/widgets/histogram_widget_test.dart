@@ -18,26 +18,17 @@ void main() {
       ),
     );
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('histogram_channel_label')),
-        matching: find.text('RGB'),
-      ),
-      findsOneWidget,
-    );
+    final label = find.byKey(const ValueKey('histogram_channel_label'));
+    expect(label, findsOneWidget);
+    expect(tester.widget<Text>(label).data, 'RGB');
 
     await tester.tap(find.byKey(const ValueKey('histogram_channel_menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Red'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('histogram_channel_label')),
-        matching: find.text('R'),
-      ),
-      findsOneWidget,
-    );
+    expect(label, findsOneWidget);
+    expect(tester.widget<Text>(label).data, 'R');
   });
 
   testWidgets('histogram channel selection stays presentation-only',
