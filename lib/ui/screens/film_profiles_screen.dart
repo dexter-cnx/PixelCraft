@@ -10,10 +10,12 @@ class FilmProfilesScreen extends StatefulWidget {
   const FilmProfilesScreen({
     super.key,
     this.store,
+    this.library,
     this.selectionMode = false,
   });
 
   final FilmProfileStore? store;
+  final FilmProfileLibrary? library;
   final bool selectionMode;
 
   @override
@@ -22,7 +24,8 @@ class FilmProfilesScreen extends StatefulWidget {
 
 class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   late final FilmProfileStore _store = widget.store ?? FilmProfileStore();
-  late final FilmProfileLibrary _library = FilmProfileLibrary(_store);
+  late final FilmProfileLibrary _library =
+      widget.library ?? FilmProfileLibrary(_store);
   final SearchController _searchController = SearchController();
   List<FilmProfileV1> _profiles = const [];
   bool _loading = true;
