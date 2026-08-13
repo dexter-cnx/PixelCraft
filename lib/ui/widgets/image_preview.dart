@@ -9,6 +9,8 @@ import '../../state/crop_commit_coordinator.dart';
 import '../../state/editor_controller.dart';
 import 'interactive_crop_overlay.dart';
 
+final editorZoomControlsVisibleProvider = Provider<bool>((ref) => true);
+
 class ImagePreview extends ConsumerStatefulWidget {
   const ImagePreview({super.key, required this.bytes});
 
@@ -165,6 +167,7 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
         (state) => state.isBusy || state.isPreviewProcessing,
       ),
     );
+    final showZoomControls = ref.watch(editorZoomControlsVisibleProvider);
     final cropMode = selectedTool == EditorTool.crop;
     final radians = straightenDegrees * math.pi / 180.0;
 
@@ -248,19 +251,20 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
                       ),
                     ),
                   ),
-                  Positioned(
-                    left: 12,
-                    bottom: 12,
-                    child: _ZoomControls(
-                      zoom: _zoom,
-                      canZoomOut: !busy && _zoom > _minZoom + 0.001,
-                      canZoomIn: !busy && _zoom < _maxZoom - 0.001,
-                      enabled: !busy,
-                      onZoomOut: () => _setZoom(_zoom - _zoomStep),
-                      onZoomIn: () => _setZoom(_zoom + _zoomStep),
-                      onFit: _fitPreview,
+                  if (showZoomControls)
+                    Positioned(
+                      left: 12,
+                      bottom: 12,
+                      child: _ZoomControls(
+                        zoom: _zoom,
+                        canZoomOut: !busy && _zoom > _minZoom + 0.001,
+                        canZoomIn: !busy && _zoom < _maxZoom - 0.001,
+                        enabled: !busy,
+                        onZoomOut: () => _setZoom(_zoom - _zoomStep),
+                        onZoomIn: () => _setZoom(_zoom + _zoomStep),
+                        onFit: _fitPreview,
+                      ),
                     ),
-                  ),
                 ],
               ),
       ),
