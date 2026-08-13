@@ -11,6 +11,7 @@ import '../../state/editor_recipe_summary.dart';
 import '../screens/film_profiles_screen.dart';
 import 'filter_slider.dart';
 import 'histogram_widget.dart';
+import 'straighten_control.dart';
 
 typedef EditorGpuPreviewCallback = void Function(
   String kind,
@@ -751,6 +752,7 @@ class _RotatePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = !state.isBusy && !state.isPreviewProcessing;
     return Column(
       key: const ValueKey('rotate'),
       children: [
@@ -783,23 +785,11 @@ class _RotatePanel extends StatelessWidget {
             ),
           ],
         ),
-        Row(
-          children: [
-            const Text('-15°'),
-            Expanded(
-              child: Slider(
-                value: state.straightenDegrees,
-                min: -15,
-                max: 15,
-                divisions: 60,
-                label: '${state.straightenDegrees.toStringAsFixed(1)}°',
-                onChanged:
-                    state.isBusy ? null : controller.setStraightenPreview,
-                onChangeEnd: state.isBusy ? null : controller.commitStraighten,
-              ),
-            ),
-            const Text('15°'),
-          ],
+        StraightenControl(
+          value: state.straightenDegrees,
+          enabled: enabled,
+          onChanged: controller.setStraightenPreview,
+          onChangeEnd: controller.commitStraighten,
         ),
       ],
     );
