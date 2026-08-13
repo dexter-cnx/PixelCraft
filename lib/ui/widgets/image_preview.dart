@@ -68,11 +68,27 @@ class _ImagePreviewState extends ConsumerState<ImagePreview> {
 
   void _setZoom(double value) {
     final nextZoom = value.clamp(_minZoom, _maxZoom).toDouble();
+    final current = _transformationController.value;
+    final currentZoom = current.getMaxScaleOnAxis();
+    if ((nextZoom - currentZoom).abs() < 0.001) return;
+
+    final viewportSize = context.size;
+    if (viewportSize == null || viewportSize.isEmpty) return;
+
+    // Preserve the scene point currently under the viewport center when
+    // changing scale from the toolbar. This keeps prior pan/focal state rather
+    // than replacing it with a zero-translation transform.
+    final viewportCenter = viewportSize.center(Offset.zero);
+    final currentTranslation = Offset(current.storage[12], current.storage[13]);
+    final focalScenePoint =
+        (viewportCenter - currentTranslation) / currentZoom;
+    final nextTranslation = viewportCenter - focalScenePoint * nextZoom;
+
     _transformationController.value = Matrix4.diagonal3Values(
       nextZoom,
       nextZoom,
       1.0,
-    );
+    )..setTranslationRaw(nextTranslation.dx, nextTranslation.dy, 0.0);
   }
 
   void _fitPreview() {
