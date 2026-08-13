@@ -2,7 +2,7 @@
 
 Film Profile product/domain orchestration for PixelCraft.
 
-`pixelcraft_film` sits above `pixelcraft_editing`: it coordinates reusable Film Profile creation, library, duplication, import, and creator-draft workflows while keeping image-processing semantics and LUT authority in Rust.
+`pixelcraft_film` sits above `pixelcraft_editing`: it coordinates reusable Film Profile creation, library, duplication, import, creator-draft, and library-query workflows while keeping image-processing semantics and LUT authority in Rust.
 
 P3 is merged. The package is now part of the canonical post-P3 application graph.
 
@@ -11,6 +11,7 @@ P3 is merged. The package is now part of the canonical post-P3 application graph
 - `FilmProfileRepository` persistence contract
 - `FilmProfileLibrary` use-case orchestration
 - `FilmProfileDraft` creation/edit composition state
+- `FilmProfileQuery` pure-Dart library search/origin filtering
 - PixelCraft profile JSON vs generic recipe import classification
 - propagation of exact / approximated / unsupported mapping reports
 - duplicate / save / delete product rules for reusable Film Profiles
@@ -87,6 +88,18 @@ FilmProfileV1
 Parameter clamp/reset behavior delegates to semantic parameter specs owned by `pixelcraft_editing`. Neutral values are normalized by `FilmProfileV1` when the final profile is built.
 
 Time-based ID generation remains outside the package so package behavior stays deterministic and testable.
+
+## Library query contract
+
+`FilmProfileQuery` keeps reusable library filtering outside Flutter widgets.
+
+- text matching is case-insensitive;
+- matches profile name, description, base-Film id, and tags;
+- optional origin filtering uses `FilmProfileOrigin`;
+- an empty origin set means all origins;
+- repository order is preserved.
+
+The app remains responsible for SearchBar/ChoiceChip presentation state.
 
 ## Persistence
 

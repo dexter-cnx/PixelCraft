@@ -10,10 +10,12 @@ class FilmProfilesScreen extends StatefulWidget {
   const FilmProfilesScreen({
     super.key,
     this.store,
+    this.library,
     this.selectionMode = false,
   });
 
   final FilmProfileStore? store;
+  final FilmProfileLibrary? library;
   final bool selectionMode;
 
   @override
@@ -22,14 +24,44 @@ class FilmProfilesScreen extends StatefulWidget {
 
 class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
   late final FilmProfileStore _store = widget.store ?? FilmProfileStore();
-  late final FilmProfileLibrary _library = FilmProfileLibrary(_store);
+  late final FilmProfileLibrary _library =
+      widget.library ?? FilmProfileLibrary(_store);
+  final SearchController _searchController = SearchController();
   List<FilmProfileV1> _profiles = const [];
   bool _loading = true;
+  String _query = '';
+  FilmProfileOrigin? _originFilter;
+
+  List<FilmProfileV1> get _visibleProfiles => FilmProfileQuery(
+        text: _query,
+        origins: _originFilter == null
+            ? const <FilmProfileOrigin>{}
+            : <FilmProfileOrigin>{_originFilter!},
+      ).apply(_profiles);
 
   @override
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
+
+  void _clearFilters() {
+    _searchController.clear();
+    setState(() {
+      _query = '';
+      _originFilter = null;
+    });
   }
 
   Future<void> _refresh() async {
@@ -191,8 +223,112 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
     Navigator.of(context).pop(profile);
   }
 
+  Widget _libraryControls() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SearchBar(
+            key: const ValueKey('film_profile_search'),
+            controller: _searchController,
+            hintText: 'Search Films, tags, descriptions…',
+            leading: const Icon(Icons.search_rounded),
+            trailing: [
+              if (_query.isNotEmpty)
+                IconButton(
+                  tooltip: 'Clear search',
+                  onPressed: _clearSearch,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+            ],
+            onChanged: (value) => setState(() => _query = value),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                ChoiceChip(
+                  key: const ValueKey('film_origin_all'),
+                  label: const Text('All'),
+                  selected: _originFilter == null,
+                  onSelected: (_) => setState(() => _originFilter = null),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  key: const ValueKey('film_origin_user'),
+                  label: const Text('Created'),
+                  selected: _originFilter == FilmProfileOrigin.user,
+                  onSelected: (_) =>
+                      setState(() => _originFilter = FilmProfileOrigin.user),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  key: const ValueKey('film_origin_imported'),
+                  label: const Text('Imported'),
+                  selected: _originFilter == FilmProfileOrigin.imported,
+                  onSelected: (_) => setState(
+                    () => _originFilter = FilmProfileOrigin.imported,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyLibrary() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.camera_roll_outlined, size: 54),
+            const SizedBox(height: 12),
+            Text(
+              'No custom Films yet',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 6),
+            const Text('Create a Film Profile or import a compatible recipe.'),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: () => _create(),
+              icon: const Icon(Icons.add),
+              label: const Text('Create Film'),
+            ),
+          ],
+        ),
+      );
+
+  Widget _noMatches() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.search_off_rounded, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'No matching Films',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 6),
+              const Text('Try another search or show all profile origins.'),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: _clearFilters,
+                child: const Text('Clear filters'),
+              ),
+            ],
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final visibleProfiles = _visibleProfiles;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.selectionMode ? 'Load Film' : 'Films'),
@@ -212,84 +348,72 @@ class _FilmProfilesScreenState extends State<FilmProfilesScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _profiles.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.camera_roll_outlined, size: 54),
-                      const SizedBox(height: 12),
-                      Text(
-                        'No custom Films yet',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Create a Film Profile or import a compatible recipe.',
-                      ),
-                      const SizedBox(height: 18),
-                      FilledButton.icon(
-                        onPressed: () => _create(),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Create Film'),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _profiles.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final profile = _profiles[index];
-                    return Card(
-                      child: ListTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.camera_roll_outlined),
-                        ),
-                        title: Text(profile.name),
-                        subtitle: Text(
-                          [
-                            if (profile.baseFilmId.isNotEmpty)
-                              profile.baseFilmId.replaceAll('_', ' '),
-                            '${profile.parameters.length} adjustments',
-                            profile.origin.name,
-                          ].join(' • '),
-                        ),
-                        onTap: () => _select(profile),
-                        trailing: widget.selectionMode
-                            ? const Icon(Icons.chevron_right)
-                            : PopupMenuButton<String>(
-                                onSelected: (action) {
-                                  switch (action) {
-                                    case 'duplicate':
-                                      _duplicate(profile);
-                                      break;
-                                    case 'export':
-                                      _copyExport(profile);
-                                      break;
-                                    case 'delete':
-                                      _delete(profile);
-                                      break;
-                                  }
-                                },
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                    value: 'duplicate',
-                                    child: Text('Duplicate'),
+              ? _emptyLibrary()
+              : Column(
+                  children: [
+                    _libraryControls(),
+                    Expanded(
+                      child: visibleProfiles.isEmpty
+                          ? _noMatches()
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                              itemCount: visibleProfiles.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final profile = visibleProfiles[index];
+                                return Card(
+                                  child: ListTile(
+                                    leading: const CircleAvatar(
+                                      child: Icon(Icons.camera_roll_outlined),
+                                    ),
+                                    title: Text(profile.name),
+                                    subtitle: Text(
+                                      [
+                                        if (profile.baseFilmId.isNotEmpty)
+                                          profile.baseFilmId.replaceAll('_', ' '),
+                                        '${profile.parameters.length} adjustments',
+                                        profile.origin.name,
+                                      ].join(' • '),
+                                    ),
+                                    onTap: () => _select(profile),
+                                    trailing: widget.selectionMode
+                                        ? const Icon(Icons.chevron_right)
+                                        : PopupMenuButton<String>(
+                                            onSelected: (action) {
+                                              switch (action) {
+                                                case 'duplicate':
+                                                  _duplicate(profile);
+                                                  break;
+                                                case 'export':
+                                                  _copyExport(profile);
+                                                  break;
+                                                case 'delete':
+                                                  _delete(profile);
+                                                  break;
+                                              }
+                                            },
+                                            itemBuilder: (_) => const [
+                                              PopupMenuItem(
+                                                value: 'duplicate',
+                                                child: Text('Duplicate'),
+                                              ),
+                                              PopupMenuItem(
+                                                value: 'export',
+                                                child: Text('Copy JSON'),
+                                              ),
+                                              PopupMenuItem(
+                                                value: 'delete',
+                                                child: Text('Delete'),
+                                              ),
+                                            ],
+                                          ),
                                   ),
-                                  PopupMenuItem(
-                                    value: 'export',
-                                    child: Text('Copy JSON'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text('Delete'),
-                                  ),
-                                ],
-                              ),
-                      ),
-                    );
-                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
                 ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _create(),
