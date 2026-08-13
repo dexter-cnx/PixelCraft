@@ -37,7 +37,7 @@ class _FilterSliderState extends State<FilterSlider> {
     }
   }
 
-  String _formatValue(double value) {
+  String _formatInputValue(double value) {
     final rounded = value.roundToDouble();
     if ((value - rounded).abs() < 0.005) return rounded.toInt().toString();
     return value.toStringAsFixed(2);
@@ -46,7 +46,7 @@ class _FilterSliderState extends State<FilterSlider> {
   Future<void> _editExactValue() async {
     if (!widget.enabled) return;
 
-    final controller = TextEditingController(text: _formatValue(_value));
+    final controller = TextEditingController(text: _formatInputValue(_value));
     String? validationError;
     final result = await showDialog<double>(
       context: context,
@@ -64,7 +64,7 @@ class _FilterSliderState extends State<FilterSlider> {
             decoration: InputDecoration(
               labelText: 'Value',
               helperText:
-                  '${_formatValue(widget.min)} to ${_formatValue(widget.max)}',
+                  '${_formatInputValue(widget.min)} to ${_formatInputValue(widget.max)}',
               errorText: validationError,
             ),
             onSubmitted: (_) {
@@ -119,7 +119,7 @@ class _FilterSliderState extends State<FilterSlider> {
               min: widget.min,
               max: widget.max,
               divisions: 100,
-              label: _formatValue(_value),
+              label: _value.toStringAsFixed(2),
               onChangeStart: widget.enabled ? widget.onChangeStart : null,
               onChanged: widget.enabled
                   ? (value) {
@@ -131,17 +131,22 @@ class _FilterSliderState extends State<FilterSlider> {
             ),
           ),
           SizedBox(
-            width: 64,
-            child: TextButton(
-              key: const ValueKey('filter_slider_value_button'),
-              onPressed: widget.enabled ? _editExactValue : null,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                minimumSize: const Size(48, 40),
-              ),
-              child: Text(
-                _formatValue(_value),
-                textAlign: TextAlign.end,
+            width: 48,
+            child: Semantics(
+              button: widget.enabled,
+              label: 'Set exact value',
+              value: _value.toStringAsFixed(2),
+              child: Tooltip(
+                message: widget.enabled ? 'Set exact value' : '',
+                child: GestureDetector(
+                  key: const ValueKey('filter_slider_value_button'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.enabled ? _editExactValue : null,
+                  child: Text(
+                    _value.toStringAsFixed(2),
+                    textAlign: TextAlign.end,
+                  ),
+                ),
               ),
             ),
           ),
