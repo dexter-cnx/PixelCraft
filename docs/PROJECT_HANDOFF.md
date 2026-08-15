@@ -17,11 +17,11 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, after PR #26 and PR #27 merged; G7B deferred indefinitely**.
+Last refresh: **2026-08-15, Dextryx Pixels user-facing branding cleanup completed; G7B deferred indefinitely**.
 
 ---
 
-# 1. Product identity — PRIMARY MIGRATION MERGED / COPY CLEANUP PENDING
+# 1. Product identity — COMPLETE
 
 Identity decision frozen on 2026-08-15:
 
@@ -36,14 +36,14 @@ repository name: PixelCraft (unchanged)
 
 Migration rules:
 
-1. Product-facing copy should use **Dextryx Pixels**.
+1. Product-facing copy uses **Dextryx Pixels**.
 2. Android/iOS launcher or home-screen display labels use **Dxtr Pixs**.
 3. Privacy/permission copy uses **Dextryx Pixels**.
 4. Do not cosmetically mass-rename Rust/Dart package names, native channel names, historical evidence, test fixtures, or repository paths.
 5. Historical evidence may retain `PixelCraft` / `Pixel Craft` when that was the literal build/product name at that time.
 6. Android applicationId and iOS bundle id remain `dev.cnxdev.pixelcraft` until a deliberate identifier migration is approved and validated.
 7. Do not rename the GitHub repository as part of the identity migration.
-8. PR #27 completed the primary app identity migration, but a focused follow-up must replace remaining current user-facing legacy branding copy before the identity workstream is considered fully closed.
+8. Technical/runtime storage names such as existing export directories, filenames, package/module identifiers, channels, and repository paths are not branding copy and remain unchanged unless a separate migration is approved.
 
 Identity PR:
 
@@ -55,20 +55,20 @@ CI: run #267 / 31853404031 — SUCCESS
 merge commit: 5f4ea1e3ba0b2e7e9983eb096109742ead0b1ea9
 ```
 
-Known current branding cleanup targets confirmed on `main` after PR #27:
+Focused user-facing cleanup completed after PR #27:
 
 ```text
 lib/ui/screens/home_screen.dart
-  AppBar title: "Pixel Craft"
+  AppBar title: "Dextryx Pixels"
 
 lib/core/export_file_service.dart
-  share text: "Edited with PixelCraft"
+  share text: "Edited with Dextryx Pixels"
 
 lib/ui/screens/editor_screen.dart
-  gallery-error copy: "Pixel Craft could not add it to the device gallery."
+  gallery-error copy: "Dextryx Pixels could not add it to the device gallery."
 ```
 
-These are current product-facing strings, not historical evidence, and should move to **Dextryx Pixels** in a focused follow-up slice.
+The product identity workstream is complete at the user-facing copy level. A future applicationId/bundle-id migration remains a separate explicit release task.
 
 ---
 
@@ -115,8 +115,7 @@ G7A Release Engineering / Store Preparation     MERGED
 G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHEDULED
 
 Post-G7A Product / Editor UX                     ACTIVE
-Dextryx Pixels primary identity                  MERGED
-Dextryx Pixels user-facing copy cleanup          PENDING
+Dextryx Pixels identity                         COMPLETE
 ```
 
 Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
@@ -139,6 +138,8 @@ PR #25  Editor: histogram channel inspector
 PR #26  Editor: precise straighten angle entry
 PR #27  Product identity: Dextryx Pixels / Dxtr Pixs (primary pass)
 ```
+
+Post-PR #27 focused branding cleanup updates the remaining current user-facing legacy strings in Home, Share, and Editor gallery-error copy without changing technical identifiers or image semantics.
 
 PR #26 final evidence:
 
@@ -343,22 +344,22 @@ README.md
 
 # 12. Current next action
 
-**PR #26 and PR #27 are merged. G7B is deferred indefinitely / not scheduled. Before returning to broader post-G7A Product / Editor UX, finish the remaining Dextryx Pixels user-facing copy cleanup.**
+**Dextryx Pixels primary identity and remaining user-facing copy cleanup are complete. G7B is deferred indefinitely / not scheduled. The active workstream returns to post-G7A Product / Editor UX.**
 
-Continue from current `main` and preserve all architecture/release invariants.
+Continue from current `main` after the branding-cleanup PR merges and preserve all architecture/release invariants.
 
 Recommended next sequence:
 
 ```text
-1. replace the remaining current user-facing legacy branding strings:
-   - Home AppBar: Pixel Craft -> Dextryx Pixels
-   - Share text: Edited with PixelCraft -> Edited with Dextryx Pixels
-   - Editor gallery-error copy: Pixel Craft -> Dextryx Pixels
-2. search current runtime/user-facing surfaces for any additional non-historical PixelCraft / Pixel Craft branding
-3. do not rename package/module/channel/repository identifiers as part of copy cleanup
-4. add/update focused tests where branding strings are covered
-5. run full CI and resolve review findings
-6. after branding cleanup merges, return to small post-G7A Product / Editor UX slices
+1. keep main green after the branding-cleanup merge
+2. continue product/editor UX as small reviewable slices rather than a broad rewrite
+3. prioritize discoverability, precision, direct manipulation, responsive layout, and Film/Profile workflow polish
+4. reuse existing EditorController / Rust-authoritative commit paths for presentation-only UX
+5. do not begin new RAW/image-processing semantics as part of UX-only slices
+6. do not rename technical package/module/channel/storage/repository identifiers as branding cleanup
 7. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
-8. do not resume G7B unless an explicit project decision brings it back into scope
+8. for every slice: add focused tests, run full CI, resolve review findings, then merge
+9. do not resume G7B unless an explicit project decision brings it back into scope
 ```
+
+Before starting the next implementation slice, inspect the current Editor and Film/Profile surfaces on `main` and choose the smallest high-value UX gap that does not require new image semantics.
