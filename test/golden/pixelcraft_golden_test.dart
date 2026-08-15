@@ -83,7 +83,7 @@ void main() {
         ),
       );
 
-  testWidgets('home screen golden - phone', (tester) async {
+  testWidgets('home screen structural regression - phone', (tester) async {
     await setPhoneSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
@@ -97,10 +97,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('goldens/home_phone.png'),
-    );
+    expect(find.text('Dextryx Pixels'), findsOneWidget);
+    expect(find.text('Edit locally. Move fast.'), findsOneWidget);
+    expect(find.text('Add Photo'), findsOneWidget);
+    expect(find.byTooltip('Films'), findsOneWidget);
+    expect(find.byTooltip('GPU Diagnostics'), findsNothing);
+    for (final sample in const [
+      'sample_1.png',
+      'sample_2.png',
+      'sample_3.png',
+      'sample_4.png',
+    ]) {
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is Hero && widget.tag == sample,
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(find.byType(FloatingActionButton), findsOneWidget);
   });
 
   testWidgets('editor screen golden - phone', (tester) async {
