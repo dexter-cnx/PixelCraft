@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/ui/screens/home_screen.dart';
 
 void main() {
-  testWidgets('shows samples and add photo action', (tester) async {
+  testWidgets('shows Dextryx Pixels home content and add photo action', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: HomeScreen(recoverLostPickerData: false),
