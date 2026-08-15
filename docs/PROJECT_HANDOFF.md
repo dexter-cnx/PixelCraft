@@ -2,12 +2,12 @@
 
 ## Purpose
 
-This is the canonical continuation document for the PixelCraft repository and the **Dextryx Pixels** product.
+This is the canonical continuation document for repository **PixelCraft** and product **Dextryx Pixels**.
 
-When starting a new work session:
+For a new session:
 
 1. read this file first;
-2. inspect `main`, active PRs, and their latest CI runs;
+2. inspect `main`, active PRs, review threads, and latest CI;
 3. continue from **Current next action**;
 4. treat repository state and recorded CI/device evidence as authoritative over older chat history.
 
@@ -17,43 +17,38 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, after PR #30 (`dxtr_pixs_*` namespace) and PR #32 (post-namespace branding test repair) merged; G7B remains deferred indefinitely; O1 Dart 3.13 native tree-shaking is planned behind one explicitly defined UX modernization slice.**
+Last refresh: **2026-08-15, after PR #30 package-namespace migration and PR #32 post-namespace branding-test repair; PR #33 refreshes this handoff and defines UX-01/O1 gates. G7B remains deferred indefinitely.**
 
 ---
 
-# 1. Product identity — COMPLETE
-
-Identity decision frozen on 2026-08-15:
+# 1. Product identity
 
 ```text
 master brand: Dextryx
-product name: Dextryx Pixels
-installed app label: Dxtr Pixs
-short visual mark: DXTR PIXS or DXTR + pixel/film symbol
-technical package family: dxtr_pixs_*
-repository name: PixelCraft (unchanged)
+product: Dextryx Pixels
+installed label: Dxtr Pixs
+short mark: DXTR PIXS or DXTR + pixel/film symbol
+repository: PixelCraft
+Flutter/Dart package family: dxtr_pixs_*
+Android applicationId: dev.cnxdev.pixelcraft
+iOS bundle id: dev.cnxdev.pixelcraft
 ```
 
-Migration rules:
+Rules:
 
-1. Product-facing copy uses **Dextryx Pixels**.
-2. Android/iOS launcher or home-screen display labels use **Dxtr Pixs**.
-3. Privacy/permission copy uses **Dextryx Pixels**.
-4. Historical evidence may retain `PixelCraft` / `Pixel Craft` when that was the literal build/product name at that time.
-5. Android applicationId and iOS bundle id remain `dev.cnxdev.pixelcraft` until a deliberate identifier migration is approved and validated.
-6. Do not rename the GitHub repository as part of the identity migration.
-7. Technical/runtime storage names, native channels, persisted schema names, Rust crate/library names, and ABI names remain unchanged unless a separate migration is justified.
-8. Flutter/Dart reusable packages use the `dxtr_pixs_*` family.
+- user-facing copy uses **Dextryx Pixels**;
+- launcher/home-screen label uses **Dxtr Pixs**;
+- repository name and app identifiers remain unchanged unless a separate migration is approved;
+- historical evidence may retain the product name that existed when the evidence was produced;
+- native ABI/runtime identifiers and persisted schema names are not branding concerns.
 
-Relevant merged PRs:
+Relevant merged work:
 
 ```text
-PR #27  Product identity -> Dextryx Pixels / Dxtr Pixs
-PR #30  Flutter/Dart reusable package namespace -> dxtr_pixs_*
-PR #32  Post-namespace branding tests / golden repair
+PR #27  product identity
+PR #30  dxtr_pixs_* reusable package namespace
+PR #32  post-namespace branding tests/golden repair
 ```
-
-The product identity workstream is complete at the user-facing copy level. A future applicationId/bundle-id migration remains a separate explicit release task.
 
 ---
 
@@ -68,49 +63,43 @@ OpenGL ES = Android realtime camera preview
 
 Hard contracts:
 
-1. Rust owns committed edit semantics, history, checkpoints, recovery recipe, and full-resolution export.
-2. GPU rendering is interactive preview only; never final-render authority.
+1. Rust owns committed edits, recipe/history/checkpoint/recovery, and full-resolution export.
+2. GPU rendering is preview-only and never final-render authority.
 3. Camera Film is preview-only; capture remains clean.
-4. Live camera buffers never cross Dart MethodChannel or Flutter Rust Bridge.
+4. Live camera buffers never cross MethodChannel or Flutter Rust Bridge.
 5. Canonical Film/Creative LUT data is Rust-owned.
 6. Native/GPU failure fails closed to valid Rust/product state.
-7. Unsupported Rust operation order falls back; never silently reorder operations for GPU.
-8. Film Profiles are reusable configuration, not pixels or per-image sessions.
+7. Unsupported Rust operation order falls back; never silently reorder for GPU.
+8. Film Profiles are reusable configuration, not per-image pixels/sessions.
 9. Imported recipe fields report exact / approximated / unsupported mappings.
-10. New effects are defined/tested in Rust first; GPU support is enabled only when faithful.
-11. AI segmentation/restoration packages must remain optional capability layers and must not silently become committed-image authority.
-12. Do not replace the current product runtime GPU architecture with wgpu casually. Cross-platform wgpu verification may exist in CI, but the product runtime remains Metal on iOS and OpenGL ES on Android unless deliberately redesigned.
+10. New effects are Rust-first; GPU support is enabled only when faithful.
+11. AI segmentation/restoration stays an optional capability layer and does not become committed-image authority.
+12. Do not casually replace the mobile runtime with wgpu. Cross-platform wgpu CI may exist, but product runtime remains Metal/OpenGL ES unless deliberately redesigned.
 
 ---
 
 # 3. Milestone status
 
 ```text
-G1  Camera GPU Preview                          CLOSED
-G2  Editor GPU Preview Foundation               CLOSED / MERGED
-G3  Production Rendering Pipeline               CLOSED / MERGED
-G4  Product Editor UX / Session Workflow        CLOSED / MERGED
-G5  Editing Feature Completeness                CLOSED / VERIFIED
-G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
+G1  Camera GPU Preview                         CLOSED
+G2  Editor GPU Preview Foundation              CLOSED / MERGED
+G3  Production Rendering Pipeline              CLOSED / MERGED
+G4  Product Editor UX / Session Workflow       CLOSED / MERGED
+G5  Editing Feature Completeness               CLOSED / VERIFIED
+G6  Reliability / Performance / Device Matrix  CLOSED / VERIFIED
 
-P0  pixelcraft_engine extraction                MERGED
-P1  pixelcraft_gpu extraction                   MERGED
-P2  pixelcraft_editing extraction               MERGED
-P3  pixelcraft_film extraction                  MERGED
+P0-P3 package extraction                       MERGED
+PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE / PR #30
 
-PKG-01 dxtr_pixs_* namespace consolidation      COMPLETE / PR #30
+G7A Release Engineering / Store Preparation    MERGED
+G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHEDULED
 
-G7A Release Engineering / Store Preparation     MERGED
-G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHEDULED
-
-Post-G7A Product / Editor UX                    ACTIVE
-Dextryx Pixels identity                         COMPLETE
-
-UX-01 Modern import/add-photo entry flow         NEXT UX GATE
-O1  Dart 3.13 native tree-shaking / RecordUse    PLANNED AFTER UX-01
+Post-G7A Product / Editor UX                   ACTIVE
+UX-01 Modern import/add-photo entry flow        NEXT UX GATE
+O1 Dart 3.13 native tree-shaking / RecordUse   PLANNED AFTER UX-01
 ```
 
-Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
+Historical G7 PR #10 is closed/superseded. Do not reopen it.
 
 ---
 
@@ -119,75 +108,87 @@ Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
 Merged slices:
 
 ```text
-PR #20  Editor: discoverable Before/After Compare UX
-PR #21  Film library: search and origin filters
-PR #22  Fix Compare session state and wide-layout placement
-PR #23  Editor: discoverable Zoom / Fit controls
-PR #24  Editor: precise numeric value entry for adjustment sliders
-PR #25  Editor: histogram channel inspector
-PR #26  Editor: precise straighten angle entry
-PR #27  Product identity: Dextryx Pixels / Dxtr Pixs
-PR #30  dxtr_pixs_* reusable package namespace
-PR #32  Post-namespace branding test/golden repair
+PR #20  discoverable Before/After Compare
+PR #21  Film library search/origin filters
+PR #22  Compare session/wide-layout fix
+PR #23  discoverable Zoom / Fit controls
+PR #24  precise numeric adjustment entry
+PR #25  histogram channel inspector
+PR #26  precise straighten angle entry
+PR #27  Dextryx Pixels / Dxtr Pixs identity
+PR #30  dxtr_pixs_* package namespace
+PR #32  branding test/golden repair
 ```
 
-These slices are presentation/product workflow improvements. They do not transfer committed image authority away from Rust and do not make GPU preview authoritative.
+These are product/presentation changes only and do not move semantic authority away from Rust.
 
 ## 4.1 UX-01 — Modern import/add-photo entry flow
 
-This is the **concrete UX slice that gates O1**. It replaces the current test-app-style add-photo flow where the user is exposed to three implementation-oriented choices before getting to the image selection task.
+UX-01 is the **only UX slice that gates O1**.
 
-Goal:
+Problem being replaced:
 
 ```text
-make adding/importing a photo feel like one obvious user action, with secondary source/mode choices progressively disclosed only when they are actually needed.
+primary Add Photo
+ -> implementation-oriented three-choice source menu
+ -> user chooses a source/mode
+ -> actual image task begins
 ```
+
+Target normal path:
+
+```text
+primary Add / Import
+ -> directly enter the preferred platform picker/import path
+```
+
+The normal primary action **must bypass the current three-choice source menu**. Secondary acquisition modes may remain available through progressive disclosure, contextual actions, overflow/secondary affordances, or appropriate platform-native picker capabilities.
 
 Scope:
 
-- one primary add/import action from the main image workflow;
-- eliminate the up-front three-choice modal/menu as the normal path;
-- preserve all currently supported acquisition/import capabilities;
-- expose advanced/secondary choices through progressive disclosure, contextual actions, or platform-native picker capabilities;
-- keep the transition spatially continuous and image-first;
-- use the existing design direction: dark digital-darkroom surface, compact controls, restrained motion, no generic giant Material cards;
-- no Rust image-semantic changes;
-- no package, ABI, channel, applicationId, or bundle-id migration.
+- one obvious primary add/import action;
+- normal primary action bypasses the current three-choice menu;
+- preserve all currently supported acquisition/import capabilities through secondary paths;
+- keep transitions image-first and spatially coherent;
+- compact dark digital-darkroom UI, restrained motion, no generic oversized cards;
+- no Rust image-semantic change;
+- no package/ABI/channel/applicationId/bundle-id migration.
 
 UX-01 stabilization criteria:
 
 ```text
-[ ] normal add/import path requires one obvious primary action before the platform picker/source flow
-[ ] existing supported acquisition/import routes remain reachable
+[ ] tapping the normal primary Add / Import action does NOT open the existing three-choice source menu
+[ ] the normal primary action enters the preferred picker/import path directly
+[ ] alternate supported acquisition/import routes remain reachable through secondary disclosure
+[ ] tests explicitly fail if the old three-choice menu returns to the normal primary path
 [ ] no regression to editor/camera semantic commit paths
-[ ] interaction remains responsive; avoid synchronous expensive work on tap/gesture path
-[ ] widget/state tests cover the primary and secondary entry paths
+[ ] no expensive synchronous work is introduced on the tap/gesture path
+[ ] focused widget/state tests cover primary and secondary paths
 [ ] affected goldens are intentionally refreshed and reviewed
 [ ] full CI is green on the final UX-01 head
-[ ] no unresolved review thread remains on the UX-01 PR
+[ ] no unresolved review thread remains
 [ ] UX-01 is merged to main
 ```
 
-**Only the completion of UX-01 above satisfies the UX gate for O1.** Future UX work does not need to be completed before O1 unless it introduces a direct native API/build dependency that would invalidate O1 measurements.
+Only these criteria satisfy the UX gate for O1. Future unrelated UX work does not block O1.
 
-Design direction for later UX slices:
+Design direction for subsequent UX slices:
 
-- image-first and direct-manipulation interaction;
-- progressive disclosure instead of implementation-choice dialogs;
-- micro motion about 80-120 ms, fast 140-180 ms, standard 200-260 ms, spatial 280-360 ms where appropriate;
-- perceived interaction latency target under roughly 100 ms for direct controls;
-- precision sliders with large invisible hit targets, thin visual tracks, ticks/zero, numeric entry/reset where relevant;
-- discoverable press-hold or divider Before/After;
+- image first;
+- direct manipulation;
+- progressive disclosure;
+- continuous preview where architecture safely supports it;
+- micro motion ~80-120 ms, fast 140-180 ms, standard 200-260 ms, spatial 280-360 ms;
+- perceived direct-control latency target below roughly 100 ms;
+- compact precision controls with large invisible hit areas;
 - avoid excessive glass, blur, gradients, bounce, and oversized cards.
 
 ---
 
-# 5. Package graph and naming policy
-
-PKG-01 is complete. Current reusable Flutter/Dart package graph:
+# 5. Package graph and naming
 
 ```text
-PixelCraft repository app
+PixelCraft app
  ├── dxtr_pixs_film
  ├── dxtr_pixs_gpu
  ├── dxtr_pixs_editing
@@ -199,63 +200,53 @@ dxtr_pixs_editing -> Dart SDK only
 dxtr_pixs_engine  -> repository rust/ crate through build integration
 ```
 
-CI guard:
+Boundary guard:
 
 ```text
 tool/check_package_boundaries.sh
 ```
 
-The guard rejects reintroduction of legacy Dart package URIs:
+Legacy Dart package URIs must not return:
 
 ```text
 package:pixelcraft_editing/
+package:pixelcraft_engine/
 package:pixelcraft_film/
 package:pixelcraft_gpu/
-package:pixelcraft_engine/
 ```
 
-Native ABI/runtime identity deliberately remains stable:
+Native/runtime identifiers intentionally remain stable:
 
 ```text
 Rust crate: pixelcraft_engine
 native library: libpixelcraft_engine.*
 GPU native library: libpixelcraft_gpu_native.*
 MethodChannel/native protocol identifiers
-persistent storage/schema names
+persisted storage/schema identifiers
 applicationId / bundle id
 ```
 
-Future package names:
+Future package family:
 
 ```text
-dxtr_pixs_segment  MobileSAM ONNX / local segmentation
-dxtr_pixs_restore  Face Enhance / AI Denoise / Super-Resolution
-dxtr_pixs_raw      future real RAW pipeline only if a clean package boundary is proven
-dxtr_pixs_core     shared types only when concrete reuse justifies extraction
+dxtr_pixs_segment  MobileSAM/local segmentation
+dxtr_pixs_restore  restoration capabilities
+dxtr_pixs_raw      future real RAW pipeline only if a clean boundary is proven
 ```
-
-Avoid creating empty packages merely to satisfy an architectural diagram.
 
 ---
 
-# 6. O1 — Dart 3.13 native tree-shaking / RecordUse
+# 6. O1 — Dart 3.13 RecordUse / native tree-shaking
 
-O1 is a measured optimization track. It must not interrupt UX-01 and must not destabilize the existing Flutter Rust Bridge/native build path.
+O1 is an evidence-driven optimization track and must not destabilize the current Flutter Rust Bridge/native pipeline.
 
-Primary goal:
+Mechanism to evaluate:
 
-```text
-reduce shipped native binary footprint by allowing the Dart AOT/link pipeline to retain only native symbols actually used by the application, and where possible omit an unused native library entirely.
-```
-
-Dart mechanism to evaluate:
-
-- Dart 3.13 introduces link hooks and recorded-usage tree-shaking for native code assets.
-- Packages producing native assets with `hook/build.dart` can add `hook/link.dart`.
-- The compiler records referenced `@Native` usage and provides it to link hooks through `LinkInput.recordedUses`.
-- Dart binding identifiers may require mapping to real native symbols before passing a retain set to the native linker.
-- `symbolsToKeep == null` is the fail-safe path: preserve all symbols when recorded usage is unavailable.
-- an empty retain set can allow supported linking tooling to omit an otherwise-unused dynamic library.
+- Dart 3.13 link hooks and recorded native usage;
+- `LinkInput.recordedUses` for compiler-recorded `@Native` references;
+- deterministic mapping from Dart binding identifiers to retained native symbols;
+- `symbolsToKeep == null` as the fail-safe preserve-all path;
+- empty retain sets only where tooling and runtime semantics make omission safe.
 
 Official references:
 
@@ -264,136 +255,103 @@ https://dart.dev/tools/hooks
 https://dart.dev/blog/announcing-dart-3-13#tree-shaking-native-libraries-with-recorduse-and-package-record_use
 ```
 
-Current repository baseline relevant to O1:
+Important current binding reality:
 
 ```text
-Flutter/Rust integration: flutter_rust_bridge based
-native-heavy packages: dxtr_pixs_engine and dxtr_pixs_gpu
-native ABI names intentionally remain pixelcraft_engine / pixelcraft_gpu_native
+mobile dxtr_pixs_gpu runtime:
+  Kotlin/Swift plugin registration + MethodChannel/PlatformView paths
+
+pixelcraft_gpu_native / wgpu surface:
+  desktop-oriented native library
+  Dart currently uses DynamicLibrary.lookupFunction rather than recorded @Native references
+
+dxtr_pixs_engine:
+  Flutter Rust Bridge / Rust native path contributes to mobile release artifacts
 ```
 
-O1 ordering and gates:
+Therefore **dxtr_pixs_gpu is not a valid gate for deciding whether the mobile engine should be evaluated**. RecordUse can only prove value on a binding surface whose native usage is observable by the mechanism being tested.
+
+O1 sequence:
 
 ```text
-O1.0  Entry gate
-      UX-01 must satisfy every stabilization criterion in section 4.1 and be merged to main.
-      PKG-01 is already complete.
+O1.0 Entry gate
+     UX-01 is merged and satisfies section 4.1.
 
-O1.1  Toolchain gate
-      Confirm the selected stable Flutter SDK actually ships the Dart 3.13 APIs needed by hooks/link hooks/record_use.
-      Do not raise the SDK floor only from roadmap assumptions.
+O1.1 Toolchain gate
+     Confirm a selected stable Flutter SDK actually ships the Dart 3.13 hook/record_use APIs required.
+     Current CI evidence before O1: Flutter 3.44.7 uses Dart 3.12.2, so do not assume support yet.
 
-O1.2  Native size baseline
-      Measure release binary/native contribution before migration:
-      - Android APK/AAB per ABI where practical
-      - iOS app/framework or archive contribution
-      - macOS/Linux/Windows release artifacts when available
-      Record reproducible commands and artifact sizes.
+O1.2 Native size baseline
+     Record reproducible release sizes for Android/iOS first, plus desktop artifacts where useful.
 
-O1.3  API/build audit
-      Inventory native entry points in dxtr_pixs_gpu and dxtr_pixs_engine.
-      Identify which bindings are generated/owned by flutter_rust_bridge and which can participate safely in Code Assets/build hooks.
-      Do not rewrite image semantics or GPU ownership.
+O1.3 Binding/API audit
+     Classify each native surface as:
+     - recorded @Native-compatible now;
+     - convertible with a justified minimal binding change;
+     - not observable by RecordUse and therefore unsuitable for this experiment.
 
-O1.4  dxtr_pixs_gpu PoC first
-      Use dxtr_pixs_gpu as the first RecordUse/native-link-tree-shaking experiment because it is isolated and its native footprint can be measured independently.
-      Add only the minimum build/link-hook surface needed for the experiment.
-      Establish deterministic Dart-method -> native-symbol mapping.
+O1.4 Desktop GPU exploratory PoC — optional
+     dxtr_pixs_gpu / pixelcraft_gpu_native may be used only as a desktop-oriented experiment if a small @Native-observable binding surface is introduced safely.
+     This PoC measures mechanics and desktop footprint only.
+     It is NOT a prerequisite for evaluating dxtr_pixs_engine on Android/iOS.
 
-O1.5  Linker/LTO verification
-      Verify the Rust/native artifact is produced in a form where unused symbols can actually be eliminated by the final linker.
-      Check section GC/LTO/export visibility rather than assuming RecordUse alone reduces size.
+O1.5 Mobile engine feasibility PoC
+     Independently evaluate dxtr_pixs_engine because it contributes to Android/iOS artifacts.
+     If FRB-generated/runtime bindings are not directly RecordUse-observable, prototype only the minimum justified observable binding/link-hook boundary.
+     Do not remove flutter_rust_bridge merely to make the experiment possible.
 
-O1.6  Before/after evidence
-      Compare:
-      - shipped binary size
-      - native library size
-      - release build time
-      - startup/load behavior
-      - runtime correctness
-      - CI reproducibility
+O1.6 Linker/LTO verification
+     Verify section GC/LTO/export visibility and confirm unused symbols can actually be removed by the final linker.
 
-O1.7  Decision gate
-      Expand to dxtr_pixs_engine only if the GPU PoC produces a material, measurable benefit without disproportionate build/release complexity.
-      Otherwise retain the current flutter_rust_bridge/native integration and document the result.
+O1.7 Evidence
+     Compare shipped size, native-library size, build time, startup/load behavior, runtime correctness, and CI reproducibility.
 
-O1.8  Engine expansion if approved
-      Apply the proven pattern to dxtr_pixs_engine incrementally.
-      Never combine this work with image-processing semantic changes, UX changes, or bundle/application identifier migration.
+O1.8 Decision
+     Adopt only where measured benefit is material and complexity is acceptable.
+     Otherwise retain the current native integration and document the result.
 ```
 
 O1 acceptance criteria:
 
-1. Existing Rust authority and GPU fail-closed contracts remain unchanged.
-2. Release builds pass existing package/native verification.
-3. No native symbol required at runtime is accidentally removed.
-4. Size improvements are recorded with before/after artifacts, not estimated.
-5. CI can reproduce the link process on supported platforms.
-6. A rollback to the existing native integration remains straightforward during the PoC.
-7. `flutter_rust_bridge` is not removed merely to adopt RecordUse; any binding migration requires independent technical justification.
-
-Scheduling policy:
-
-**Start O1 only after UX-01 is merged and stable.** Do not wait for an open-ended set of future UX work. G7B is unrelated and remains deferred indefinitely.
+1. Rust authority and GPU fail-closed contracts remain unchanged.
+2. Android/iOS release builds continue to pass native packaging checks.
+3. No runtime-required native symbol is removed.
+4. Before/after size evidence is recorded, not estimated.
+5. CI can reproduce the link process on each adopted platform.
+6. Rollback to the existing integration remains straightforward.
+7. `flutter_rust_bridge` is retained unless an independent technical case justifies migration.
+8. A desktop GPU PoC cannot block or substitute for mobile engine evaluation.
 
 ---
 
 # 7. Advanced Develop / AI roadmap
 
-Advanced Develop is a future workstream after the currently prioritized UX work and O1 decision point unless project priority is explicitly changed.
-
-Separate ordinary continuous adjustments from expensive AI reconstruction operations.
+This remains a future workstream after currently prioritized UX/O1 work unless priority is explicitly changed.
 
 ```text
 Advanced Develop
-├── conventional / RAW development
+├── conventional / future RAW development
 └── AI Restoration
     ├── Face Enhance
     ├── AI Denoise
     └── Super-Resolution
 ```
 
-Planned package boundaries:
+Planned boundaries:
 
-### `dxtr_pixs_segment`
+- `dxtr_pixs_segment`: local segmentation, first backend candidate MobileSAM/ONNX Runtime;
+- `dxtr_pixs_restore`: explicit async restoration operations such as SR/denoise/face enhance;
+- `dxtr_pixs_raw`: only when a real RAW pipeline proves a clean package boundary.
 
-First backend candidate: MobileSAM through ONNX Runtime.
-
-Responsibilities:
-
-- local/offline segmentation inference;
-- image encoder + prompt/mask decoder boundary;
-- prepared-image / embedding cache;
-- point prompts first;
-- negative point / box prompt / mask refinement later;
-- async inference and stale-result prevention;
-- model/backend details remain behind a model-agnostic public API.
-
-This package must not know about PixelCraft UI, editor panels, Film Profiles, or RAW development semantics.
-
-### `dxtr_pixs_restore`
-
-Planned capability families:
-
-```text
-Super-Resolution  first candidate: Real-ESRGAN
-AI Denoise        benchmark Restormer / SCUNet before freezing backend
-Face Enhance      first candidate: GFPGAN
-```
-
-Restoration operations consume rendered RGB image data and should not depend directly on a future RAW engine. They are explicit asynchronous operations with progress/cancel and Before/After, not per-frame slider effects.
-
-CodeFormer is not the default production candidate while upstream commercial-use licensing remains unsuitable without explicit permission.
+These packages must not silently become committed-image authority.
 
 ---
 
-# 8. G7A / G7B split
+# 8. G7A / G7B
 
-G7A is complete and merged. It covered account-independent release work: signing architecture, unsigned/no-codesign packaging, native Rust/LUT verification, version/build identity audit, privacy/permission audit, store metadata/privacy drafts, release notes/RC QA preparation, and CI release artifact generation.
+G7A is complete and merged.
 
-G7B remains **deferred indefinitely and not scheduled**. Do not treat it as an active blocker for product/editor development and do not pause current work waiting for store accounts.
-
-Resume G7B only after an explicit project decision.
+G7B is **deferred indefinitely / not scheduled**. Do not treat it as an active blocker and do not resume it without an explicit project decision.
 
 ---
 
@@ -401,39 +359,31 @@ Resume G7B only after an explicit project decision.
 
 G6 is closed/verified.
 
-Physical-device policy remains important:
-
 ```text
 main app id: dev.cnxdev.pixelcraft
-DO NOT uninstall or overwrite the user's installed main app during verifier runs
+DO NOT uninstall or overwrite the installed main app during verifier runs
 temporary verifier id: dev.cnxdev.pixelcraft.g6verify
-```
 
-Known physical-device evidence:
-
-```text
 iPhone 11 UDID: 00008030-0004694C3E68C02E
 10 reliability cycles: PASS
-user physical observation: no notable heat / lag during that session
 manual physical checklist: completed
 ```
 
-Historical evidence remains under `build/g6/device` and `build/g6/final` when present in the working environment; do not rewrite historical evidence to new branding.
+Historical evidence must not be rewritten to newer branding.
 
 ---
 
-# 10. Release engineering baseline
+# 10. Release baseline
 
 Android:
 
 ```text
 applicationId: dev.cnxdev.pixelcraft
-marketing version: 0.1.0 while pre-1.0 beta/RC work continues
+marketing version: 0.1.0 pre-1.0 beta/RC
 build: 1
 minSdk: 24
 targetSdk: 36
 compileSdk: 36
-Rust ABIs: arm64-v8a, armeabi-v7a, x86_64
 release must not use debug signing
 RECORD_AUDIO must remain absent
 ```
@@ -443,30 +393,28 @@ iOS:
 ```text
 bundle id: dev.cnxdev.pixelcraft
 deployment target: 13.0
-pixelcraft_engine.framework/native integration remains required
+pixelcraft_engine native integration remains required
 Film/Creative GPU LUT assets remain required
-release --no-codesign path is part of CI validation
+release --no-codesign is part of CI validation
 ```
 
-A later bundle/application identifier migration must be handled as a deliberate release migration and must not be mixed into UX-01 or O1.
+Identifier migration is separate from UX-01 and O1.
 
 ---
 
 # 11. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
-2. Never commit keystores, passwords, private certificates, provisioning profiles, or store credentials.
+2. Never commit signing secrets, certificates, provisioning profiles, passwords, or store credentials.
 3. Never ship Android production artifacts with debug signing.
-4. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
-5. G7B is deferred indefinitely and must not be resumed without an explicit project decision.
-6. Product renaming must not rewrite historical evidence as if old builds used the new identity.
-7. Bundle/application identifier changes require an explicit migration decision separate from package naming.
-8. Native Rust/ABI names remain unchanged unless a separate migration is justified and validated.
-9. Future `dxtr_pixs_segment` / `dxtr_pixs_restore` work must land in separate reviewable PRs.
-10. RecordUse/native tree-shaking work must be evidence-driven: preserve all symbols when recorded usage is unavailable, measure before/after release artifacts, and never trade runtime correctness for binary-size reduction.
-11. Do not claim a branch is deleted unless GitHub confirms the ref no longer exists.
+4. Do not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
+5. G7B remains deferred until explicitly resumed.
+6. Bundle/application identifier migration is a separate release task.
+7. Native Rust/ABI names remain stable unless separately justified and validated.
+8. RecordUse work is evidence-driven and fail-safe; preserve symbols when usage information is unavailable.
+9. Do not claim a remote branch is deleted unless GitHub confirms the ref no longer exists.
 
-Standard verification entry points include:
+Standard verification entry points:
 
 ```text
 bash tool/check_package_boundaries.sh
@@ -480,32 +428,34 @@ flutter test
 
 # 12. Current next action
 
-**The package namespace migration is complete. The next product task is UX-01, the modern import/add-photo entry flow. O1 begins only after UX-01 satisfies the explicit stabilization criteria in section 4.1 and is merged.**
+**First restore a valid home golden baseline and get the refreshed roadmap PR green. Then merge the roadmap and implement UX-01. O1 starts only after UX-01 is merged and satisfies section 4.1.**
 
 Recommended sequence:
 
 ```text
-1. implement UX-01 as one small reviewable PR from current main
-2. preserve all Rust/GPU semantic boundaries and supported acquisition/import capabilities
-3. run focused widget/state tests and intentional golden updates
-4. require full CI green + no unresolved review threads, then merge UX-01
-5. start O1.1 toolchain confirmation and O1.2 native-size baseline
-6. perform O1.3 API/build audit
-7. implement the dxtr_pixs_gpu RecordUse/link-hook PoC first
-8. verify linker/LTO behavior and capture before/after size/build/runtime evidence
-9. expand to dxtr_pixs_engine only if the PoC shows material benefit at acceptable complexity
-10. continue later product UX / segmentation / restoration work as separately prioritized slices
-11. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
-12. do not resume G7B unless an explicit project decision brings it back into scope
+1. repair test/golden/goldens/home_phone.png from a valid macOS actual test image
+2. require PR #33 full CI green and no unresolved review threads
+3. merge PR #33
+4. implement UX-01 from current main
+5. primary Add / Import must bypass the old three-choice source menu
+6. preserve alternate supported acquisition/import routes through secondary disclosure
+7. merge UX-01 only after focused tests + intentional goldens + full CI green
+8. run O1.1 toolchain confirmation and O1.2 Android/iOS size baseline
+9. run O1.3 binding audit before selecting any RecordUse PoC surface
+10. desktop GPU PoC is optional and never blocks mobile engine evaluation
+11. evaluate dxtr_pixs_engine independently for Android/iOS benefit
+12. do not change dev.cnxdev.pixelcraft identifiers unless explicitly approved
+13. do not resume G7B unless explicitly brought back into scope
 ```
 
-Current PR hygiene:
+PR hygiene:
 
 ```text
-PR #29  closed without merge; superseded by #30/#32
+PR #29  closed, superseded by #30/#32
 PR #30  merged
-PR #31  old RecordUse handoff PR; superseded by the refreshed post-namespace roadmap PR
+PR #31  closed, superseded by #33
 PR #32  merged
+PR #33  active refreshed roadmap / CI repair
 ```
 
-After the refreshed roadmap PR is green and merged, delete obsolete merged/superseded branches where tooling permits and verify the remaining branch list against `main` before starting UX-01.
+After #33 merges, remove obsolete merged/superseded remote branches where tooling permits and verify the remaining branch list before starting UX-01.
