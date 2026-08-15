@@ -1,4 +1,4 @@
-name: pixelcraft_editing
+name: dxtr_pixs_editing
 description: Pure editing-domain contracts and serialization models for PixelCraft.
 publish_to: none
 version: 0.1.0
