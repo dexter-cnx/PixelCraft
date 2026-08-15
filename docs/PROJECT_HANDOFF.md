@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, after PR #30 package-namespace migration and PR #32 post-namespace branding-test repair; PR #33 refreshes this handoff and defines UX-01/O1 gates. G7B remains deferred indefinitely.**
+Last refresh: **2026-08-15, after PR #30 package-namespace migration and PR #32 post-namespace branding-test repair; PR #33 refreshes this handoff, defines UX-01, and records Dart 3.13 native tree-shaking as a future/deferred optimization. G7B remains deferred indefinitely.**
 
 ---
 
@@ -96,7 +96,7 @@ G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHED
 
 Post-G7A Product / Editor UX                   ACTIVE
 UX-01 Modern import/add-photo entry flow        NEXT UX GATE
-O1 Dart 3.13 native tree-shaking / RecordUse   PLANNED AFTER UX-01
+O1 Dart 3.13 native tree-shaking / RecordUse   FUTURE / DEFERRED / DO NOT START NOW
 ```
 
 Historical G7 PR #10 is closed/superseded. Do not reopen it.
@@ -123,8 +123,6 @@ PR #32  branding test/golden repair
 These are product/presentation changes only and do not move semantic authority away from Rust.
 
 ## 4.1 UX-01 — Modern import/add-photo entry flow
-
-UX-01 is the **only UX slice that gates O1**.
 
 Problem being replaced:
 
@@ -169,8 +167,6 @@ UX-01 stabilization criteria:
 [ ] no unresolved review thread remains
 [ ] UX-01 is merged to main
 ```
-
-Only these criteria satisfy the UX gate for O1. Future unrelated UX work does not block O1.
 
 Design direction for subsequent UX slices:
 
@@ -236,17 +232,26 @@ dxtr_pixs_raw      future real RAW pipeline only if a clean boundary is proven
 
 ---
 
-# 6. O1 — Dart 3.13 RecordUse / native tree-shaking
+# 6. Future O1 — Dart 3.13 RecordUse / native tree-shaking
 
-O1 is an evidence-driven optimization track and must not destabilize the current Flutter Rust Bridge/native pipeline.
+**Status: FUTURE / DEFERRED / DO NOT START NOW.**
 
-Mechanism to evaluate:
+O1 is a future evidence-driven binary-size/build-architecture optimization. It is **not** part of the current next action and must not interrupt Product / Editor UX work.
 
-- Dart 3.13 link hooks and recorded native usage;
-- `LinkInput.recordedUses` for compiler-recorded `@Native` references;
-- deterministic mapping from Dart binding identifiers to retained native symbols;
-- `symbolsToKeep == null` as the fail-safe preserve-all path;
-- empty retain sets only where tooling and runtime semantics make omission safe.
+Do not change the Dart SDK constraint, Flutter baseline, Flutter Rust Bridge integration, native build pipeline, Rust ABI, or release packaging merely to start O1.
+
+Detailed rationale, start conditions, phased implementation plan, acceptance criteria, and rollback conditions are maintained in:
+
+```text
+docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md
+```
+
+Why it is retained on the roadmap:
+
+- Dart 3.13 adds link hooks and recorded native usage through `LinkInput.recordedUses` for `@Native` references;
+- a supported link path can retain only native symbols actually needed by the application;
+- an empty retain set can allow an unused native code asset to be omitted where the build/link pipeline supports it;
+- this may reduce future Rust/native binary growth as Dextryx Pixels adds modular native capabilities.
 
 Official references:
 
@@ -255,7 +260,7 @@ https://dart.dev/tools/hooks
 https://dart.dev/blog/announcing-dart-3-13#tree-shaking-native-libraries-with-recorduse-and-package-record_use
 ```
 
-Important current binding reality:
+Current binding reality:
 
 ```text
 mobile dxtr_pixs_gpu runtime:
@@ -269,64 +274,33 @@ dxtr_pixs_engine:
   Flutter Rust Bridge / Rust native path contributes to mobile release artifacts
 ```
 
-Therefore **dxtr_pixs_gpu is not a valid gate for deciding whether the mobile engine should be evaluated**. RecordUse can only prove value on a binding surface whose native usage is observable by the mechanism being tested.
-
-O1 sequence:
+Future activation order, only after an explicit project decision:
 
 ```text
-O1.0 Entry gate
-     UX-01 is merged and satisfies section 4.1.
-
-O1.1 Toolchain gate
-     Confirm a selected stable Flutter SDK actually ships the Dart 3.13 hook/record_use APIs required.
-     Current CI evidence before O1: Flutter 3.44.7 uses Dart 3.12.2, so do not assume support yet.
-
-O1.2 Native size baseline
-     Record reproducible release sizes for Android/iOS first, plus desktop artifacts where useful.
-
-O1.3 Binding/API audit
-     Classify each native surface as:
-     - recorded @Native-compatible now;
-     - convertible with a justified minimal binding change;
-     - not observable by RecordUse and therefore unsuitable for this experiment.
-
-O1.4 Desktop GPU exploratory PoC — optional
-     dxtr_pixs_gpu / pixelcraft_gpu_native may be used only as a desktop-oriented experiment if a small @Native-observable binding surface is introduced safely.
-     This PoC measures mechanics and desktop footprint only.
-     It is NOT a prerequisite for evaluating dxtr_pixs_engine on Android/iOS.
-
-O1.5 Mobile engine feasibility PoC
-     Independently evaluate dxtr_pixs_engine because it contributes to Android/iOS artifacts.
-     If FRB-generated/runtime bindings are not directly RecordUse-observable, prototype only the minimum justified observable binding/link-hook boundary.
-     Do not remove flutter_rust_bridge merely to make the experiment possible.
-
-O1.6 Linker/LTO verification
-     Verify section GC/LTO/export visibility and confirm unused symbols can actually be removed by the final linker.
-
-O1.7 Evidence
-     Compare shipped size, native-library size, build time, startup/load behavior, runtime correctness, and CI reproducibility.
-
-O1.8 Decision
-     Adopt only where measured benefit is material and complexity is acceptable.
-     Otherwise retain the current native integration and document the result.
+FNT-0 Toolchain gate
+FNT-1 Native size baseline
+FNT-2 Binding/API and linker audit
+FNT-3 Optional desktop GPU mechanics PoC
+FNT-4 Mobile engine feasibility PoC
+FNT-5 Linker/LTO verification
+FNT-6 Before/after evidence
+FNT-7 Adopt / limited-adopt / defer / reject decision
 ```
 
-O1 acceptance criteria:
+Important guards:
 
-1. Rust authority and GPU fail-closed contracts remain unchanged.
-2. Android/iOS release builds continue to pass native packaging checks.
-3. No runtime-required native symbol is removed.
-4. Before/after size evidence is recorded, not estimated.
-5. CI can reproduce the link process on each adopted platform.
-6. Rollback to the existing integration remains straightforward.
-7. `flutter_rust_bridge` is retained unless an independent technical case justifies migration.
-8. A desktop GPU PoC cannot block or substitute for mobile engine evaluation.
+1. Preserve all native symbols if recorded usage is unavailable or ambiguous.
+2. Do not remove `flutter_rust_bridge` merely to enable RecordUse.
+3. A desktop GPU PoC must not block or substitute for Android/iOS engine evaluation.
+4. Rust authority, deterministic export, and GPU fail-closed behavior remain unchanged.
+5. No adoption without measured before/after binary evidence.
+6. Re-verify the official Dart/Flutter hook documentation when the track is eventually activated.
 
 ---
 
 # 7. Advanced Develop / AI roadmap
 
-This remains a future workstream after currently prioritized UX/O1 work unless priority is explicitly changed.
+This remains a future workstream unless priority is explicitly changed.
 
 ```text
 Advanced Develop
@@ -398,7 +372,7 @@ Film/Creative GPU LUT assets remain required
 release --no-codesign is part of CI validation
 ```
 
-Identifier migration is separate from UX-01 and O1.
+Identifier migration is separate from UX-01 and future O1.
 
 ---
 
@@ -411,8 +385,9 @@ Identifier migration is separate from UX-01 and O1.
 5. G7B remains deferred until explicitly resumed.
 6. Bundle/application identifier migration is a separate release task.
 7. Native Rust/ABI names remain stable unless separately justified and validated.
-8. RecordUse work is evidence-driven and fail-safe; preserve symbols when usage information is unavailable.
-9. Do not claim a remote branch is deleted unless GitHub confirms the ref no longer exists.
+8. O1 / RecordUse is **future/deferred** and must not be started without an explicit activation decision.
+9. If O1 is eventually activated, preserve symbols when usage information is unavailable or ambiguous.
+10. Do not claim a remote branch is deleted unless GitHub confirms the ref no longer exists.
 
 Standard verification entry points:
 
@@ -428,7 +403,7 @@ flutter test
 
 # 12. Current next action
 
-**First restore a valid home golden baseline and get the refreshed roadmap PR green. Then merge the roadmap and implement UX-01. O1 starts only after UX-01 is merged and satisfies section 4.1.**
+**Get the refreshed roadmap PR green, merge it, then implement UX-01. Dart 3.13 native tree-shaking is explicitly future/deferred and must not be started now.**
 
 Recommended sequence:
 
@@ -440,12 +415,16 @@ Recommended sequence:
 5. primary Add / Import must bypass the old three-choice source menu
 6. preserve alternate supported acquisition/import routes through secondary disclosure
 7. merge UX-01 only after focused tests + intentional goldens + full CI green
-8. run O1.1 toolchain confirmation and O1.2 Android/iOS size baseline
-9. run O1.3 binding audit before selecting any RecordUse PoC surface
-10. desktop GPU PoC is optional and never blocks mobile engine evaluation
-11. evaluate dxtr_pixs_engine independently for Android/iOS benefit
-12. do not change dev.cnxdev.pixelcraft identifiers unless explicitly approved
-13. do not resume G7B unless explicitly brought back into scope
+8. continue subsequent Product / Editor UX work according to project priority
+9. DO NOT start FNT/O1 Dart 3.13 native tree-shaking until an explicit future activation decision
+10. do not change dev.cnxdev.pixelcraft identifiers unless explicitly approved
+11. do not resume G7B unless explicitly brought back into scope
+```
+
+Future O1 planning reference only:
+
+```text
+docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md
 ```
 
 PR hygiene:
