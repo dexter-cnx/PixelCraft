@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
-import 'package:pixelcraft_editing/pixelcraft_editing.dart';
-import 'package:pixelcraft_film/pixelcraft_film.dart';
+import 'package:dxtr_pixs_editing/pixelcraft_editing.dart';
+import 'package:dxtr_pixs_film/pixelcraft_film.dart';
 
 class FilmProfileStore implements FilmProfileRepository {
   FilmProfileStore({Future<Directory> Function()? directoryProvider})

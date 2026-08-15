@@ -72,7 +72,7 @@ class ExportFileService {
     await SharePlus.instance.share(
       ShareParams(
         files: [XFile(file.path, mimeType: mime)],
-        text: 'Edited with PixelCraft',
+        text: 'Edited with Dextryx Pixels',
       ),
     );
   }

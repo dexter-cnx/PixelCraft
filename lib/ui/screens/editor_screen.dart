@@ -720,7 +720,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                 const Text('The full-resolution export was saved to your device.')
               else ...[
                 const Text(
-                  'The export completed, but Pixel Craft could not add it to the device gallery.',
+                  'The export completed, but Dextryx Pixels could not add it to the device gallery.',
                 ),
                 if (file.galleryError != null) ...[
                   const SizedBox(height: 8),

@@ -9,7 +9,7 @@ FRB_VERSION ?= 2.12.0
 DEVICE ?=
 APK ?= build/app/outputs/flutter-apk/app-debug.apk
 RUST_CRATE_DIR ?= rust
-RUST_BUILDER_DIR ?= packages/pixelcraft_engine
+RUST_BUILDER_DIR ?= packages/dxtr_pixs_engine
 GPU_LUT_DIR ?= build/gpu_luts
 
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
@@ -49,7 +49,7 @@ pub-get: ## Resolve Flutter dependencies
 
 ensure-rust-plugin: ## Verify local Rust plugin registration
 	@test -f "$(RUST_BUILDER_DIR)/pubspec.yaml"
-	@$(FLUTTER) pub deps --style=compact 2>/dev/null | grep -F 'pixelcraft_engine' >/dev/null
+	@$(FLUTTER) pub deps --style=compact 2>/dev/null | grep -F 'dxtr_pixs_engine' >/dev/null
 
 integrate: install-frb platforms ## Install CargoKit integration
 	$(FRB_CODEGEN) integrate --template app --no-write-lib --no-integration-test \

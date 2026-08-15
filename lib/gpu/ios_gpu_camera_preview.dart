@@ -1,1 +1,1 @@
-export 'package:pixelcraft_gpu/ios_gpu_camera_preview.dart';
+export 'package:dxtr_pixs_gpu/ios_gpu_camera_preview.dart';

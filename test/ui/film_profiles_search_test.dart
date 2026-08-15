@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/core/film_profile_v1.dart';
 import 'package:pixelcraft/ui/screens/film_profiles_screen.dart';
-import 'package:pixelcraft_film/pixelcraft_film.dart';
+import 'package:dxtr_pixs_film/pixelcraft_film.dart';
 
 class _MemoryFilmProfileRepository implements FilmProfileRepository {
   _MemoryFilmProfileRepository(this._profiles);

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pixelcraft_film/pixelcraft_film.dart';
+import 'package:dxtr_pixs_film/pixelcraft_film.dart';
 
 import '../../core/film_profile_store.dart';
 import '../../core/film_profile_v1.dart';

@@ -7,13 +7,27 @@ check_pattern() {
   local pattern="$1"
   local description="$2"
   if grep -RInE --include='*.dart' "$pattern" \
-    packages/pixelcraft_editing \
-    packages/pixelcraft_film \
-    packages/pixelcraft_gpu; then
+    packages/dxtr_pixs_editing \
+    packages/dxtr_pixs_film \
+    packages/dxtr_pixs_gpu; then
     echo "ERROR: $description"
     status=1
   fi
 }
+
+# PKG-01 is a deliberate technical namespace migration. Keep old package URIs
+# from creeping back into application, integration, tests, or package source.
+legacy_roots=(lib test integration_test packages)
+existing_legacy_roots=()
+for root in "${legacy_roots[@]}"; do
+  [[ -d "$root" ]] && existing_legacy_roots+=("$root")
+done
+if grep -RInE --include='*.dart' \
+  "package:pixelcraft_(editing|film|gpu|engine)/" \
+  "${existing_legacy_roots[@]}"; then
+  echo "ERROR: legacy pixelcraft_* package import remains after dxtr_pixs namespace migration"
+  status=1
+fi
 
 # Internal packages may depend on other packages, but never back on PixelCraft
 # application source.
@@ -23,18 +37,18 @@ check_pattern "(^|['\"])(\.\./)+lib/" "relative imports escaping packages back i
 # The pure editing package is deliberately at the bottom of the Dart package
 # graph. It must not learn about Film/GPU/native/application layers.
 if grep -RInE --include='*.dart' \
-  "package:pixelcraft_film/|package:pixelcraft_gpu/|package:pixelcraft_engine/|package:flutter/|package:flutter_riverpod/" \
-  packages/pixelcraft_editing; then
-  echo "ERROR: pixelcraft_editing must remain pure Dart and independent of Film/GPU/engine/Flutter/Riverpod"
+  "package:dxtr_pixs_film/|package:dxtr_pixs_gpu/|package:dxtr_pixs_engine/|package:flutter/|package:flutter_riverpod/" \
+  packages/dxtr_pixs_editing; then
+  echo "ERROR: dxtr_pixs_editing must remain pure Dart and independent of Film/GPU/engine/Flutter/Riverpod"
   status=1
 fi
 
 # Film is a pure Dart product/domain layer above editing. It may depend on
-# pixelcraft_editing, but not on renderers, the Rust bridge, Flutter, or app UI.
+# dxtr_pixs_editing, but not on renderers, the Rust bridge, Flutter, or app UI.
 if grep -RInE --include='*.dart' \
-  "package:pixelcraft_gpu/|package:pixelcraft_engine/|package:flutter/|package:flutter_riverpod/|package:path_provider/|dart:io" \
-  packages/pixelcraft_film; then
-  echo "ERROR: pixelcraft_film may depend on editing only; platform/rendering dependencies are forbidden"
+  "package:dxtr_pixs_gpu/|package:dxtr_pixs_engine/|package:flutter/|package:flutter_riverpod/|package:path_provider/|dart:io" \
+  packages/dxtr_pixs_film; then
+  echo "ERROR: dxtr_pixs_film may depend on editing only; platform/rendering dependencies are forbidden"
   status=1
 fi
 

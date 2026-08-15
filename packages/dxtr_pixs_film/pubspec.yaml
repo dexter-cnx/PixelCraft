@@ -1,0 +1,14 @@
+name: dxtr_pixs_film
+description: Film Profile library and import orchestration for PixelCraft.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+
+dependencies:
+  dxtr_pixs_editing:
+    path: ../dxtr_pixs_editing
+
+dev_dependencies:
+  test: ^1.25.15
