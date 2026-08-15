@@ -18,14 +18,14 @@ dependencies:
   path_provider: ^2.1.5
   saver_gallery: 5.0.3
   share_plus: ^12.0.2
-  pixelcraft_editing:
-    path: packages/pixelcraft_editing
-  pixelcraft_engine:
-    path: packages/pixelcraft_engine
-  pixelcraft_film:
-    path: packages/pixelcraft_film
-  pixelcraft_gpu:
-    path: packages/pixelcraft_gpu
+  dxtr_pixs_editing:
+    path: packages/dxtr_pixs_editing
+  dxtr_pixs_engine:
+    path: packages/dxtr_pixs_engine
+  dxtr_pixs_film:
+    path: packages/dxtr_pixs_film
+  dxtr_pixs_gpu:
+    path: packages/dxtr_pixs_gpu
 
 dev_dependencies:
   flutter_test:
