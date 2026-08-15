@@ -1,8 +1,8 @@
-# PixelCraft Code Walkthrough
+# PixelCraft / Dextryx Pixels Code Walkthrough
 
-เอกสารนี้อธิบาย architecture ปัจจุบันของ PixelCraft หลัง G6, package extraction P0–P3 และ G7A release engineering.
+เอกสารนี้อธิบาย architecture และ execution model ปัจจุบันของ repository **PixelCraft** ซึ่งเป็น source repository ของ product **Dextryx Pixels**.
 
-สถานะ ณ 2026-08-12:
+สถานะ ณ **2026-08-15**:
 
 ```text
 G1  Camera GPU Preview                          CLOSED
@@ -12,35 +12,55 @@ G4  Product Editor UX / Session Workflow        CLOSED / MERGED
 G5  Editing Feature Completeness                CLOSED / VERIFIED
 G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
 
-P0  pixelcraft_engine package extraction        MERGED
-P1  pixelcraft_gpu package extraction           MERGED
-P2  pixelcraft_editing package extraction       MERGED
-P3  pixelcraft_film package extraction          MERGED
+P0–P3 package extraction                        MERGED
+G7A Release Engineering / Store Preparation     MERGED
+G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHEDULED
 
-G7A Release Engineering / Store Preparation     MERGED — PR #18
-G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
-```
-
-G7A merge commit:
-
-```text
-507875b2e1187e2bc2f0a6d0535b77dc0455b69f
-```
-
-Latest fully verified G7A PR head:
-
-```text
-HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
-CI run #221
-GitHub Actions run id: 31611799174
-conclusion: SUCCESS
+Post-G7A Product / Editor UX                     ACTIVE
+Dextryx Pixels user-facing identity              COMPLETE ON PR #29 BRANCH
+PKG-01 dxtr_pixs_* package namespace             ACTIVE / PR #30 DRAFT
+Dart 3.13 RecordUse optimization                 ROADMAP / PR #31
 ```
 
 > Rust เป็น authoritative source สำหรับ committed semantic edits, recipe, history, checkpoint, recovery และ full-resolution export. Flutter เป็น product/control/presentation plane. Native GPU เป็น faithful low-latency preview path เท่านั้น
 
 ---
 
-# 1. Canonical architecture
+# 1. Product identity vs technical identity
+
+Product identity:
+
+```text
+master brand: Dextryx
+product: Dextryx Pixels
+installed label: Dxtr Pixs
+repository: PixelCraft
+```
+
+Current technical release identity remains:
+
+```text
+Android applicationId: dev.cnxdev.pixelcraft
+iOS bundle id:        dev.cnxdev.pixelcraft
+```
+
+These are intentionally separate concerns.
+
+Branding cleanup may update user-visible strings, but it must not casually rename:
+
+```text
+Rust crate names
+native binary names
+native channels/protocol IDs
+persisted storage/schema names
+applicationId / bundle id
+historical evidence
+repository name
+```
+
+---
+
+# 2. Canonical architecture
 
 ```text
 Camera / imported image
@@ -73,7 +93,9 @@ Hard contracts:
 
 ---
 
-# 2. Package graph
+# 3. Package graph
+
+## Current package graph before PKG-01
 
 ```text
 PixelCraft App
@@ -108,9 +130,33 @@ PixelCraft/
 
 `tool/check_package_boundaries.sh` enforces forbidden dependency directions.
 
+## PKG-01 target
+
+PR #30 is migrating the reusable Dart/Flutter package namespace to:
+
+```text
+pixelcraft_editing -> dxtr_pixs_editing
+pixelcraft_engine  -> dxtr_pixs_engine
+pixelcraft_film    -> dxtr_pixs_film
+pixelcraft_gpu     -> dxtr_pixs_gpu
+```
+
+The migration applies to package directories, pubspec names, path dependencies, Dart imports, package tests, CI paths, and package-distribution metadata.
+
+It deliberately does **not** imply native ABI migration. These remain unchanged unless separately approved:
+
+```text
+Rust crate pixelcraft_engine
+libpixelcraft_engine.*
+libpixelcraft_gpu_native.*
+native channel/protocol identifiers
+applicationId / bundle id
+persisted storage/schema identifiers
+```
+
 ---
 
-# 3. App startup / product shell
+# 4. App startup / product shell
 
 Entry point:
 
@@ -129,16 +175,18 @@ WidgetsFlutterBinding
  -> HomeScreen
 ```
 
+The user-facing product title is **Dextryx Pixels** while the installed launcher label is **Dxtr Pixs**.
+
 Editor can start from camera, gallery, bundled sample, or saved recovery state.
 
 ---
 
-# 4. Rust authority / pixelcraft_engine
+# 5. Rust authority / engine package
 
 ```text
 Flutter app
    ↓
-pixelcraft_engine
+pixelcraft_engine / future dxtr_pixs_engine package boundary
    ↓ FRB / CargoKit
 rust/
 ```
@@ -157,7 +205,7 @@ recovery recipe
 full-resolution replay/export
 ```
 
-P0 moved build/FFI integration into `packages/pixelcraft_engine`; semantic authority stayed in `rust/`.
+Package extraction moved build/FFI integration into a reusable package boundary; semantic authority stayed in `rust/`.
 
 Useful commands:
 
@@ -170,9 +218,13 @@ make verify-native
 
 ---
 
-# 5. pixelcraft_editing
+# 6. Editing contracts package
 
-Pure-Dart reusable contracts:
+Current package: `pixelcraft_editing`
+
+PKG-01 target: `dxtr_pixs_editing`
+
+Pure-Dart reusable contracts include:
 
 ```text
 EditGraphDocument / EditGraphNode / masks / overlays
@@ -185,14 +237,14 @@ applyFilmProfileToSessionRecipe()
 Responsibility split:
 
 ```text
-pixelcraft_editing = editing/profile configuration semantics
+editing package    = editing/profile configuration semantics
 app/GPU layer      = backend capability policy
 Rust               = committed image authority
 ```
 
 ---
 
-# 6. Editor transaction model
+# 7. Editor transaction model
 
 Primary controller:
 
@@ -206,25 +258,43 @@ Typical adjustment flow:
 slider drag
   -> temporary GPU preview when faithfully supported
 
-slider release
+slider release / exact numeric apply
   -> semantic commit/replace
   -> Rust authoritative preview
   -> recovery persistence
+```
+
+Post-G7A editor UX additions reuse this model rather than inventing new semantic paths.
+
+Examples already merged:
+
+```text
+Before / After Compare
+Zoom / Fit controls
+precise numeric slider entry
+histogram channel inspection
+precise straighten angle entry
 ```
 
 GPU failure or unsupported render order does not mutate semantic order; the UI falls back to Rust/product preview.
 
 ---
 
-# 7. pixelcraft_gpu / native preview
+# 8. GPU package / native preview
 
-Package:
+Current package:
 
 ```text
 packages/pixelcraft_gpu/
 ```
 
-Owns preview-only infrastructure:
+PKG-01 target:
+
+```text
+packages/dxtr_pixs_gpu/
+```
+
+Responsibilities:
 
 - Dart GPU transport/session/render-plan code
 - native camera control bridges
@@ -249,7 +319,7 @@ Live frame buffers stay native.
 
 ---
 
-# 8. LUT authority
+# 9. LUT authority
 
 Canonical Film data remains Rust-owned:
 
@@ -257,22 +327,28 @@ Canonical Film data remains Rust-owned:
 rust/film_profiles/*/look.json
 ```
 
+Flow:
+
 ```text
 Rust canonical data
  -> canonical 33^3 LUT
       ├── Rust renderer
       └── generated native GPU assets
              ↓
-        pixelcraft_gpu runtime consumer
+        GPU package runtime consumer
 ```
 
-Do not create a second canonical built-in Film inventory in `pixelcraft_film`.
+Do not create a second canonical built-in Film inventory in the Film package.
 
 ---
 
-# 9. pixelcraft_film / Film Profile flow
+# 10. Film package / Film Profile flow
 
-`pixelcraft_film` is a pure-Dart product/domain orchestration package above `pixelcraft_editing`.
+Current package: `pixelcraft_film`
+
+PKG-01 target: `dxtr_pixs_film`
+
+This is a pure-Dart product/domain orchestration package above the editing package.
 
 It owns:
 
@@ -295,7 +371,7 @@ FilmProfileLibrary.importSource
    ↓
 FilmProfileImportService.parse
    ├─ PixelCraft schema -> FilmProfileV1
-   └─ generic object    -> pixelcraft_editing.importRecipeMap
+   └─ generic object    -> editing importRecipeMap
                            -> profile + mapping report
    ↓
 FilmProfileRepository.save
@@ -328,7 +404,7 @@ lib/core/film_profile_store.dart
 
 ---
 
-# 10. Recovery flow
+# 11. Recovery flow
 
 Implementation:
 
@@ -345,6 +421,8 @@ app-support/pixelcraft-session/
   generation.<generation>.json
 ```
 
+This storage name is technical persisted state and is not changed by user-facing branding or PKG-01.
+
 Generation manifest is the commit point pairing source + recipe. The store:
 
 - retains at most 3 coherent generations;
@@ -357,7 +435,7 @@ The recovery source bytes are local application state for resume, not telemetry 
 
 ---
 
-# 11. Export / share flow
+# 12. Export / share flow
 
 Implementation:
 
@@ -376,11 +454,17 @@ untouched source
  -> system share sheet only after explicit Share
 ```
 
+User-facing share copy is now:
+
+```text
+Edited with Dextryx Pixels
+```
+
 `SharePlus` receives only the exported file and user-facing share text. GPU preview pixels are never the export input.
 
 ---
 
-# 12. Diagnostics / privacy boundary
+# 13. Diagnostics / privacy boundary
 
 Current diagnostic UI is debug-oriented and reports renderer/profile/sample/error metrics. It does not log source image bytes or live camera frame buffers.
 
@@ -394,7 +478,7 @@ docs/G7A_PRIVACY_STORE_DRAFTS.md
 
 ---
 
-# 13. G7A Android release path
+# 14. G7A Android release path
 
 Config:
 
@@ -410,7 +494,7 @@ optional ignored android/key.properties release keystore
 first RC keeps current non-minified/no-R8 policy
 ```
 
-Current resolved release identity:
+Current release identity:
 
 ```text
 applicationId: dev.cnxdev.pixelcraft
@@ -428,11 +512,11 @@ CAMERA
 WRITE_EXTERNAL_STORAGE only through API 28
 ```
 
-`RECORD_AUDIO` is removed from the merged app manifest because the Flutter fallback camera uses `enableAudio: false`. The post-change release APK verified the microphone permission is absent.
+`RECORD_AUDIO` is removed because the Flutter fallback camera uses `enableAudio: false`.
 
 ---
 
-# 14. G7A iOS release path
+# 15. G7A iOS release path
 
 CI validates:
 
@@ -450,20 +534,20 @@ version/build: FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER
 
 Usage descriptions cover Camera, Photo Library read/select, and Photo Library add/save.
 
-Dependency Privacy Manifests are present in the release bundle. PixelCraft currently has no app-owned `PrivacyInfo.xcprivacy`; do not invent one without app-owned required-reason evidence. Re-audit the final signed archive in G7B.
+Dependency Privacy Manifests are present in the release bundle. Do not invent app-owned required-reason declarations without evidence; re-audit the final signed archive if G7B is resumed.
 
 ---
 
-# 15. G7A CI release gates
+# 16. CI / release gates
 
-Current CI adds release jobs to semantic/native validation:
+Release jobs sit alongside semantic/native validation:
 
 ```text
 android-release
   -> flutter pub get
   -> FRB codegen
   -> flutter build apk --release
-  -> verify libpixelcraft_engine.so
+  -> verify native Rust library
   -> assert no debug signing
   -> upload APK
 
@@ -475,7 +559,7 @@ ios-release
   -> upload app bundle
 ```
 
-Run #221 passed the complete PR suite, including:
+The full matrix includes:
 
 ```text
 package boundaries
@@ -494,9 +578,11 @@ Unsigned/no-codesign output is packaging evidence only, not signed-store evidenc
 
 ---
 
-# 16. Release identity / version policy
+# 17. Release identity / version policy
 
 ```text
+brand/product: Dextryx / Dextryx Pixels
+installed label: Dxtr Pixs
 marketing version: 0.1.0 while pre-1.0 beta/RC work continues
 current build number: 1
 future signed external build numbers: monotonically increment every distributed build
@@ -504,15 +590,17 @@ Android applicationId: dev.cnxdev.pixelcraft
 iOS bundle id: dev.cnxdev.pixelcraft
 ```
 
-Actual signed distribution begins in G7B.
+A Dextryx-specific application/bundle identifier migration is a separate future release migration, not part of branding or package namespace work.
 
 ---
 
-# 17. G7A vs G7B
+# 18. G7A vs G7B
 
 G7A account-independent release engineering is merged.
 
-G7B remains blocked until Apple Developer/App Store Connect and Google Play Console accounts exist. G7B owns:
+G7B is **deferred indefinitely / not scheduled**. It is not an active blocker.
+
+If explicitly resumed, G7B owns:
 
 ```text
 production signing
@@ -528,18 +616,70 @@ signed RC physical-device smoke
 
 ---
 
-# 18. PR history
+# 19. UX modernization architecture guardrails
+
+The next product direction is a modernized photography UX inspired by high-quality direct-manipulation interaction patterns, without changing image-authority rules.
+
+Target qualities:
 
 ```text
-PR #18  G7A release engineering                 MERGED
-PR #10  old pre-P0–P3 G7 foundation             CLOSED / SUPERSEDED
+image-first
+precise
+tactile
+direct manipulation
+continuous feedback
+professional density
+predictable gestures
+fast perceived latency
 ```
 
-PR #10 was audited file-by-file after G7A merge. Its useful release-signing/CI/documentation work was already recreated and expanded in PR #18, so it must not be merged or rebased as an alternate G7 line.
+Key surfaces:
+
+```text
+Camera
+Film selector
+Editor
+precision parameter controls
+Before / After
+Film library
+Film Profile detail
+Create Film Profile
+Save / export
+```
+
+Implementation rules:
+
+1. prefer small reviewable slices over a full UI rewrite;
+2. reuse existing `EditorController` and Rust commit paths;
+3. keep UX-only work presentation-side unless semantics genuinely change;
+4. continuous preview must preserve latest-value-wins and stale-result protection;
+5. no new RAW/image-processing behavior should be smuggled into UX PRs;
+6. focused interaction tests are required before merge.
 
 ---
 
-# 19. Verification commands
+# 20. Dart 3.13 RecordUse / native tree-shaking
+
+PR #31 records a future optimization track for Dart 3.13 recorded native usage / `RecordUse`.
+
+This is **not yet an implementation dependency**.
+
+Planned validation sequence:
+
+```text
+confirm compatible Dart/Flutter toolchain
+ -> capture native binary-size baseline
+ -> PoC on GPU native library
+ -> verify retained native symbols/runtime behavior
+ -> measure release artifact delta
+ -> expand only if benefit is real
+```
+
+Do not migrate away from Flutter Rust Bridge merely to adopt RecordUse. Any binding/runtime migration needs a separate technical justification.
+
+---
+
+# 21. Verification commands
 
 ```bash
 bash tool/check_package_boundaries.sh
@@ -549,11 +689,11 @@ flutter analyze
 flutter test
 ```
 
-Package-specific analyze/tests remain part of CI for `pixelcraft_editing`, `pixelcraft_film`, and `pixelcraft_gpu`; Rust fmt/clippy/tests and wgpu Linux/macOS/Windows remain mandatory gates.
+Package-specific analyze/tests, Rust fmt/clippy/tests, native packaging, release packaging, and wgpu Linux/macOS/Windows remain mandatory CI gates where currently configured.
 
 ---
 
-# 20. Important files
+# 22. Important files
 
 ```text
 Architecture / handoff
@@ -561,15 +701,14 @@ Architecture / handoff
   docs/PROJECT_HANDOFF.md
   docs/CODE_WALKTHROUGH.md
 
-G7A
-  docs/G7A_RELEASE_READINESS.md
-  docs/G7A_ANDROID_SIGNING.md
-  docs/G7A_PRIVACY_STORE_DRAFTS.md
-  .github/workflows/ci.yml
-  android/app/build.gradle.kts
-  android/app/src/main/AndroidManifest.xml
-  ios/Runner/Info.plist
-  ios/Runner.xcodeproj/project.pbxproj
+App/editor
+  lib/main.dart
+  lib/state/editor_controller.dart
+  lib/ui/screens/home_screen.dart
+  lib/ui/screens/editor_screen.dart
+  lib/ui/widgets/editor_tool_panel.dart
+  lib/ui/widgets/straighten_control.dart
+  lib/ui/widgets/histogram_widget.dart
 
 Recovery/export/privacy
   lib/core/editor_session_store.dart
@@ -577,19 +716,39 @@ Recovery/export/privacy
   lib/ui/screens/gpu_diagnostics_screen.dart
 
 Packages
-  packages/pixelcraft_engine/
+  packages/pixelcraft_engine/      # current before PKG-01 merge
   packages/pixelcraft_gpu/
   packages/pixelcraft_editing/
   packages/pixelcraft_film/
 
 Rust authority
   rust/
+
+Release
+  docs/G7A_RELEASE_READINESS.md
+  docs/G7A_ANDROID_SIGNING.md
+  docs/G7A_PRIVACY_STORE_DRAFTS.md
+  .github/workflows/ci.yml
+  android/app/build.gradle.kts
+  ios/Runner/Info.plist
 ```
 
 ---
 
-# 21. Continuation point
+# 23. Continuation point
 
-P0–P3 and G7A are merged. PR #10 is closed/superseded. G7B remains externally blocked.
+The immediate continuation is not G7B and not new image-processing semantics.
 
-Continue from `docs/PROJECT_HANDOFF.md` for account-independent maintenance/product work. When Apple/Google store accounts become available, begin G7B with production signing, store-record setup, signed internal beta distribution, final privacy-form verification, and RC physical-device smoke.
+Order of work:
+
+```text
+PR #29 branding cleanup
+ -> make green and merge
+ -> PR #30 PKG-01 retarget/rebase onto main
+ -> make package/native matrix green and merge
+ -> PR #31 roadmap docs merge when conflict-free/green
+ -> resume small UX modernization slices
+ -> later evaluate Dart 3.13 RecordUse using measured binary evidence
+```
+
+Always consult `docs/PROJECT_HANDOFF.md` for the exact current next action because it is the canonical execution queue; this walkthrough explains how the codebase is structured and which boundaries must remain intact.
