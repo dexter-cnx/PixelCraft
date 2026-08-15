@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, after PR #26 and PR #27 merged; G7B deferred indefinitely**.
+Last refresh: **2026-08-15, after PR #26 and PR #27 merged; G7B deferred indefinitely; Dart 3.13 native tree-shaking optimization track added to roadmap**.
 
 ---
 
@@ -117,6 +117,8 @@ G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHE
 Post-G7A Product / Editor UX                     ACTIVE
 Dextryx Pixels primary identity                  MERGED
 Dextryx Pixels user-facing copy cleanup          PENDING
+
+O1  Dart 3.13 native tree-shaking / RecordUse   PLANNED / GATED
 ```
 
 Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
@@ -181,6 +183,104 @@ tool/check_package_boundaries.sh
 ```
 
 Package names remain unchanged unless there is a concrete technical migration reason.
+
+---
+
+# 5A. O1 — Dart 3.13 native tree-shaking / RecordUse optimization track
+
+This track is now part of the roadmap, but it must not interrupt the active product/UX workstream or destabilize the existing Flutter Rust Bridge/native build path.
+
+Primary goal:
+
+```text
+reduce shipped native binary footprint by allowing the Dart AOT/link pipeline to retain only native symbols that are actually used by the application, and where possible omit an unused native library entirely.
+```
+
+Relevant Dart mechanism:
+
+- Dart 3.13 introduces recorded-usage native tree-shaking through link hooks.
+- packages with native assets built through `hook/build.dart` can add `hook/link.dart`.
+- the compiler records referenced `@Native` symbols and exposes them through `LinkInput.recordedUses`.
+- generated or handwritten Dart-to-native method identifiers must be mapped to the actual native symbols retained by the linker.
+- `symbolsToKeep == null` means tree-shaking is disabled / all symbols are preserved.
+- `symbolsToKeep == []` means the application references no symbols from that native asset; supported link tooling may skip compiling/bundling that dynamic library entirely.
+
+Official reference:
+
+```text
+https://dart.dev/tools/hooks
+https://dart.dev/blog/announcing-dart-3-13#tree-shaking-native-libraries-with-recorduse-and-package-record_use
+```
+
+Current repository baseline relevant to O1:
+
+```text
+root Dart SDK constraint: >=3.12.0 <4.0.0
+root Flutter constraint: >=3.44.0
+flutter_rust_bridge: ^2.12.0
+native/Rust-heavy packages include pixelcraft_engine and pixelcraft_gpu
+pixelcraft_gpu already has isolated Rust + Android/iOS/macOS/Linux/Windows package structure
+```
+
+O1 ordering and gates:
+
+```text
+O1.0  Toolchain gate
+      Confirm the selected stable Flutter SDK actually ships the Dart 3.13 APIs needed by hooks/link hooks/record_use.
+      Do not raise the SDK floor only from roadmap assumptions.
+
+O1.1  Native size baseline
+      Measure release binary/native contribution before any migration:
+      - Android APK/AAB per ABI where practical
+      - iOS app/framework or archive contribution
+      - macOS/Linux/Windows release artifacts when available
+      Record reproducible commands and artifact sizes.
+
+O1.2  API/build audit
+      Inventory native entry points in pixelcraft_gpu and pixelcraft_engine.
+      Identify which bindings are currently generated/owned by flutter_rust_bridge and which could participate safely in Code Assets/build hooks.
+      Do not rewrite image semantics or GPU ownership.
+
+O1.3  pixelcraft_gpu PoC first
+      Use pixelcraft_gpu as the first RecordUse/native-link-tree-shaking experiment because it is already isolated as a plugin/package and its native footprint can be measured independently.
+      Add the minimum build/link hook surface required for the experiment.
+      Establish deterministic Dart-method -> native-symbol mapping.
+
+O1.4  Linker/LTO verification
+      Ensure Rust/native artifacts are built in a form where unused symbols can actually be eliminated by the final linker.
+      Verify section GC/LTO/export visibility behavior rather than assuming RecordUse alone reduces size.
+
+O1.5  Before/after evidence
+      Compare:
+      - shipped binary size
+      - native library size
+      - release build time
+      - startup/load behavior
+      - runtime correctness
+      - CI reproducibility
+
+O1.6  Decision gate
+      Expand to pixelcraft_engine only if the PoC produces a material, measurable benefit without making the native build/release pipeline disproportionately complex.
+      Otherwise retain the current flutter_rust_bridge/native integration and document the experiment result.
+
+O1.7  Engine expansion if approved
+      Apply the proven pattern to pixelcraft_engine incrementally.
+      Never combine this work with image-processing semantic changes, UX changes, or bundle/application identifier migration.
+```
+
+O1 acceptance criteria:
+
+1. Existing Rust authority and GPU fail-closed contracts remain unchanged.
+2. Release builds pass existing package/native verification.
+3. No native symbol required at runtime is accidentally removed.
+4. Size improvements are recorded with before/after artifacts, not estimated.
+5. CI can reproduce the link process on supported platforms.
+6. A rollback to the existing native integration remains straightforward during the PoC.
+7. `flutter_rust_bridge` is not removed merely to adopt RecordUse; any binding migration requires independent technical justification.
+
+Scheduling policy:
+
+**Do not start O1 implementation before the current Dextryx Pixels branding cleanup and the active UX modernization slice are stabilized.** After that, O1 should run before another broad release-hardening/binary-size optimization pass, so its measurements can influence the next release baseline. G7B remains unrelated and deferred indefinitely.
 
 ---
 
@@ -312,6 +412,7 @@ A later bundle/application identifier migration may target a Dextryx-specific id
 8. Product renaming must not rewrite historical evidence as if old builds used the new identity.
 9. Bundle/application identifier changes require an explicit migration decision and validation separate from display-name branding.
 10. Product/editor UX additions must reuse existing semantic commit paths unless a deliberate Rust-first semantic change is being made.
+11. RecordUse/native tree-shaking work must be evidence-driven: preserve all symbols when recorded usage is unavailable, measure before/after release artifacts, and never trade runtime correctness for binary-size reduction.
 
 ---
 
@@ -331,6 +432,9 @@ lib/ui/screens/editor_screen.dart
 lib/ui/widgets/editor_tool_panel.dart
 lib/ui/widgets/straighten_control.dart
 lib/ui/widgets/histogram_widget.dart
+packages/pixelcraft_gpu/pubspec.yaml
+packages/pixelcraft_gpu/rust/
+packages/pixelcraft_engine/pubspec.yaml
 docs/G7A_ANDROID_SIGNING.md
 docs/G7A_RELEASE_READINESS.md
 docs/G7A_PRIVACY_STORE_DRAFTS.md
@@ -343,22 +447,29 @@ README.md
 
 # 12. Current next action
 
-**PR #26 and PR #27 are merged. G7B is deferred indefinitely / not scheduled. Before returning to broader post-G7A Product / Editor UX, finish the remaining Dextryx Pixels user-facing copy cleanup.**
+**PR #26 and PR #27 are merged. G7B is deferred indefinitely / not scheduled. Before broader work, finish the remaining Dextryx Pixels user-facing copy cleanup; then continue the active UX modernization work. O1 Dart 3.13 native tree-shaking follows only after that UX slice is stabilized.**
 
 Continue from current `main` and preserve all architecture/release invariants.
 
 Recommended next sequence:
 
 ```text
-1. replace the remaining current user-facing legacy branding strings:
+1. finish remaining current user-facing legacy branding strings:
    - Home AppBar: Pixel Craft -> Dextryx Pixels
    - Share text: Edited with PixelCraft -> Edited with Dextryx Pixels
    - Editor gallery-error copy: Pixel Craft -> Dextryx Pixels
 2. search current runtime/user-facing surfaces for any additional non-historical PixelCraft / Pixel Craft branding
-3. do not rename package/module/channel/repository identifiers as part of copy cleanup
-4. add/update focused tests where branding strings are covered
-5. run full CI and resolve review findings
-6. after branding cleanup merges, return to small post-G7A Product / Editor UX slices
-7. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
-8. do not resume G7B unless an explicit project decision brings it back into scope
+3. add/update focused tests where branding strings are covered, run CI, and merge the branding cleanup
+4. continue the active UX modernization work as small reviewable slices; preserve existing Rust/GPU semantic boundaries
+5. stabilize the UX slice and package-facing APIs before touching the native build pipeline
+6. start O1.0/O1.1 only then:
+   - confirm stable Flutter/Dart 3.13 toolchain support
+   - capture native/release binary-size baseline
+7. perform O1.2 native API/build audit
+8. implement O1.3 pixelcraft_gpu RecordUse/link-hook PoC first
+9. verify linker/LTO behavior and collect before/after size/build/runtime evidence
+10. expand RecordUse/native tree-shaking to pixelcraft_engine only if the PoC demonstrates material benefit with acceptable complexity
+11. do not remove flutter_rust_bridge merely to adopt RecordUse
+12. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
+13. do not resume G7B unless an explicit project decision brings it back into scope
 ```
