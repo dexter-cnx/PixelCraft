@@ -11,7 +11,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Pixel Craft'), findsOneWidget);
+    expect(find.text('Dextryx Pixels'), findsOneWidget);
     expect(find.text('Edit locally. Move fast.'), findsOneWidget);
     expect(find.text('Add Photo'), findsOneWidget);
     expect(find.byType(Image), findsNWidgets(4));
