@@ -15,6 +15,20 @@ check_pattern() {
   fi
 }
 
+# PKG-01 is a deliberate technical namespace migration. Keep old package URIs
+# from creeping back into application, integration, tests, or package source.
+legacy_roots=(lib test integration_test packages)
+existing_legacy_roots=()
+for root in "${legacy_roots[@]}"; do
+  [[ -d "$root" ]] && existing_legacy_roots+=("$root")
+done
+if grep -RInE --include='*.dart' \
+  "package:pixelcraft_(editing|film|gpu|engine)/" \
+  "${existing_legacy_roots[@]}"; then
+  echo "ERROR: legacy pixelcraft_* package import remains after dxtr_pixs namespace migration"
+  status=1
+fi
+
 # Internal packages may depend on other packages, but never back on PixelCraft
 # application source.
 check_pattern "package:pixelcraft/" "package source imports from the PixelCraft app are forbidden"
