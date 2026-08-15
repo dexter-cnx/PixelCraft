@@ -1,4 +1,4 @@
-import 'package:pixelcraft_editing/pixelcraft_editing.dart' as editing;
+import 'package:dxtr_pixs_editing/pixelcraft_editing.dart' as editing;
 
 class EditorAdjustmentSpec {
   const EditorAdjustmentSpec({
