@@ -1,4 +1,4 @@
-name: pixelcraft_gpu
+name: dxtr_pixs_gpu
 description: Preview-only GPU control plane and native preview runtime for PixelCraft.
 publish_to: none
 version: 0.1.0
@@ -10,8 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  pixelcraft_editing:
-    path: ../pixelcraft_editing
+  dxtr_pixs_editing:
+    path: ../dxtr_pixs_editing
 
 dev_dependencies:
   flutter_test:
