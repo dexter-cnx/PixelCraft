@@ -102,7 +102,19 @@ void main() {
     expect(find.text('Add Photo'), findsOneWidget);
     expect(find.byTooltip('Films'), findsOneWidget);
     expect(find.byTooltip('GPU Diagnostics'), findsNothing);
-    expect(find.byType(Hero), findsNWidgets(4));
+    for (final sample in const [
+      'sample_1.png',
+      'sample_2.png',
+      'sample_3.png',
+      'sample_4.png',
+    ]) {
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is Hero && widget.tag == sample,
+        ),
+        findsOneWidget,
+      );
+    }
     expect(find.byType(FloatingActionButton), findsOneWidget);
   });
 
