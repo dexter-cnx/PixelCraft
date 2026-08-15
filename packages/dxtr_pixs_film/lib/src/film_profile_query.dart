@@ -1,4 +1,4 @@
-import 'package:pixelcraft_editing/pixelcraft_editing.dart';
+import 'package:dxtr_pixs_editing/pixelcraft_editing.dart';
 
 /// Pure-Dart filtering for Film Profile library/search UIs.
 ///
