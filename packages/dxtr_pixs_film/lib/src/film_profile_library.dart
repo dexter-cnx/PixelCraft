@@ -1,4 +1,4 @@
-import 'package:pixelcraft_editing/pixelcraft_editing.dart';
+import 'package:dxtr_pixs_editing/pixelcraft_editing.dart';
 
 import 'film_profile_import_service.dart';
 import 'film_profile_repository.dart';
