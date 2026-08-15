@@ -142,15 +142,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _openBytes(Future<List<int>> bytesFuture) async {
-    final bytes = await bytesFuture;
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ProductEditorScreen(imageBytes: bytes)),
-    );
-    await _refreshRecovery();
-  }
-
   Future<void> _resumeLastSession() async {
     if (_isRecovering || _recoverableSession == null) return;
     setState(() => _isRecovering = true);
@@ -226,6 +217,84 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildWorkspaceBody(BuildContext context, {required bool blocked}) {
+    if (_recoverableSession != null) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 112),
+        children: [
+          Text('Continue editing', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          Card.filled(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.history_rounded),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Last edit',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        SizedBox(height: 2),
+                        Text('Continue from your saved edit state.'),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: blocked ? null : _discardRecovery,
+                    child: const Text('Discard'),
+                  ),
+                  const SizedBox(width: 4),
+                  FilledButton(
+                    onPressed: blocked ? null : _resumeLastSession,
+                    child: const Text('Resume'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(32, 32, 32, 112),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.photo_library_outlined,
+                size: 44,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Your workspace is empty',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Import a photo to start editing.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isRecoveringLostPickerData) {
@@ -248,12 +317,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    const samples = [
-      'sample_1.png',
-      'sample_2.png',
-      'sample_3.png',
-      'sample_4.png',
-    ];
     final blocked = _isRecovering;
 
     return Scaffold(
@@ -303,94 +366,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Stack(
         children: [
-          CustomScrollView(
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                sliver: SliverList.list(
-                  children: [
-                    Text(
-                      'Edit locally. Move fast.',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Import a photo or capture one, then edit it locally with Rust-powered processing.',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    if (_recoverableSession != null) ...[
-                      const SizedBox(height: 20),
-                      Card.filled(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.history_rounded),
-                              const SizedBox(width: 12),
-                              const Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Resume last edit',
-                                      style: TextStyle(fontWeight: FontWeight.w600),
-                                    ),
-                                    SizedBox(height: 2),
-                                    Text('Restore the original image and its edit recipe.'),
-                                  ],
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: blocked ? null : _discardRecovery,
-                                child: const Text('Discard'),
-                              ),
-                              const SizedBox(width: 4),
-                              FilledButton(
-                                onPressed: blocked ? null : _resumeLastSession,
-                                child: const Text('Resume'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                sliver: SliverGrid.builder(
-                  itemCount: samples.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemBuilder: (context, index) => InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: blocked
-                        ? null
-                        : () => _openBytes(
-                              DefaultAssetBundle.of(context)
-                                  .load('assets/samples/${samples[index]}')
-                                  .then((data) => data.buffer.asUint8List()),
-                            ),
-                    child: Hero(
-                      tag: samples[index],
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Image.asset(
-                          'assets/samples/${samples[index]}',
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
-            ],
+          Positioned.fill(
+            child: _buildWorkspaceBody(context, blocked: blocked),
           ),
           if (blocked)
             const Positioned.fill(
