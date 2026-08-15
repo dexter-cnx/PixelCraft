@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is the canonical continuation document for PixelCraft.
+This is the canonical continuation document for the PixelCraft repository and the **Dextryx Pixels** product.
 
 When starting a new work session:
 
@@ -17,11 +17,42 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-12, post-G7A merge**.
+Last refresh: **2026-08-15, Dextryx Pixels identity migration started**.
 
 ---
 
-# 1. Architecture invariants
+# 1. Product identity — ACTIVE
+
+Identity decision frozen on 2026-08-15:
+
+```text
+master brand: Dextryx
+product name: Dextryx Pixels
+installed app label: Dxtr Pixs
+short visual mark: DXTR PIXS or DXTR + pixel/film symbol
+technical package/module naming target: dextryx_pixels where a new identifier is needed
+repository name: PixelCraft (unchanged in this pass)
+```
+
+Migration rules:
+
+1. Product-facing copy should use **Dextryx Pixels**.
+2. Android/iOS launcher or home-screen display labels should use **Dxtr Pixs**.
+3. Privacy/permission copy should use **Dextryx Pixels**.
+4. Do not cosmetically mass-rename Rust/Dart package names, native channel names, historical evidence, test fixtures, or repository paths.
+5. Existing historical evidence may retain `PixelCraft`/`Pixel Craft` when that is the literal name used by the build or evidence at that time.
+6. Keep Android applicationId and iOS bundle id at `dev.cnxdev.pixelcraft` during this first identity pass. Identifier migration is separate because it affects installed-app continuity, signing, store records, CI evidence, and device policy.
+7. Do not rename the GitHub repository as part of this pass.
+
+Active branch:
+
+```text
+feature/dextryx-pixels-identity
+```
+
+---
+
+# 2. Architecture invariants
 
 ```text
 Flutter   = UI / control / presentation plane
@@ -45,7 +76,7 @@ Hard contracts:
 
 ---
 
-# 2. Milestone status
+# 3. Milestone status
 
 ```text
 G1  Camera GPU Preview                          CLOSED
@@ -62,6 +93,8 @@ P3  pixelcraft_film extraction                  MERGED
 
 G7A Release Engineering / Store Preparation     MERGED
 G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
+
+IDENTITY — Dextryx Pixels                       IN PROGRESS
 ```
 
 P3 merge commit:
@@ -80,21 +113,14 @@ final PR HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
 final PR CI: run #221 / 31611799174 — SUCCESS
 ```
 
-Historical G7 PR:
-
-```text
-PR #10: CLOSED / SUPERSEDED
-branch: feature/g7-release-readiness
-```
-
-PR #10 was audited file-by-file after G7A merged. Its five changed files were either recreated or superseded by PR #18; no missing implementation needed migration. Do not reopen or merge PR #10.
+Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
 
 ---
 
-# 3. Package graph
+# 4. Package graph
 
 ```text
-PixelCraft App
+PixelCraft repository app
  ├── pixelcraft_film
  ├── pixelcraft_gpu
  ├── pixelcraft_editing
@@ -112,22 +138,13 @@ CI package guard:
 tool/check_package_boundaries.sh
 ```
 
+Package names above remain unchanged during the product identity pass unless there is a concrete technical reason to migrate them.
+
 ---
 
-# 4. G7A / G7B split
+# 5. G7A / G7B split
 
-G7A is complete and merged. It covered account-independent release work:
-
-```text
-release signing architecture
-unsigned/no-codesign production packaging
-native Rust/LUT artifact verification
-version/build identity audit
-privacy/permission audit
-offline store metadata/privacy drafts
-release notes + RC QA preparation
-CI release artifact generation
-```
+G7A is complete and merged. It covered account-independent release work: signing architecture, unsigned/no-codesign packaging, native Rust/LUT verification, version/build identity audit, privacy/permission audit, store metadata/privacy drafts, release notes/RC QA preparation, and CI release artifact generation.
 
 G7B requires external accounts and is currently blocked:
 
@@ -142,73 +159,32 @@ The absence of Apple/Google accounts is an external G7B blocker, not a code or a
 
 ---
 
-# 5. Merged G7A release engineering
+# 6. Release engineering baseline
 
-Android:
+Android release rules:
 
-```text
-android/app/build.gradle.kts
-  - release no longer uses debug signing
-  - optional ignored android/key.properties release signing
-  - signing secrets remain outside git
-  - current first-RC policy keeps minification/R8 off
+- release must not use debug signing;
+- optional ignored `android/key.properties` release signing;
+- signing secrets remain outside git;
+- first-RC policy keeps minification/R8 off;
+- CAMERA remains;
+- WRITE_EXTERNAL_STORAGE is limited through API 28;
+- dependency RECORD_AUDIO is explicitly removed;
+- fallback Flutter camera is still-photo only with `enableAudio: false`.
 
-android/app/src/main/AndroidManifest.xml
-  - CAMERA remains
-  - WRITE_EXTERNAL_STORAGE limited through API 28
-  - dependency RECORD_AUDIO is explicitly removed
-```
+CI release jobs build Android release APK and iOS release `--no-codesign`, verify Rust/native artifacts and Film/Creative LUT assets, and upload artifacts.
 
-The fallback Flutter camera is still-photo only:
+Privacy hardening already merged:
 
-```dart
-enableAudio: false
-```
-
-CI release jobs:
-
-```text
-android-release
-  -> flutter pub get
-  -> FRB codegen
-  -> flutter build apk --release
-  -> Rust native library check
-  -> no-debug-signing check
-  -> artifact upload
-
-ios-release
-  -> flutter pub get
-  -> FRB codegen
-  -> flutter build ios --release --no-codesign
-  -> Runner.app/native check
-  -> artifact upload
-```
-
-Privacy hardening:
-
-```text
-EditorSessionStore
-  - private app-support recovery storage
-  - max 3 coherent generations
-  - obsolete generation pruning
-  - abandoned .tmp cleanup during load/save
-  - Discard removes recovery directory
-
-ExportFileService
-  - export is user initiated
-  - local app-documents/gallery persistence
-  - Share is explicit and passes only the exported file to the system share sheet
-
-Diagnostics
-  - renderer/profile/sample/error metrics only
-  - no user image bytes or live frame buffers in Dart diagnostics
-```
-
-Current app dependency set contains no analytics, advertising, or remote crash-reporting SDK.
+- recovery data stays in private app-support storage;
+- export is user initiated;
+- Share explicitly passes only the exported file to the system share sheet;
+- diagnostics contain renderer/profile/sample/error metrics only and no user image bytes/live frames;
+- no analytics, advertising, or remote crash-reporting SDK is currently in the app dependency set.
 
 ---
 
-# 6. Verified release evidence
+# 7. Verified release evidence
 
 Final G7A PR validation:
 
@@ -219,7 +195,7 @@ HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
 conclusion: SUCCESS
 ```
 
-Verified implementation baseline including recovery temp cleanup:
+Verified implementation baseline:
 
 ```text
 GitHub Actions run: #216
@@ -228,17 +204,9 @@ HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
 conclusion: SUCCESS
 ```
 
-Run #216 passed:
+Run #216 passed validate, golden tests + iOS debug packaging, wgpu Linux/macOS/Windows, Android release artifact, and iOS release no-codesign.
 
-```text
-validate
-Golden tests + iOS debug packaging
-wgpu Linux / macOS / Windows
-Android release artifact
-iOS release no-codesign
-```
-
-Android release evidence:
+Android evidence at that baseline:
 
 ```text
 package: dev.cnxdev.pixelcraft
@@ -246,45 +214,33 @@ versionName/versionCode: 0.1.0 / 1
 compileSdk: 36
 targetSdk: 36
 minSdk: 24
-APK size: ~81.5 MB
 Rust ABIs: arm64-v8a, armeabi-v7a, x86_64
-Film/Creative GPU LUT assets: present
 release debug-signing guard: PASS
-RECORD_AUDIO in packaged release manifest: ABSENT
+RECORD_AUDIO: ABSENT
 ```
 
-iOS release evidence:
+iOS evidence at that baseline:
 
 ```text
 bundle id: dev.cnxdev.pixelcraft
 deployment target: 13.0
-Runner.app: ~37.7 MB
 pixelcraft_engine.framework: present
 Film/Creative GPU LUT assets: present
 release --no-codesign: PASS
 ```
 
-Dependency Privacy Manifests are present for Flutter/multiple plugins in the release bundle. PixelCraft currently has no app-owned `PrivacyInfo.xcprivacy`; do not invent one without final app-owned required-reason evidence. Re-audit the final signed Xcode archive in G7B.
-
-Evidence categories remain distinct:
-
-```text
-semantic/unit tests
-package-boundary tests
-native packaging smoke
-unsigned/no-codesign release build
-physical-device RC smoke
-store upload/beta validation
-```
-
-Never promote one category as proof of another.
+Historical evidence names are not rewritten during branding migration.
 
 ---
 
-# 7. Release identity / RC policy
+# 8. Release identity / RC policy
+
+Current identity after this product rename pass:
 
 ```text
-app display name: Pixel Craft
+brand: Dextryx
+product: Dextryx Pixels
+app display label: Dxtr Pixs
 marketing version: 0.1.0 while pre-1.0 beta/RC work continues
 current build: 1
 Android applicationId: dev.cnxdev.pixelcraft
@@ -293,11 +249,13 @@ iOS deployment target: 13.0
 Android min/target/compile SDK: 24 / 36 / 36
 ```
 
-Build-number policy for future externally distributed signed builds: monotonically increment each distributed build. Actual enforcement starts in G7B when signing/accounts exist.
+Build numbers for future externally distributed signed builds must increase monotonically. Actual enforcement starts in G7B when signing/accounts exist.
+
+A later bundle/application identifier migration may target a Dextryx-specific identifier, but it must be handled as a deliberate release migration and must not be mixed casually into this display-name change.
 
 ---
 
-# 8. G7B blockers
+# 9. G7B blockers
 
 Current external blockers:
 
@@ -306,32 +264,9 @@ Apple Developer / App Store Connect account: unavailable
 Google Play Console account: unavailable
 ```
 
-Therefore these remain pending, not failed:
-
-```text
-production iOS certificate/provisioning
-signed iOS archive / TestFlight upload
-Google Play App Signing enrollment
-signed Android AAB upload
-Play Internal Testing
-App Store Connect App Privacy submission
-Play Console Data Safety submission
-actual store review/submission
-signed-store-delivered RC physical-device smoke
-```
+Pending rather than failed: production iOS certificate/provisioning, signed archive/TestFlight, Play App Signing, signed AAB/Internal Testing, App Privacy/Data Safety submission, actual store review, and signed-store-delivered RC physical-device smoke.
 
 When accounts become available, start G7B from current `main`; do not resurrect PR #10.
-
----
-
-# 9. Known non-blocking tooling debt
-
-```text
-pixelcraft_engine + pixelcraft_gpu still rely on CocoaPods and lack Swift Package Manager support
-future Flutter/Kotlin integration warnings may require migration work later
-```
-
-Do not confuse future-tooling warnings with current build correctness; G7A release CI completed successfully on Flutter 3.44.7.
 
 ---
 
@@ -344,7 +279,8 @@ Do not confuse future-tooling warnings with current build correctness; G7A relea
 5. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
 6. Native release changes require CI packaging evidence; signed RCs later require physical-device smoke.
 7. Store-account-dependent items remain BLOCKED until accounts exist.
-8. PR #10 is closed/superseded and must not become the active G7 line again.
+8. Product renaming must not rewrite historical evidence as if old builds used the new identity.
+9. Bundle/application identifier changes require an explicit migration decision and validation separate from display-name branding.
 
 ---
 
@@ -370,17 +306,19 @@ README.md
 
 # 12. Current next action
 
-**P0–P3 and G7A are merged. G7B is externally blocked until Apple/Google store accounts exist.**
+**Dextryx Pixels identity migration is the active workstream. G7B remains externally blocked.**
 
-Until those accounts are available:
+Execute in this order:
 
 ```text
-1. keep main green; do not weaken release/package/semantic gates
-2. treat docs/G7A_RELEASE_READINESS.md and docs/G7A_PRIVACY_STORE_DRAFTS.md as the prepared G7B input
-3. increment version/build only when an actual externally distributed signed build is prepared
-4. if product/editor work continues before G7B, branch from current main and preserve Rust/GPU/package invariants
-5. when Apple Developer/App Store Connect becomes available, start iOS G7B signing + TestFlight
-6. when Google Play Console becomes available, start Android G7B Play App Signing + Internal Testing
-7. re-audit final signed artifacts for permissions/privacy manifests before store form submission
-8. execute signed RC physical-device smoke before beta/store readiness is claimed
+1. on feature/dextryx-pixels-identity, change Android launcher label to "Dxtr Pixs"
+2. change iOS CFBundleDisplayName/CFBundleName to "Dxtr Pixs"
+3. change iOS permission descriptions and current user-facing product copy to "Dextryx Pixels"
+4. update README/current product-facing docs where Pixel Craft is branding rather than historical evidence
+5. keep Android applicationId and iOS bundle id at dev.cnxdev.pixelcraft in this pass
+6. run flutter analyze + tests
+7. run Android release packaging and iOS release --no-codesign smoke appropriate to the touched native metadata
+8. open PR only when validation is green
+9. preserve all Rust/GPU/package architecture invariants
+10. after identity PR merges, return to product/editor work or G7B when accounts are available
 ```

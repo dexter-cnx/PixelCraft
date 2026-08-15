@@ -37,7 +37,7 @@ class PixelCraftApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Pixel Craft',
+        title: 'Dextryx Pixels',
         theme: ThemeData(
           useMaterial3: true,
           colorSchemeSeed: const Color(0xFF7259E7),
@@ -75,7 +75,7 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
 
   Future<void> _initialize() async {
     final stopwatch = Stopwatch()..start();
-    debugPrint('[Pixel Craft] Initializing Rust bridge...');
+    debugPrint('[Dextryx Pixels] Initializing Rust bridge...');
 
     try {
       await initializeRustBridge().timeout(
@@ -87,10 +87,10 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
         ),
       );
       debugPrint(
-        '[Pixel Craft] Rust bridge ready in ${stopwatch.elapsedMilliseconds} ms',
+        '[Dextryx Pixels] Rust bridge ready in ${stopwatch.elapsedMilliseconds} ms',
       );
     } catch (error, stackTrace) {
-      debugPrint('[Pixel Craft] Rust bridge initialization failed: $error');
+      debugPrint('[Dextryx Pixels] Rust bridge initialization failed: $error');
       debugPrintStack(stackTrace: stackTrace);
       rethrow;
     } finally {
