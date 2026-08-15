@@ -79,4 +79,56 @@ void main() {
 
     expect(committed, 15);
   });
+
+  testWidgets('exact straighten entry accepts comma decimal separator',
+      (tester) async {
+    double? previewed;
+    double? committed;
+    await tester.pumpWidget(
+      harness(
+        onChanged: (value) => previewed = value,
+        onChangeEnd: (value) => committed = value,
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('straighten_exact_value_button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('straighten_exact_input')),
+      '2,5',
+    );
+    await tester.tap(find.byKey(const ValueKey('straighten_exact_apply')));
+    await tester.pumpAndSettle();
+
+    expect(previewed, 2.5);
+    expect(committed, 2.5);
+  });
+
+  testWidgets('sub-threshold exact straighten entry normalizes to zero',
+      (tester) async {
+    double? previewed;
+    double? committed;
+    await tester.pumpWidget(
+      harness(
+        onChanged: (value) => previewed = value,
+        onChangeEnd: (value) => committed = value,
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('straighten_exact_value_button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('straighten_exact_input')),
+      '0.005',
+    );
+    await tester.tap(find.byKey(const ValueKey('straighten_exact_apply')));
+    await tester.pumpAndSettle();
+
+    expect(previewed, 0.0);
+    expect(committed, 0.0);
+  });
 }
