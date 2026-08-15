@@ -11,6 +11,7 @@ class StraightenControl extends StatelessWidget {
 
   static const minDegrees = -15.0;
   static const maxDegrees = 15.0;
+  static const commitThresholdDegrees = 0.01;
 
   final double value;
   final bool enabled;
@@ -24,8 +25,9 @@ class StraightenControl extends StatelessWidget {
       builder: (_) => _StraightenValueDialog(value: value),
     );
     if (result == null || !context.mounted) return;
-    onChanged(result);
-    onChangeEnd(result);
+    final normalized = result.abs() < commitThresholdDegrees ? 0.0 : result;
+    onChanged(normalized);
+    onChangeEnd(normalized);
   }
 
   @override
@@ -91,7 +93,8 @@ class _StraightenValueDialogState extends State<_StraightenValueDialog> {
   }
 
   void _apply() {
-    final parsed = double.tryParse(_controller.text.trim());
+    final normalizedInput = _controller.text.trim().replaceAll(',', '.');
+    final parsed = double.tryParse(normalizedInput);
     if (parsed == null || !parsed.isFinite) {
       setState(() => _error = 'Enter a valid angle');
       return;
