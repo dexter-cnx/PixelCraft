@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, after PR #26 and PR #27 merged**.
+Last refresh: **2026-08-15, after PR #26 and PR #27 merged; G7B deferred indefinitely**.
 
 ---
 
@@ -96,7 +96,7 @@ P2  pixelcraft_editing extraction               MERGED
 P3  pixelcraft_film extraction                  MERGED
 
 G7A Release Engineering / Store Preparation     MERGED
-G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
+G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHEDULED
 
 Post-G7A Product / Editor UX                     ACTIVE
 Dextryx Pixels identity                         MERGED
@@ -171,16 +171,23 @@ Package names remain unchanged unless there is a concrete technical migration re
 
 G7A is complete and merged. It covered account-independent release work: signing architecture, unsigned/no-codesign packaging, native Rust/LUT verification, version/build identity audit, privacy/permission audit, store metadata/privacy drafts, release notes/RC QA preparation, and CI release artifact generation.
 
-G7B requires external accounts and is currently blocked:
+G7B remains defined but is **deferred indefinitely and not scheduled**. Do not treat G7B as an active blocker for product/editor development, and do not pause current work waiting for store accounts.
+
+G7B scope, when explicitly resumed in the future:
 
 ```text
 Google Play Console / Play App Signing / Internal Testing
 Apple Developer / App Store Connect / distribution signing / TestFlight
 actual Data Safety / App Privacy submissions
 actual store review/submission
+signed store-delivered RC physical-device smoke
 ```
 
-The absence of Apple/Google accounts is an external G7B blocker, not a code or architecture failure.
+Current policy:
+
+1. Do not schedule or start G7B automatically when accounts become available.
+2. Resume G7B only after an explicit project decision.
+3. Until then, continue product/editor work from current `main` while preserving release readiness and signing/privacy safeguards already established by G7A.
 
 ---
 
@@ -270,7 +277,7 @@ iOS deployment target: 13.0
 Android min/target/compile SDK: 24 / 36 / 36
 ```
 
-Build numbers for future externally distributed signed builds must increase monotonically. Actual enforcement starts in G7B when signing/accounts exist.
+Build numbers for future externally distributed signed builds must increase monotonically when external distribution resumes.
 
 A later bundle/application identifier migration may target a Dextryx-specific identifier, but it must be handled as a deliberate release migration and must not be mixed casually into display-name/product work.
 
@@ -284,7 +291,7 @@ A later bundle/application identifier migration may target a Dextryx-specific id
 4. Unsigned Android / no-codesign iOS artifacts are packaging evidence only.
 5. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
 6. Native release changes require CI packaging evidence; signed RCs later require physical-device smoke.
-7. Store-account-dependent items remain BLOCKED until accounts exist.
+7. G7B is deferred indefinitely and must not be resumed without an explicit project decision.
 8. Product renaming must not rewrite historical evidence as if old builds used the new identity.
 9. Bundle/application identifier changes require an explicit migration decision and validation separate from display-name branding.
 10. Product/editor UX additions must reuse existing semantic commit paths unless a deliberate Rust-first semantic change is being made.
@@ -317,7 +324,7 @@ README.md
 
 # 12. Current next action
 
-**PR #26 and PR #27 are merged. G7B remains externally blocked. The active workstream returns to post-G7A Product / Editor UX.**
+**PR #26 and PR #27 are merged. G7B is deferred indefinitely / not scheduled. The active workstream is post-G7A Product / Editor UX.**
 
 Continue from current `main` and preserve all architecture/release invariants.
 
@@ -331,7 +338,7 @@ Recommended next sequence:
 5. do not begin new RAW/image-processing semantics as part of UX-only slices
 6. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
 7. for every slice: add focused tests, run full CI, resolve review findings, then merge
-8. when Apple/Google store accounts become available, pause product work as needed and start G7B from current main
+8. do not resume G7B unless an explicit project decision brings it back into scope
 ```
 
 Before starting the next implementation slice, inspect the current Editor and Film/Profile surfaces on `main` and choose the smallest high-value UX gap that does not require new image semantics.
