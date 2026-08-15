@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:pixelcraft_editing/pixelcraft_editing.dart';
+import 'package:dxtr_pixs_editing/pixelcraft_editing.dart';
 
 enum GpuPreviewBackendKind {
   fallback,
