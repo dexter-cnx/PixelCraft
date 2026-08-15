@@ -1,1 +1,1 @@
-export 'package:pixelcraft_gpu/gpu_preview_capability.dart';
+export 'package:dxtr_pixs_gpu/gpu_preview_capability.dart';
