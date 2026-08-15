@@ -17,11 +17,11 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, Dextryx Pixels identity migration started**.
+Last refresh: **2026-08-15, after PR #26 and PR #27 merged**.
 
 ---
 
-# 1. Product identity — ACTIVE
+# 1. Product identity — MERGED
 
 Identity decision frozen on 2026-08-15:
 
@@ -31,23 +31,27 @@ product name: Dextryx Pixels
 installed app label: Dxtr Pixs
 short visual mark: DXTR PIXS or DXTR + pixel/film symbol
 technical package/module naming target: dextryx_pixels where a new identifier is needed
-repository name: PixelCraft (unchanged in this pass)
+repository name: PixelCraft (unchanged)
 ```
 
 Migration rules:
 
-1. Product-facing copy should use **Dextryx Pixels**.
-2. Android/iOS launcher or home-screen display labels should use **Dxtr Pixs**.
-3. Privacy/permission copy should use **Dextryx Pixels**.
+1. Product-facing copy uses **Dextryx Pixels**.
+2. Android/iOS launcher or home-screen display labels use **Dxtr Pixs**.
+3. Privacy/permission copy uses **Dextryx Pixels**.
 4. Do not cosmetically mass-rename Rust/Dart package names, native channel names, historical evidence, test fixtures, or repository paths.
-5. Existing historical evidence may retain `PixelCraft`/`Pixel Craft` when that is the literal name used by the build or evidence at that time.
-6. Keep Android applicationId and iOS bundle id at `dev.cnxdev.pixelcraft` during this first identity pass. Identifier migration is separate because it affects installed-app continuity, signing, store records, CI evidence, and device policy.
-7. Do not rename the GitHub repository as part of this pass.
+5. Historical evidence may retain `PixelCraft` / `Pixel Craft` when that was the literal build/product name at that time.
+6. Android applicationId and iOS bundle id remain `dev.cnxdev.pixelcraft` until a deliberate identifier migration is approved and validated.
+7. Do not rename the GitHub repository as part of the identity migration.
 
-Active branch:
+Identity PR:
 
 ```text
-feature/dextryx-pixels-identity
+PR #27: Rename product identity to Dextryx Pixels
+branch: feature/dextryx-pixels-identity
+HEAD: 494649b7bea9c12a9b6141cdb3d810596bd67bff
+CI: run #267 / 31853404031 — SUCCESS
+merge commit: 5f4ea1e3ba0b2e7e9983eb096109742ead0b1ea9
 ```
 
 ---
@@ -94,30 +98,51 @@ P3  pixelcraft_film extraction                  MERGED
 G7A Release Engineering / Store Preparation     MERGED
 G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
 
-IDENTITY — Dextryx Pixels                       IN PROGRESS
-```
-
-P3 merge commit:
-
-```text
-fb5c05493478eedea7223d8bbf790ea63e175729
-```
-
-G7A merge:
-
-```text
-PR: #18
-branch: feature/g7a-release-engineering
-merge commit: 507875b2e1187e2bc2f0a6d0535b77dc0455b69f
-final PR HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
-final PR CI: run #221 / 31611799174 — SUCCESS
+Post-G7A Product / Editor UX                     ACTIVE
+Dextryx Pixels identity                         MERGED
 ```
 
 Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
 
 ---
 
-# 4. Package graph
+# 4. Post-G7A product/editor work
+
+Product/editor development resumed after G7A without changing Rust/GPU authority.
+
+Merged slices:
+
+```text
+PR #20  Editor: discoverable Before/After Compare UX
+PR #21  Film library: search and origin filters
+PR #22  Fix Compare session state and wide-layout placement
+PR #23  Editor: discoverable Zoom / Fit controls
+PR #24  Editor: precise numeric value entry for adjustment sliders
+PR #25  Editor: histogram channel inspector
+PR #26  Editor: precise straighten angle entry
+PR #27  Product identity: Dextryx Pixels / Dxtr Pixs
+```
+
+PR #26 final evidence:
+
+```text
+branch: feature/editor-precise-straighten
+HEAD: 46abb1807890faf5863a3cf3851cdd53b1cafe52
+CI: run #266 / 31853058185 — SUCCESS
+merge commit: 5b85f567d58e5efaf14588fb34757f195b8911a2
+```
+
+PR #26 review findings were addressed before merge:
+
+- exact straighten values below the commit threshold are normalized to zero before preview/commit so UI and Rust/export state cannot diverge;
+- decimal comma input such as `2,5` is accepted by the exact-value parser;
+- regression tests cover both behaviors.
+
+These post-G7A slices are presentation/product workflow improvements. They do not transfer committed image authority away from Rust and do not make GPU preview authoritative.
+
+---
+
+# 5. Package graph
 
 ```text
 PixelCraft repository app
@@ -138,11 +163,11 @@ CI package guard:
 tool/check_package_boundaries.sh
 ```
 
-Package names above remain unchanged during the product identity pass unless there is a concrete technical reason to migrate them.
+Package names remain unchanged unless there is a concrete technical migration reason.
 
 ---
 
-# 5. G7A / G7B split
+# 6. G7A / G7B split
 
 G7A is complete and merged. It covered account-independent release work: signing architecture, unsigned/no-codesign packaging, native Rust/LUT verification, version/build identity audit, privacy/permission audit, store metadata/privacy drafts, release notes/RC QA preparation, and CI release artifact generation.
 
@@ -159,7 +184,7 @@ The absence of Apple/Google accounts is an external G7B blocker, not a code or a
 
 ---
 
-# 6. Release engineering baseline
+# 7. Release engineering baseline
 
 Android release rules:
 
@@ -184,7 +209,7 @@ Privacy hardening already merged:
 
 ---
 
-# 7. Verified release evidence
+# 8. Verified release evidence
 
 Final G7A PR validation:
 
@@ -195,18 +220,14 @@ HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
 conclusion: SUCCESS
 ```
 
-Verified implementation baseline:
+Post-G7A latest green PR evidence:
 
 ```text
-GitHub Actions run: #216
-run id: 31609170884
-HEAD: af94739cf546a518bcea1fb917c42cf9df2b6d23
-conclusion: SUCCESS
+PR #26: run #266 / 31853058185 — SUCCESS
+PR #27: run #267 / 31853404031 — SUCCESS
 ```
 
-Run #216 passed validate, golden tests + iOS debug packaging, wgpu Linux/macOS/Windows, Android release artifact, and iOS release no-codesign.
-
-Android evidence at that baseline:
+Android release baseline:
 
 ```text
 package: dev.cnxdev.pixelcraft
@@ -219,7 +240,7 @@ release debug-signing guard: PASS
 RECORD_AUDIO: ABSENT
 ```
 
-iOS evidence at that baseline:
+iOS release baseline:
 
 ```text
 bundle id: dev.cnxdev.pixelcraft
@@ -233,9 +254,9 @@ Historical evidence names are not rewritten during branding migration.
 
 ---
 
-# 8. Release identity / RC policy
+# 9. Release identity / RC policy
 
-Current identity after this product rename pass:
+Current identity:
 
 ```text
 brand: Dextryx
@@ -251,22 +272,7 @@ Android min/target/compile SDK: 24 / 36 / 36
 
 Build numbers for future externally distributed signed builds must increase monotonically. Actual enforcement starts in G7B when signing/accounts exist.
 
-A later bundle/application identifier migration may target a Dextryx-specific identifier, but it must be handled as a deliberate release migration and must not be mixed casually into this display-name change.
-
----
-
-# 9. G7B blockers
-
-Current external blockers:
-
-```text
-Apple Developer / App Store Connect account: unavailable
-Google Play Console account: unavailable
-```
-
-Pending rather than failed: production iOS certificate/provisioning, signed archive/TestFlight, Play App Signing, signed AAB/Internal Testing, App Privacy/Data Safety submission, actual store review, and signed-store-delivered RC physical-device smoke.
-
-When accounts become available, start G7B from current `main`; do not resurrect PR #10.
+A later bundle/application identifier migration may target a Dextryx-specific identifier, but it must be handled as a deliberate release migration and must not be mixed casually into display-name/product work.
 
 ---
 
@@ -281,6 +287,7 @@ When accounts become available, start G7B from current `main`; do not resurrect 
 7. Store-account-dependent items remain BLOCKED until accounts exist.
 8. Product renaming must not rewrite historical evidence as if old builds used the new identity.
 9. Bundle/application identifier changes require an explicit migration decision and validation separate from display-name branding.
+10. Product/editor UX additions must reuse existing semantic commit paths unless a deliberate Rust-first semantic change is being made.
 
 ---
 
@@ -292,8 +299,12 @@ android/app/build.gradle.kts
 android/app/src/main/AndroidManifest.xml
 ios/Runner/Info.plist
 ios/Runner.xcodeproj/project.pbxproj
+lib/main.dart
 lib/core/editor_session_store.dart
 lib/core/export_file_service.dart
+lib/ui/widgets/editor_tool_panel.dart
+lib/ui/widgets/straighten_control.dart
+lib/ui/widgets/histogram_widget.dart
 docs/G7A_ANDROID_SIGNING.md
 docs/G7A_RELEASE_READINESS.md
 docs/G7A_PRIVACY_STORE_DRAFTS.md
@@ -306,19 +317,21 @@ README.md
 
 # 12. Current next action
 
-**Dextryx Pixels identity migration is the active workstream. G7B remains externally blocked.**
+**PR #26 and PR #27 are merged. G7B remains externally blocked. The active workstream returns to post-G7A Product / Editor UX.**
 
-Execute in this order:
+Continue from current `main` and preserve all architecture/release invariants.
+
+Recommended next sequence:
 
 ```text
-1. on feature/dextryx-pixels-identity, change Android launcher label to "Dxtr Pixs"
-2. change iOS CFBundleDisplayName/CFBundleName to "Dxtr Pixs"
-3. change iOS permission descriptions and current user-facing product copy to "Dextryx Pixels"
-4. update README/current product-facing docs where Pixel Craft is branding rather than historical evidence
-5. keep Android applicationId and iOS bundle id at dev.cnxdev.pixelcraft in this pass
-6. run flutter analyze + tests
-7. run Android release packaging and iOS release --no-codesign smoke appropriate to the touched native metadata
-8. open PR only when validation is green
-9. preserve all Rust/GPU/package architecture invariants
-10. after identity PR merges, return to product/editor work or G7B when accounts are available
+1. keep main green after the PR #26 + #27 merge sequence
+2. continue product/editor UX as small reviewable slices rather than a broad rewrite
+3. prioritize discoverability, precision, direct manipulation, responsive layout, and Film/Profile workflow polish
+4. reuse existing EditorController / Rust-authoritative commit paths for presentation-only UX
+5. do not begin new RAW/image-processing semantics as part of UX-only slices
+6. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
+7. for every slice: add focused tests, run full CI, resolve review findings, then merge
+8. when Apple/Google store accounts become available, pause product work as needed and start G7B from current main
 ```
+
+Before starting the next implementation slice, inspect the current Editor and Film/Profile surfaces on `main` and choose the smallest high-value UX gap that does not require new image semantics.
