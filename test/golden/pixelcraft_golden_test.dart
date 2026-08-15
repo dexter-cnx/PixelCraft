@@ -98,24 +98,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Dextryx Pixels'), findsOneWidget);
-    expect(find.text('Edit locally. Move fast.'), findsOneWidget);
+    expect(find.text('Your workspace is empty'), findsOneWidget);
     expect(find.text('Import'), findsOneWidget);
     expect(find.byTooltip('More ways to add'), findsOneWidget);
     expect(find.byTooltip('Films'), findsOneWidget);
     expect(find.byTooltip('GPU Diagnostics'), findsNothing);
-    for (final sample in const [
-      'sample_1.png',
-      'sample_2.png',
-      'sample_3.png',
-      'sample_4.png',
-    ]) {
-      expect(
-        find.byWidgetPredicate(
-          (widget) => widget is Hero && widget.tag == sample,
-        ),
-        findsOneWidget,
-      );
-    }
+    expect(find.text('Edit locally. Move fast.'), findsNothing);
+    expect(find.byType(Hero), findsNothing);
+    expect(find.byType(Image), findsNothing);
     expect(find.byType(FloatingActionButton), findsOneWidget);
   });
 
