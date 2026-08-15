@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name             = 'pixelcraft_gpu'
+  s.name             = 'dxtr_pixs_gpu'
   s.version          = '0.1.0'
   s.summary          = 'PixelCraft preview-only native GPU runtime.'
   s.description      = <<-DESC

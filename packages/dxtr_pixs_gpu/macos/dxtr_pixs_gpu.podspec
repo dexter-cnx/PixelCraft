@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name             = 'pixelcraft_gpu'
+  s.name             = 'dxtr_pixs_gpu'
   s.version          = '0.1.0'
   s.summary          = 'Cross-platform wgpu preview core for PixelCraft.'
   s.description      = <<-DESC
@@ -16,7 +16,7 @@ Preview-only GPU control plane with a shared Rust/wgpu desktop core.
 
   s.script_phase = {
     :name => 'Build Rust wgpu library',
-    :script => 'sh "$PODS_TARGET_SRCROOT/../../pixelcraft_engine/cargokit/build_pod.sh" ../rust pixelcraft_gpu_native',
+    :script => 'sh "$PODS_TARGET_SRCROOT/../../dxtr_pixs_engine/cargokit/build_pod.sh" ../rust pixelcraft_gpu_native',
     :execution_position => :before_compile,
     :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
     :output_files => ["${BUILT_PRODUCTS_DIR}/libpixelcraft_gpu_native.a"],
