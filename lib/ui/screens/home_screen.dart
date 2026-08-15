@@ -262,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pixel Craft'),
+        title: const Text('Dextryx Pixels'),
         actions: [
           IconButton(
             tooltip: 'Films',
