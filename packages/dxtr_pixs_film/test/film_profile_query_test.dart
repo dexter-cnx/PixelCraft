@@ -1,5 +1,5 @@
-import 'package:pixelcraft_editing/pixelcraft_editing.dart';
-import 'package:pixelcraft_film/pixelcraft_film.dart';
+import 'package:dxtr_pixs_editing/pixelcraft_editing.dart';
+import 'package:dxtr_pixs_film/pixelcraft_film.dart';
 import 'package:test/test.dart';
 
 void main() {
