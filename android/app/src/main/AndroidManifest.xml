@@ -13,7 +13,7 @@
         tools:ignore="ScopedStorage" />
 
     <application
-        android:label="Pixel Craft"
+        android:label="Dxtr Pixs"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
