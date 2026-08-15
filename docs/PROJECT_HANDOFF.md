@@ -21,7 +21,7 @@ Last refresh: **2026-08-15, after PR #26 and PR #27 merged; G7B deferred indefin
 
 ---
 
-# 1. Product identity — MERGED
+# 1. Product identity — PRIMARY MIGRATION MERGED / COPY CLEANUP PENDING
 
 Identity decision frozen on 2026-08-15:
 
@@ -36,13 +36,14 @@ repository name: PixelCraft (unchanged)
 
 Migration rules:
 
-1. Product-facing copy uses **Dextryx Pixels**.
+1. Product-facing copy should use **Dextryx Pixels**.
 2. Android/iOS launcher or home-screen display labels use **Dxtr Pixs**.
 3. Privacy/permission copy uses **Dextryx Pixels**.
 4. Do not cosmetically mass-rename Rust/Dart package names, native channel names, historical evidence, test fixtures, or repository paths.
 5. Historical evidence may retain `PixelCraft` / `Pixel Craft` when that was the literal build/product name at that time.
 6. Android applicationId and iOS bundle id remain `dev.cnxdev.pixelcraft` until a deliberate identifier migration is approved and validated.
 7. Do not rename the GitHub repository as part of the identity migration.
+8. PR #27 completed the primary app identity migration, but a focused follow-up must replace remaining current user-facing legacy branding copy before the identity workstream is considered fully closed.
 
 Identity PR:
 
@@ -53,6 +54,21 @@ HEAD: 494649b7bea9c12a9b6141cdb3d810596bd67bff
 CI: run #267 / 31853404031 — SUCCESS
 merge commit: 5f4ea1e3ba0b2e7e9983eb096109742ead0b1ea9
 ```
+
+Known current branding cleanup targets confirmed on `main` after PR #27:
+
+```text
+lib/ui/screens/home_screen.dart
+  AppBar title: "Pixel Craft"
+
+lib/core/export_file_service.dart
+  share text: "Edited with PixelCraft"
+
+lib/ui/screens/editor_screen.dart
+  gallery-error copy: "Pixel Craft could not add it to the device gallery."
+```
+
+These are current product-facing strings, not historical evidence, and should move to **Dextryx Pixels** in a focused follow-up slice.
 
 ---
 
@@ -99,7 +115,8 @@ G7A Release Engineering / Store Preparation     MERGED
 G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHEDULED
 
 Post-G7A Product / Editor UX                     ACTIVE
-Dextryx Pixels identity                         MERGED
+Dextryx Pixels primary identity                  MERGED
+Dextryx Pixels user-facing copy cleanup          PENDING
 ```
 
 Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
@@ -120,7 +137,7 @@ PR #23  Editor: discoverable Zoom / Fit controls
 PR #24  Editor: precise numeric value entry for adjustment sliders
 PR #25  Editor: histogram channel inspector
 PR #26  Editor: precise straighten angle entry
-PR #27  Product identity: Dextryx Pixels / Dxtr Pixs
+PR #27  Product identity: Dextryx Pixels / Dxtr Pixs (primary pass)
 ```
 
 PR #26 final evidence:
@@ -309,6 +326,8 @@ ios/Runner.xcodeproj/project.pbxproj
 lib/main.dart
 lib/core/editor_session_store.dart
 lib/core/export_file_service.dart
+lib/ui/screens/home_screen.dart
+lib/ui/screens/editor_screen.dart
 lib/ui/widgets/editor_tool_panel.dart
 lib/ui/widgets/straighten_control.dart
 lib/ui/widgets/histogram_widget.dart
@@ -324,21 +343,22 @@ README.md
 
 # 12. Current next action
 
-**PR #26 and PR #27 are merged. G7B is deferred indefinitely / not scheduled. The active workstream is post-G7A Product / Editor UX.**
+**PR #26 and PR #27 are merged. G7B is deferred indefinitely / not scheduled. Before returning to broader post-G7A Product / Editor UX, finish the remaining Dextryx Pixels user-facing copy cleanup.**
 
 Continue from current `main` and preserve all architecture/release invariants.
 
 Recommended next sequence:
 
 ```text
-1. keep main green after the PR #26 + #27 merge sequence
-2. continue product/editor UX as small reviewable slices rather than a broad rewrite
-3. prioritize discoverability, precision, direct manipulation, responsive layout, and Film/Profile workflow polish
-4. reuse existing EditorController / Rust-authoritative commit paths for presentation-only UX
-5. do not begin new RAW/image-processing semantics as part of UX-only slices
-6. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
-7. for every slice: add focused tests, run full CI, resolve review findings, then merge
+1. replace the remaining current user-facing legacy branding strings:
+   - Home AppBar: Pixel Craft -> Dextryx Pixels
+   - Share text: Edited with PixelCraft -> Edited with Dextryx Pixels
+   - Editor gallery-error copy: Pixel Craft -> Dextryx Pixels
+2. search current runtime/user-facing surfaces for any additional non-historical PixelCraft / Pixel Craft branding
+3. do not rename package/module/channel/repository identifiers as part of copy cleanup
+4. add/update focused tests where branding strings are covered
+5. run full CI and resolve review findings
+6. after branding cleanup merges, return to small post-G7A Product / Editor UX slices
+7. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
 8. do not resume G7B unless an explicit project decision brings it back into scope
 ```
-
-Before starting the next implementation slice, inspect the current Editor and Film/Profile surfaces on `main` and choose the smallest high-value UX gap that does not require new image semantics.
