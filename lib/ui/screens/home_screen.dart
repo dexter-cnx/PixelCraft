@@ -8,11 +8,26 @@ import 'film_profiles_screen.dart';
 import 'gpu_diagnostics_screen.dart';
 import 'product_editor_screen.dart';
 
+typedef HomePickImage = Future<XFile?> Function({
+  required ImageSource source,
+  required CameraDevice preferredCameraDevice,
+  double? maxWidth,
+  double? maxHeight,
+  int? imageQuality,
+  required bool requestFullMetadata,
+});
+
+enum _AcquisitionAction {
+  filmCamera,
+  systemCamera,
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.recoverLostPickerData = true,
     this.showGpuDiagnostics = kDebugMode,
+    this.pickImageForTesting,
   });
 
   /// Android can recreate the app while the external camera is open. Keep
@@ -25,6 +40,10 @@ class HomeScreen extends StatefulWidget {
   /// real app but can be disabled by deterministic/product-oriented tests so
   /// visual baselines do not encode debug-only chrome.
   final bool showGpuDiagnostics;
+
+  /// Test seam for acquisition-flow widget tests. Production leaves this null
+  /// and continues to use the platform [ImagePicker].
+  final HomePickImage? pickImageForTesting;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -168,14 +187,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final isCamera = source == ImageSource.camera;
     try {
-      final picked = await _picker.pickImage(
-        source: source,
-        preferredCameraDevice: CameraDevice.rear,
-        maxWidth: isCamera ? _cameraMaxDimension : null,
-        maxHeight: isCamera ? _cameraMaxDimension : null,
-        imageQuality: isCamera ? 90 : null,
-        requestFullMetadata: false,
-      );
+      final pickImage = widget.pickImageForTesting;
+      final picked = pickImage != null
+          ? await pickImage(
+              source: source,
+              preferredCameraDevice: CameraDevice.rear,
+              maxWidth: isCamera ? _cameraMaxDimension : null,
+              maxHeight: isCamera ? _cameraMaxDimension : null,
+              imageQuality: isCamera ? 90 : null,
+              requestFullMetadata: false,
+            )
+          : await _picker.pickImage(
+              source: source,
+              preferredCameraDevice: CameraDevice.rear,
+              maxWidth: isCamera ? _cameraMaxDimension : null,
+              maxHeight: isCamera ? _cameraMaxDimension : null,
+              imageQuality: isCamera ? 90 : null,
+              requestFullMetadata: false,
+            );
       if (picked == null || !mounted) return;
 
       await _openPickedFile(picked);
@@ -188,45 +217,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showImageSourceSheet() async {
-    if (_isRecovering) return;
-
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.filter_vintage_outlined),
-              title: const Text('Film Camera'),
-              subtitle: const Text('Preview Film Profiles live before capture'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Future.microtask(_openFilmCamera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Take a photo'),
-              subtitle: const Text('Fast system camera capture'),
-              onTap: () => Navigator.of(context).pop(ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
-              subtitle: const Text('Open an existing image on this device'),
-              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-
-    if (source != null && mounted) {
-      await _pickImage(source);
+  Future<void> _handleAcquisitionAction(_AcquisitionAction action) async {
+    switch (action) {
+      case _AcquisitionAction.filmCamera:
+        await _openFilmCamera();
+      case _AcquisitionAction.systemCamera:
+        await _pickImage(ImageSource.camera);
     }
   }
 
@@ -264,6 +260,34 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Dextryx Pixels'),
         actions: [
+          PopupMenuButton<_AcquisitionAction>(
+            tooltip: 'More ways to add',
+            enabled: !blocked,
+            icon: const Icon(Icons.add_circle_outline_rounded),
+            onSelected: _handleAcquisitionAction,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _AcquisitionAction.filmCamera,
+                child: Row(
+                  children: [
+                    Icon(Icons.filter_vintage_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('Film Camera'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: _AcquisitionAction.systemCamera,
+                child: Row(
+                  children: [
+                    Icon(Icons.photo_camera_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('Take Photo'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             tooltip: 'Films',
             onPressed: blocked ? null : _openFilmProfiles,
@@ -291,7 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Capture or import a photo, then edit it locally with Rust-powered processing.',
+                      'Import a photo or capture one, then edit it locally with Rust-powered processing.',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                     if (_recoverableSession != null) ...[
@@ -395,9 +419,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add_a_photo_outlined),
-        label: const Text('Add Photo'),
-        onPressed: blocked ? null : _showImageSourceSheet,
+        icon: const Icon(Icons.photo_library_outlined),
+        label: const Text('Import'),
+        onPressed: blocked ? null : () => _pickImage(ImageSource.gallery),
       ),
     );
   }
