@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,8 +12,47 @@ import 'package:pixelcraft/ui/widgets/image_preview.dart';
 
 import '../helpers/fake_image_engine.dart';
 
+class _TextSafeHomeGoldenComparator extends GoldenFileComparator {
+  _TextSafeHomeGoldenComparator({
+    required this.delegate,
+    required this.homeBaseline,
+  });
+
+  final GoldenFileComparator delegate;
+  final File homeBaseline;
+
+  @override
+  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
+    if (!golden.path.endsWith('home_phone.png')) {
+      return delegate.compare(imageBytes, golden);
+    }
+
+    final encoded = await homeBaseline.readAsString();
+    final goldenBytes = base64Decode(encoded.replaceAll(RegExp(r'\s+'), ''));
+    final result = await GoldenFileComparator.compareLists(
+      imageBytes,
+      goldenBytes,
+    );
+    return result.passed;
+  }
+
+  @override
+  Future<void> update(Uri golden, Uint8List imageBytes) =>
+      delegate.update(golden, imageBytes);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  final defaultGoldenComparator = goldenFileComparator;
+  goldenFileComparator = _TextSafeHomeGoldenComparator(
+    delegate: defaultGoldenComparator,
+    homeBaseline: File('test/golden/goldens/home_phone.png.b64'),
+  );
+
+  tearDownAll(() {
+    goldenFileComparator = defaultGoldenComparator;
+  });
 
   setUp(() {
     final binding = TestWidgetsFlutterBinding.instance;
@@ -25,16 +65,6 @@ void main() {
     binding.platformDispatcher.clearTextScaleFactorTestValue();
     binding.platformDispatcher.clearPlatformBrightnessTestValue();
   });
-
-  Future<void> restoreHomeGolden() async {
-    final encoded = await File(
-      'test/golden/goldens/home_phone.png.b64',
-    ).readAsString();
-    await File('test/golden/goldens/home_phone.png').writeAsBytes(
-      base64Decode(encoded.trim()),
-      flush: true,
-    );
-  }
 
   Future<void> setSurface(
     WidgetTester tester,
@@ -97,7 +127,6 @@ void main() {
       );
 
   testWidgets('home screen golden - phone', (tester) async {
-    await restoreHomeGolden();
     await setPhoneSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
