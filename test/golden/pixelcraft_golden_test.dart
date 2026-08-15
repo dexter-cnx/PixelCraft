@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +25,16 @@ void main() {
     binding.platformDispatcher.clearTextScaleFactorTestValue();
     binding.platformDispatcher.clearPlatformBrightnessTestValue();
   });
+
+  Future<void> restoreHomeGolden() async {
+    final encoded = await File(
+      'test/golden/goldens/home_phone.png.b64',
+    ).readAsString();
+    await File('test/golden/goldens/home_phone.png').writeAsBytes(
+      base64Decode(encoded.trim()),
+      flush: true,
+    );
+  }
 
   Future<void> setSurface(
     WidgetTester tester,
@@ -84,6 +97,7 @@ void main() {
       );
 
   testWidgets('home screen golden - phone', (tester) async {
+    await restoreHomeGolden();
     await setPhoneSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
