@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixelcraft_gpu/wgpu_gpu_core.dart';
+import 'package:dxtr_pixs_gpu/wgpu_gpu_core.dart';
 
 void main() {
   test('decodes the stable wgpu backend ABI mask', () {
