@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, Dextryx Pixels user-facing branding cleanup completed; G7B deferred indefinitely**.
+Last refresh: **2026-08-15, PKG-01 `dxtr_pixs_*` package namespace migration is the active highest-priority workstream; G7B remains deferred indefinitely**.
 
 ---
 
@@ -30,7 +30,7 @@ master brand: Dextryx
 product name: Dextryx Pixels
 installed app label: Dxtr Pixs
 short visual mark: DXTR PIXS or DXTR + pixel/film symbol
-technical package/module naming target: dextryx_pixels where a new identifier is needed
+technical package family: dxtr_pixs_*
 repository name: PixelCraft (unchanged)
 ```
 
@@ -39,11 +39,11 @@ Migration rules:
 1. Product-facing copy uses **Dextryx Pixels**.
 2. Android/iOS launcher or home-screen display labels use **Dxtr Pixs**.
 3. Privacy/permission copy uses **Dextryx Pixels**.
-4. Do not cosmetically mass-rename Rust/Dart package names, native channel names, historical evidence, test fixtures, or repository paths.
-5. Historical evidence may retain `PixelCraft` / `Pixel Craft` when that was the literal build/product name at that time.
-6. Android applicationId and iOS bundle id remain `dev.cnxdev.pixelcraft` until a deliberate identifier migration is approved and validated.
-7. Do not rename the GitHub repository as part of the identity migration.
-8. Technical/runtime storage names such as existing export directories, filenames, package/module identifiers, channels, and repository paths are not branding copy and remain unchanged unless a separate migration is approved.
+4. Historical evidence may retain `PixelCraft` / `Pixel Craft` when that was the literal build/product name at that time.
+5. Android applicationId and iOS bundle id remain `dev.cnxdev.pixelcraft` until a deliberate identifier migration is approved and validated.
+6. Do not rename the GitHub repository as part of the identity migration.
+7. Technical/runtime storage names, native channels, persisted schema names, Rust crate/library names, and ABI names remain unchanged unless a separate migration is justified.
+8. **Flutter/Dart reusable packages are the exception:** PKG-01 deliberately migrates the existing `pixelcraft_*` package family to `dxtr_pixs_*` before new packages are added.
 
 Identity PR:
 
@@ -53,19 +53,6 @@ branch: feature/dextryx-pixels-identity
 HEAD: 494649b7bea9c12a9b6141cdb3d810596bd67bff
 CI: run #267 / 31853404031 — SUCCESS
 merge commit: 5f4ea1e3ba0b2e7e9983eb096109742ead0b1ea9
-```
-
-Focused user-facing cleanup completed after PR #27:
-
-```text
-lib/ui/screens/home_screen.dart
-  AppBar title: "Dextryx Pixels"
-
-lib/core/export_file_service.dart
-  share text: "Edited with Dextryx Pixels"
-
-lib/ui/screens/editor_screen.dart
-  gallery-error copy: "Dextryx Pixels could not add it to the device gallery."
 ```
 
 The product identity workstream is complete at the user-facing copy level. A future applicationId/bundle-id migration remains a separate explicit release task.
@@ -93,6 +80,7 @@ Hard contracts:
 8. Film Profiles are reusable configuration, not pixels or per-image sessions.
 9. Imported recipe fields report exact / approximated / unsupported mappings.
 10. New effects are defined/tested in Rust first; GPU support is enabled only when faithful.
+11. AI segmentation/restoration packages must remain optional capability layers and must not silently become committed-image authority.
 
 ---
 
@@ -111,10 +99,12 @@ P1  pixelcraft_gpu extraction                   MERGED
 P2  pixelcraft_editing extraction               MERGED
 P3  pixelcraft_film extraction                  MERGED
 
+PKG-01 dxtr_pixs_* namespace consolidation      ACTIVE / PR #30
+
 G7A Release Engineering / Store Preparation     MERGED
 G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY / NOT SCHEDULED
 
-Post-G7A Product / Editor UX                     ACTIVE
+Post-G7A Product / Editor UX                     ACTIVE AFTER PKG-01
 Dextryx Pixels identity                         COMPLETE
 ```
 
@@ -123,8 +113,6 @@ Historical G7 PR #10 is closed/superseded. Do not reopen or merge it.
 ---
 
 # 4. Post-G7A product/editor work
-
-Product/editor development resumed after G7A without changing Rust/GPU authority.
 
 Merged slices:
 
@@ -136,87 +124,153 @@ PR #23  Editor: discoverable Zoom / Fit controls
 PR #24  Editor: precise numeric value entry for adjustment sliders
 PR #25  Editor: histogram channel inspector
 PR #26  Editor: precise straighten angle entry
-PR #27  Product identity: Dextryx Pixels / Dxtr Pixs (primary pass)
+PR #27  Product identity: Dextryx Pixels / Dxtr Pixs
 ```
 
-Post-PR #27 focused branding cleanup updates the remaining current user-facing legacy strings in Home, Share, and Editor gallery-error copy without changing technical identifiers or image semantics.
-
-PR #26 final evidence:
-
-```text
-branch: feature/editor-precise-straighten
-HEAD: 46abb1807890faf5863a3cf3851cdd53b1cafe52
-CI: run #266 / 31853058185 — SUCCESS
-merge commit: 5b85f567d58e5efaf14588fb34757f195b8911a2
-```
-
-PR #26 review findings were addressed before merge:
-
-- exact straighten values below the commit threshold are normalized to zero before preview/commit so UI and Rust/export state cannot diverge;
-- decimal comma input such as `2,5` is accepted by the exact-value parser;
-- regression tests cover both behaviors.
-
-These post-G7A slices are presentation/product workflow improvements. They do not transfer committed image authority away from Rust and do not make GPU preview authoritative.
+These slices are presentation/product workflow improvements. They do not transfer committed image authority away from Rust and do not make GPU preview authoritative.
 
 ---
 
-# 5. Package graph
+# 5. Package graph and naming policy
+
+## 5.1 PKG-01 target
+
+The existing reusable package family is being normalized before MobileSAM, restoration, or RAW package work begins:
+
+```text
+packages/pixelcraft_editing  -> packages/dxtr_pixs_editing
+packages/pixelcraft_engine   -> packages/dxtr_pixs_engine
+packages/pixelcraft_film     -> packages/dxtr_pixs_film
+packages/pixelcraft_gpu      -> packages/dxtr_pixs_gpu
+```
+
+Target graph:
 
 ```text
 PixelCraft repository app
- ├── pixelcraft_film
- ├── pixelcraft_gpu
- ├── pixelcraft_editing
- └── pixelcraft_engine
+ ├── dxtr_pixs_film
+ ├── dxtr_pixs_gpu
+ ├── dxtr_pixs_editing
+ └── dxtr_pixs_engine
 
-pixelcraft_film -> pixelcraft_editing
-pixelcraft_gpu  -> pixelcraft_editing
-pixelcraft_editing -> Dart SDK only
-pixelcraft_engine  -> repository rust/ crate through build integration
+dxtr_pixs_film    -> dxtr_pixs_editing
+dxtr_pixs_gpu     -> dxtr_pixs_editing
+dxtr_pixs_editing -> Dart SDK only
+dxtr_pixs_engine  -> repository rust/ crate through build integration
 ```
 
-CI package guard:
+CI guard:
 
 ```text
 tool/check_package_boundaries.sh
 ```
 
-Package names remain unchanged unless there is a concrete technical migration reason.
+The guard must reject reintroduction of legacy Dart package URIs:
+
+```text
+package:pixelcraft_editing/
+package:pixelcraft_film/
+package:pixelcraft_gpu/
+package:pixelcraft_engine/
+```
+
+## 5.2 Scope boundary
+
+PKG-01 changes Flutter/Dart package identity and matching Flutter plugin packaging metadata only.
+
+Do **not** casually rename these as part of PKG-01:
+
+```text
+Rust crate: pixelcraft_engine
+native library: libpixelcraft_engine.*
+GPU native library: libpixelcraft_gpu_native.*
+MethodChannel/native protocol identifiers
+persistent storage/schema names
+applicationId / bundle id
+```
+
+Those are ABI/runtime/release migrations and require their own justification and validation.
+
+## 5.3 Future package family
+
+New reusable imaging packages must start with the same family prefix from day one:
+
+```text
+dxtr_pixs_segment  MobileSAM ONNX / local segmentation
+dxtr_pixs_restore  Face Enhance / AI Denoise / Super-Resolution
+dxtr_pixs_raw      future real RAW pipeline only if a clean package boundary is proven
+dxtr_pixs_core     future shared types only when concrete reuse justifies extraction
+```
+
+Avoid creating empty packages merely to satisfy an architectural diagram.
 
 ---
 
-# 6. G7A / G7B split
+# 6. Advanced Develop / AI roadmap
+
+Advanced Develop is a future workstream after package namespace consolidation and the currently prioritized product UX work.
+
+Separate ordinary continuous adjustments from expensive AI reconstruction operations.
+
+```text
+Advanced Develop
+├── conventional / RAW development
+└── AI Restoration
+    ├── Face Enhance
+    ├── AI Denoise
+    └── Super-Resolution
+```
+
+Planned package boundaries:
+
+### `dxtr_pixs_segment`
+
+First backend: MobileSAM through ONNX Runtime.
+
+Responsibilities:
+
+- local/offline segmentation inference;
+- image encoder + prompt/mask decoder boundary;
+- prepared-image / embedding cache;
+- point prompts first;
+- negative point / box prompt / mask refinement later;
+- async inference and stale-result prevention;
+- model/backend details remain behind a model-agnostic public API.
+
+This package must not know about PixelCraft UI, editor panels, Film Profiles, or RAW development semantics.
+
+### `dxtr_pixs_restore`
+
+Planned capability families:
+
+```text
+Super-Resolution  first candidate: Real-ESRGAN
+AI Denoise        benchmark Restormer / SCUNet before freezing backend
+Face Enhance      first candidate: GFPGAN
+```
+
+Restoration operations consume rendered RGB image data and should not depend directly on the future RAW engine. They are explicit asynchronous operations with progress/cancel and Before/After, not per-frame slider effects.
+
+CodeFormer is not the default production candidate while its upstream commercial-use licensing remains unsuitable without explicit permission.
+
+---
+
+# 7. G7A / G7B split
 
 G7A is complete and merged. It covered account-independent release work: signing architecture, unsigned/no-codesign packaging, native Rust/LUT verification, version/build identity audit, privacy/permission audit, store metadata/privacy drafts, release notes/RC QA preparation, and CI release artifact generation.
 
 G7B remains defined but is **deferred indefinitely and not scheduled**. Do not treat G7B as an active blocker for product/editor development, and do not pause current work waiting for store accounts.
 
-G7B scope, when explicitly resumed in the future:
-
-```text
-Google Play Console / Play App Signing / Internal Testing
-Apple Developer / App Store Connect / distribution signing / TestFlight
-actual Data Safety / App Privacy submissions
-actual store review/submission
-signed store-delivered RC physical-device smoke
-```
-
-Current policy:
-
-1. Do not schedule or start G7B automatically when accounts become available.
-2. Resume G7B only after an explicit project decision.
-3. Until then, continue product/editor work from current `main` while preserving release readiness and signing/privacy safeguards already established by G7A.
+Resume G7B only after an explicit project decision.
 
 ---
 
-# 7. Release engineering baseline
+# 8. Release engineering baseline
 
 Android release rules:
 
 - release must not use debug signing;
-- optional ignored `android/key.properties` release signing;
 - signing secrets remain outside git;
-- first-RC policy keeps minification/R8 off;
 - CAMERA remains;
 - WRITE_EXTERNAL_STORAGE is limited through API 28;
 - dependency RECORD_AUDIO is explicitly removed;
@@ -224,17 +278,9 @@ Android release rules:
 
 CI release jobs build Android release APK and iOS release `--no-codesign`, verify Rust/native artifacts and Film/Creative LUT assets, and upload artifacts.
 
-Privacy hardening already merged:
-
-- recovery data stays in private app-support storage;
-- export is user initiated;
-- Share explicitly passes only the exported file to the system share sheet;
-- diagnostics contain renderer/profile/sample/error metrics only and no user image bytes/live frames;
-- no analytics, advertising, or remote crash-reporting SDK is currently in the app dependency set.
-
 ---
 
-# 8. Verified release evidence
+# 9. Verified release evidence
 
 Final G7A PR validation:
 
@@ -245,41 +291,18 @@ HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
 conclusion: SUCCESS
 ```
 
-Post-G7A latest green PR evidence:
+Post-G7A known green evidence includes:
 
 ```text
 PR #26: run #266 / 31853058185 — SUCCESS
 PR #27: run #267 / 31853404031 — SUCCESS
 ```
 
-Android release baseline:
-
-```text
-package: dev.cnxdev.pixelcraft
-versionName/versionCode: 0.1.0 / 1
-compileSdk: 36
-targetSdk: 36
-minSdk: 24
-Rust ABIs: arm64-v8a, armeabi-v7a, x86_64
-release debug-signing guard: PASS
-RECORD_AUDIO: ABSENT
-```
-
-iOS release baseline:
-
-```text
-bundle id: dev.cnxdev.pixelcraft
-deployment target: 13.0
-pixelcraft_engine.framework: present
-Film/Creative GPU LUT assets: present
-release --no-codesign: PASS
-```
-
-Historical evidence names are not rewritten during branding migration.
+Do not treat PKG-01 as green until PR #30 CI completes successfully after all namespace/native packaging fixes.
 
 ---
 
-# 9. Release identity / RC policy
+# 10. Release identity / RC policy
 
 Current identity:
 
@@ -295,71 +318,64 @@ iOS deployment target: 13.0
 Android min/target/compile SDK: 24 / 36 / 36
 ```
 
-Build numbers for future externally distributed signed builds must increase monotonically when external distribution resumes.
-
-A later bundle/application identifier migration may target a Dextryx-specific identifier, but it must be handled as a deliberate release migration and must not be mixed casually into display-name/product work.
+A later bundle/application identifier migration must be handled as a deliberate release migration and must not be mixed into PKG-01.
 
 ---
 
-# 10. Verification rules
+# 11. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
 2. Never commit keystores, passwords, private certificates, provisioning profiles, or store credentials.
 3. Never ship Android production artifacts with debug signing.
-4. Unsigned Android / no-codesign iOS artifacts are packaging evidence only.
-5. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
-6. Native release changes require CI packaging evidence; signed RCs later require physical-device smoke.
-7. G7B is deferred indefinitely and must not be resumed without an explicit project decision.
-8. Product renaming must not rewrite historical evidence as if old builds used the new identity.
-9. Bundle/application identifier changes require an explicit migration decision and validation separate from display-name branding.
-10. Product/editor UX additions must reuse existing semantic commit paths unless a deliberate Rust-first semantic change is being made.
-
----
-
-# 11. Important files
-
-```text
-.github/workflows/ci.yml
-android/app/build.gradle.kts
-android/app/src/main/AndroidManifest.xml
-ios/Runner/Info.plist
-ios/Runner.xcodeproj/project.pbxproj
-lib/main.dart
-lib/core/editor_session_store.dart
-lib/core/export_file_service.dart
-lib/ui/screens/home_screen.dart
-lib/ui/screens/editor_screen.dart
-lib/ui/widgets/editor_tool_panel.dart
-lib/ui/widgets/straighten_control.dart
-lib/ui/widgets/histogram_widget.dart
-docs/G7A_ANDROID_SIGNING.md
-docs/G7A_RELEASE_READINESS.md
-docs/G7A_PRIVACY_STORE_DRAFTS.md
-docs/PROJECT_HANDOFF.md
-docs/CODE_WALKTHROUGH.md
-README.md
-```
+4. Release engineering must not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
+5. G7B is deferred indefinitely and must not be resumed without an explicit project decision.
+6. Product renaming must not rewrite historical evidence as if old builds used the new identity.
+7. Bundle/application identifier changes require an explicit migration decision separate from package naming.
+8. PKG-01 is complete only when root dependencies, package-to-package imports, tests, CI working directories, package-boundary guards, and Apple plugin podspec discovery all use `dxtr_pixs_*` consistently.
+9. Native Rust/ABI names remain unchanged in PKG-01 unless CI proves a technically unavoidable dependency.
+10. Future `dxtr_pixs_segment` / `dxtr_pixs_restore` work must land in separate reviewable PRs after PKG-01.
 
 ---
 
 # 12. Current next action
 
-**Dextryx Pixels primary identity and remaining user-facing copy cleanup are complete. G7B is deferred indefinitely / not scheduled. The active workstream returns to post-G7A Product / Editor UX.**
+**PKG-01 package namespace consolidation is the highest-priority active task and must finish before new AI packages or broader Advanced Develop work.**
 
-Continue from current `main` after the branding-cleanup PR merges and preserve all architecture/release invariants.
-
-Recommended next sequence:
+Current PR stack:
 
 ```text
-1. keep main green after the branding-cleanup merge
-2. continue product/editor UX as small reviewable slices rather than a broad rewrite
-3. prioritize discoverability, precision, direct manipulation, responsive layout, and Film/Profile workflow polish
-4. reuse existing EditorController / Rust-authoritative commit paths for presentation-only UX
-5. do not begin new RAW/image-processing semantics as part of UX-only slices
-6. do not rename technical package/module/channel/storage/repository identifiers as branding cleanup
-7. do not change dev.cnxdev.pixelcraft identifiers unless an explicit identifier-migration task is approved
-8. for every slice: add focused tests, run full CI, resolve review findings, then merge
-9. do not resume G7B unless an explicit project decision brings it back into scope
+PR #29  branding cleanup
+   ↓
+PR #30  PKG-01 dxtr_pixs package namespace migration
 ```
 
-Before starting the next implementation slice, inspect the current Editor and Film/Profile surfaces on `main` and choose the smallest high-value UX gap that does not require new image semantics.
+PR #30 is intentionally stacked on PR #29 while branding cleanup is unmerged. After PR #29 merges, retarget PR #30 to `main` and rerun the complete CI gate.
+
+PKG-01 completion checklist:
+
+```text
+[ ] all four package directories use dxtr_pixs_* names
+[ ] all four pubspec package names use dxtr_pixs_*
+[ ] root path dependencies use dxtr_pixs_*
+[ ] package-to-package Dart imports use dxtr_pixs_*
+[ ] root app forwarding imports/exports use dxtr_pixs_*
+[ ] package tests use dxtr_pixs_*
+[ ] CI package paths use dxtr_pixs_*
+[ ] package-boundary guard rejects legacy pixelcraft_* Dart package URIs
+[ ] iOS/macOS podspec filenames and pod names match dxtr_pixs_* Flutter plugin names
+[ ] native Rust/ABI library names remain stable
+[ ] full PR #30 CI passes
+```
+
+After PKG-01 is merged, continue in this order:
+
+```text
+1. modern Product / Editor UX improvements as small reviewable slices
+2. dxtr_pixs_segment — MobileSAM ONNX foundation
+3. Advanced Develop foundation
+4. dxtr_pixs_restore — Super-Resolution, AI Denoise, Face Enhance
+5. real RAW development / dxtr_pixs_raw only when its package boundary is justified
+6. G7B remains deferred until explicitly resumed
+```
+
+Do not begin `dxtr_pixs_segment`, `dxtr_pixs_restore`, or RAW package implementation while PKG-01 remains red/incomplete.
