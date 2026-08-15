@@ -99,7 +99,8 @@ void main() {
 
     expect(find.text('Dextryx Pixels'), findsOneWidget);
     expect(find.text('Edit locally. Move fast.'), findsOneWidget);
-    expect(find.text('Add Photo'), findsOneWidget);
+    expect(find.text('Import'), findsOneWidget);
+    expect(find.byTooltip('More ways to add'), findsOneWidget);
     expect(find.byTooltip('Films'), findsOneWidget);
     expect(find.byTooltip('GPU Diagnostics'), findsNothing);
     for (final sample in const [
