@@ -13,7 +13,6 @@ import '../../camera/camera_look_preview_coordinator.dart';
 import '../../camera/camera_look_state.dart';
 import '../../gpu/android_gpu_camera_preview.dart';
 import '../../gpu/gpu_preview_capability.dart';
-import '../../gpu/gpu_preview_renderer.dart';
 import '../../gpu/ios_gpu_camera_preview.dart';
 import '../../gpu/native_gpu_camera_bridge.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
