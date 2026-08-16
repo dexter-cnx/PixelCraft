@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'platform_flow_foundation.dart';
 
 abstract final class AppRoutePaths {
+  static const root = '/';
   static const camera = '/camera';
   static const desktop = '/desktop';
   static const editor = '/editor';
@@ -32,9 +33,13 @@ class EditorRouteData {
     this.recoveryRecipe,
     this.initialFilmProfileId,
     this.initialFilmStrength = 1,
-  }) : assert(
+  })  : assert(
           (imagePath == null) != (imageBytes == null),
           'Provide exactly one editor source.',
+        ),
+        assert(
+          initialFilmProfileId == null || imagePath != null,
+          'Initial camera Film handoff requires a file-backed source.',
         );
 
   final String? imagePath;
