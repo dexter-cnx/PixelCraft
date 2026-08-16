@@ -20,7 +20,9 @@ Its primary responsibilities are:
 
 The PixelCraft workspace/catalog implementation is therefore an **editor-local convenience layer**, not a general DAM. Do not extend it into Nixin-style Workplaces, folder ingestion, bulk asset organization, ratings/flags/keywords, or a Lightroom-style library unless PixelCraft receives an explicit product decision to do so.
 
-A future cross-product direction may allow Nixin to invoke PixelCraft as an external editor. That protocol does not exist yet and must be designed explicitly before implementation.
+Nixin may reuse stable, explicitly reusable PixelCraft packages/modules for bounded basic capabilities. That is module reuse, not roadmap reuse, and it must not depend on PixelCraft app internals or transfer catalog/edit authority between products.
+
+A future cross-product direction may allow Nixin to invoke PixelCraft as a full external editor. That protocol does not exist yet and must be designed explicitly before implementation.
 
 ---
 
@@ -43,7 +45,7 @@ G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY
 UX-01 Modern import/add-photo flow               CLOSED / VERIFIED
 UX-02 Home / Workspace modernization             CLOSED / VERIFIED
 W1A/W1B editor-local catalog foundation          CLOSED / VERIFIED
-W1C acquisition/catalog/Home integration         MERGED; MAIN CI VERIFICATION PENDING
+W1C acquisition/catalog/Home integration         CLOSED / VERIFIED
 ```
 
 PR #42:
@@ -52,7 +54,7 @@ PR #42:
 final head: 1218ec44d0d9938a89b7f7ab294b0a55a2f435b5
 PR CI: #362 / 31930004255 / SUCCESS
 merge: a5d015587a9eab0125d8605f91fff9307e8d0c11
-main CI: #363 / 31930570158 / pending at this documentation update
+main CI: #363 / 31930570158 / SUCCESS
 ```
 
 ---
@@ -88,6 +90,7 @@ Hard contracts:
 9. PixelCraft catalog metadata never owns recipe/history/pixels.
 10. Recovery generation identity and catalog identity remain separate.
 11. Nixin owns long-lived Workplaces/library organization; PixelCraft does not duplicate that responsibility.
+12. Other products may consume stable reusable PixelCraft modules without importing PixelCraft app state or ownership.
 
 ---
 
@@ -355,9 +358,25 @@ archive management
 Lightroom-style DAM workflow
 ```
 
-Those belong to Nixin / Dextryx Images.
+Those are Nixin / Dextryx Images responsibilities.
 
 Catalog-related PixelCraft follow-up is allowed only when necessary for editor correctness or continuity, such as source durability, missing-source handling, or source reopening.
+
+---
+
+## Reusable module boundary
+
+Nixin or another product may consume a PixelCraft module when all of these hold:
+
+```text
+stable/documented reusable API
+bounded capability
+no dependency on PixelCraft app-internal UI/state
+clear authority ownership
+versioned dependency surface
+```
+
+If the consumer needs PixelCraft editor-session lifecycle, recipe/history ownership, substantial PixelCraft UI, or bidirectional state return, use a separately designed external-editor integration instead.
 
 ---
 
@@ -377,13 +396,15 @@ A PR head being green is not enough; verify resulting `main` push CI.
 
 ## Current continuation point
 
-After PR #42 main CI is confirmed:
+PR #42 is fully closed/verified through exact resulting main CI #363.
 
-1. mark W1C closed/verified;
-2. do not start the previously suggested DAM-style W1D;
-3. choose the next milestone from **PixelCraft editing / processing / editor UX** priorities;
-4. keep catalog work bounded to editor continuity;
+Next:
+
+1. do not start the previously suggested DAM-style W1D;
+2. choose the next milestone from **PixelCraft editing / processing / editor UX** priorities;
+3. keep catalog work bounded to editor continuity;
+4. allow stable reusable PixelCraft modules to serve Nixin when a concrete basic capability benefits from it;
 5. do not pull Nixin roadmap items into PixelCraft;
-6. do not modify Nixin during PixelCraft work unless the user explicitly requests cross-product work.
+6. do not modify Nixin during PixelCraft work unless the user explicitly requests Nixin or cross-product work.
 
 See `docs/PROJECT_HANDOFF.md` for the canonical execution decision.
