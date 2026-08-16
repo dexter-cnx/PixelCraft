@@ -34,6 +34,7 @@ internal class NativeGpuRendererSession(
     var surface: NativeGpuSurfaceConfig? = null,
     var profileId: String = "",
     var strength: Double = 0.0,
+    var cameraLook: NativeGpuCameraLook = NativeGpuCameraLook(),
     var viewport: NativeGpuViewport? = null,
     var enabled: Boolean = true,
 )
@@ -127,6 +128,20 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
         session(id).apply {
             this.strength = strength.coerceIn(0.0, 1.0)
             renderer.setStrength(this.strength.toFloat())
+        }
+    }
+
+    @Synchronized
+    fun setCameraLook(id: String, look: NativeGpuCameraLook) {
+        session(id).apply {
+            cameraLook = look
+            if (look.isNeutral) {
+                renderer.setEnabled(false)
+                return
+            }
+            throw IllegalStateException(
+                "PF2 composed camera look is not activated on Android renderer yet",
+            )
         }
     }
 
