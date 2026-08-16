@@ -10,7 +10,14 @@
     "film": "Film",
     "filter": "Filter",
     "adjust": "Adjust",
-    "controls": "Controls"
+    "controls": "Controls",
+    "shutter": "Shutter",
+    "take_photo": "Take photo",
+    "switch_camera": "Switch camera",
+    "back": "Back",
+    "try_again": "Try again",
+    "film_preview": "Film preview",
+    "gpu_film_preview": "GPU film preview"
   },
   "errors": {
     "camera_unavailable": "Camera is unavailable.",
