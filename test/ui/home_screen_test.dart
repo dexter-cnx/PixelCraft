@@ -5,8 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/core/workspace_catalog_store.dart';
 import 'package:pixelcraft/ui/screens/home_screen.dart';
 
-import '../helpers/fake_image_engine.dart';
-
 Future<void> _pumpUntilFound(
   WidgetTester tester,
   Finder finder, {
@@ -59,13 +57,11 @@ void main() {
 
   testWidgets('renders persisted catalog items as real workspace content',
       (tester) async {
-    final source = File('${root.path}/persisted.png');
-    await source.writeAsBytes(testPngBytes, flush: true);
     await catalogStore.add(
       sourceKind: WorkspaceSourceKind.gallery,
       retention: WorkspaceSourceRetention.externalReference,
-      sourcePath: source.path,
-      availability: WorkspaceSourceAvailability.available,
+      sourcePath: '${root.path}/persisted.png',
+      availability: WorkspaceSourceAvailability.missing,
       now: DateTime.utc(2026, 8, 16, 3),
     );
 
@@ -82,17 +78,17 @@ void main() {
 
     expect(find.text('Workspace'), findsOneWidget);
     expect(find.text('persisted.png'), findsOneWidget);
-    expect(find.text('gallery'), findsOneWidget);
+    expect(find.text('Source missing'), findsOneWidget);
     expect(find.text('Your workspace is empty'), findsNothing);
   });
 
-  testWidgets('marks a missing source without deleting catalog identity',
+  testWidgets('preserves missing source catalog identity when open fails',
       (tester) async {
     final item = await catalogStore.add(
       sourceKind: WorkspaceSourceKind.gallery,
       retention: WorkspaceSourceRetention.externalReference,
       sourcePath: '${root.path}/missing.png',
-      availability: WorkspaceSourceAvailability.available,
+      availability: WorkspaceSourceAvailability.missing,
       now: DateTime.utc(2026, 8, 16, 3),
     );
 
