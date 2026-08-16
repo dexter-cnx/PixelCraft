@@ -73,7 +73,7 @@ jobs:
             workflow_dispatch) base="$(git rev-parse HEAD^)" ;;
             *) echo "Unsupported event: $EVENT_NAME" >&2; exit 2 ;;
           esac
-          git diff --name-only --diff-filter=ACMR "$base" "$GITHUB_SHA" | sort -u | tee changed-files.txt
+          git diff --name-only --diff-filter=ACMRD "$base" "$GITHUB_SHA" | sort -u | tee changed-files.txt
           echo "base=$base" >> "$GITHUB_OUTPUT"
       - name: Classify change domains
         id: domains
@@ -130,29 +130,29 @@ jobs:
       - name: Change classifier self-test
         run: python3 tool/ci_changed_domains.py --self-test
       - name: Set up Flutter
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || needs.changes.outputs.full == 'true'
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - name: Set up Rust
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || needs.changes.outputs.full == 'true'
         uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
       - name: Cache Cargo
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || needs.changes.outputs.full == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             rust
             packages/dxtr_pixs_gpu/rust
       - name: Fast pre-merge gate
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || needs.changes.outputs.full == 'true'
         run: make ci-fast
       - name: Verify generated FRB artifact inputs
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || needs.changes.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -162,7 +162,7 @@ jobs:
           test -f rust/src/frb_generated.rs
           test -f ios/Runner/frb_generated.h
       - name: Upload generated FRB bridge
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || needs.changes.outputs.full == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: frb-generated-${{ github.sha }}
@@ -173,7 +173,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - name: Docs-only repository validation
-        if: needs.changes.outputs.docs_only == 'true'
+        if: needs.changes.outputs.docs_only == 'true' && needs.changes.outputs.full != 'true'
         run: |
           test -f docs/PROJECT_HANDOFF.md
           test -f docs/G6_RELIABILITY_MATRIX.md
