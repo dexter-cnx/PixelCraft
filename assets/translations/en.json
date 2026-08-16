@@ -17,7 +17,13 @@
     "back": "Back",
     "try_again": "Try again",
     "film_preview": "Film preview",
-    "gpu_film_preview": "GPU film preview"
+    "gpu_film_preview": "GPU film preview",
+    "original": "Original",
+    "intensity": "Intensity",
+    "brightness": "Brightness",
+    "contrast": "Contrast",
+    "saturation": "Saturation",
+    "native_look_required": "Filter and Adjust require the native GPU camera preview."
   },
   "errors": {
     "camera_unavailable": "Camera is unavailable.",
