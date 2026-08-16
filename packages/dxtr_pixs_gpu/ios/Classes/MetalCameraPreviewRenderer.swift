@@ -82,16 +82,19 @@ final class MetalCameraPreviewRenderer: NSObject {
   private let commandQueue: MTLCommandQueue
   private let pipeline: MTLRenderPipelineState
   private let lutLoader: MetalFilmLutLoader
+  private let cameraLookComposer: CameraLookLutComposer
   private let session = AVCaptureSession()
   private let videoOutput = AVCaptureVideoDataOutput()
   private let photoOutput = AVCapturePhotoOutput()
   private let sessionQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.session")
   private let captureQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.frames", qos: .userInteractive)
   private let renderQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.metal", qos: .userInteractive)
+  private let lookQueue = DispatchQueue(label: "dev.pixelcraft.gpu.camera.look", qos: .userInitiated)
   private let frameLock = NSLock()
   private var latestPixelBuffer: CVPixelBuffer?
   private var latestFrameSerial: UInt64 = 0
   private var lastScheduledFrameSerial: UInt64 = 0
+  private var lookGeneration: UInt64 = 0
   private var textureCache: CVMetalTextureCache?
   private var diagnosticsMonitor: GpuFramePacingMonitor?
 
@@ -103,6 +106,8 @@ final class MetalCameraPreviewRenderer: NSObject {
   private var profileId = ""
   private var strength: Float = 0
   private var enabled = false
+  private var cameraLookMode = false
+  private var cameraLookHasEffect = false
   private var released = false
   private var configured = false
   private var captureHandler: CaptureHandler?
@@ -134,6 +139,7 @@ final class MetalCameraPreviewRenderer: NSObject {
     self.commandQueue = commandQueue
     self.pipeline = pipeline
     self.lutLoader = loader
+    self.cameraLookComposer = CameraLookLutComposer(device: device)
     self.currentLut = identity
     self.onFailure = onFailure
     super.init()
@@ -164,7 +170,7 @@ final class MetalCameraPreviewRenderer: NSObject {
     }
     let activeProfile = profileId
     let activeStrength = strength
-    let filmEnabled = enabled && !activeProfile.isEmpty
+    let filmEnabled = enabled && !activeProfile.isEmpty && !cameraLookMode
     frameLock.unlock()
 
     guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else {
@@ -278,14 +284,65 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   func setFilm(profileId: String, strength: Double) {
-    self.profileId = profileId
-    self.strength = Float(max(0, min(1, strength)))
+    frameLock.lock()
+    lookGeneration &+= 1
+    let generation = lookGeneration
+    frameLock.unlock()
+
     renderQueue.async { [weak self] in
       guard let self, !self.released else { return }
+      self.cameraLookMode = false
+      self.cameraLookHasEffect = false
+      self.profileId = profileId
+      self.strength = Float(max(0, min(1, strength)))
       do {
         self.currentLut = try self.lutLoader.load(profileId: profileId)
       } catch {
         self.fail("Unable to load Film LUT \(profileId): \(error.localizedDescription)")
+      }
+      _ = generation
+    }
+  }
+
+  func setCameraLook(_ look: NativeGpuCameraLook) {
+    frameLock.lock()
+    lookGeneration &+= 1
+    let generation = lookGeneration
+    frameLock.unlock()
+
+    renderQueue.async { [weak self] in
+      guard let self, !self.released else { return }
+      self.cameraLookMode = true
+      self.cameraLookHasEffect = false
+    }
+
+    if look.isNeutral { return }
+
+    lookQueue.async { [weak self] in
+      guard let self, !self.released else { return }
+      do {
+        let texture = try self.cameraLookComposer.compose(look)
+        self.frameLock.lock()
+        let stillCurrent = generation == self.lookGeneration && !self.released
+        self.frameLock.unlock()
+        guard stillCurrent else { return }
+        self.renderQueue.async { [weak self] in
+          guard let self, !self.released else { return }
+          self.frameLock.lock()
+          let stillCurrent = generation == self.lookGeneration
+          self.frameLock.unlock()
+          guard stillCurrent else { return }
+          self.currentLut = texture
+          self.cameraLookMode = true
+          self.cameraLookHasEffect = true
+        }
+      } catch {
+        self.frameLock.lock()
+        let stillCurrent = generation == self.lookGeneration
+        self.frameLock.unlock()
+        if stillCurrent {
+          self.fail("Unable to compose CameraLook LUT: \(error.localizedDescription)")
+        }
       }
     }
   }
@@ -373,6 +430,9 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   func releaseRenderer() {
+    frameLock.lock()
+    lookGeneration &+= 1
+    frameLock.unlock()
     released = true
     if let view = outputView {
       view.delegate = nil
@@ -522,11 +582,13 @@ final class MetalCameraPreviewRenderer: NSObject {
       outputWidth: Float(max(drawableSize.width, 1)),
       outputHeight: Float(max(drawableSize.height, 1))
     )
+    let useCameraLook = cameraLookMode && cameraLookHasEffect
+    let useLegacyFilm = !cameraLookMode && !profileId.isEmpty
     var uniforms = PreviewUniforms(
       cropScale: crop,
       mirrorX: lensPosition == .front ? 1 : 0,
-      strength: strength,
-      useLut: enabled && !profileId.isEmpty ? 1 : 0
+      strength: cameraLookMode ? 1 : strength,
+      useLut: enabled && (useCameraLook || useLegacyFilm) ? 1 : 0
     )
 
     encoder.setRenderPipelineState(pipeline)
