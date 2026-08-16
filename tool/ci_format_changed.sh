@@ -31,6 +31,11 @@ else
   base=""
   if [[ -n "${CI_BASE_SHA:-}" ]] && git cat-file -e "${CI_BASE_SHA}^{commit}" 2>/dev/null; then
     base="$CI_BASE_SHA"
+  elif [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+    # pull_request checkout is intentionally shallow. Fetch only its base ref so
+    # formatting can be scoped to the PR delta without fetching repository history.
+    git fetch --quiet --no-tags --depth=1 origin "$GITHUB_BASE_REF"
+    base="FETCH_HEAD"
   elif git show-ref --verify --quiet refs/remotes/origin/main; then
     base="$(git merge-base HEAD origin/main)"
   elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
