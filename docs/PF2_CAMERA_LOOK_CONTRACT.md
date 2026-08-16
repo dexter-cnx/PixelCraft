@@ -2,34 +2,39 @@
 
 ## Status
 
-**PF2 IN PROGRESS — native composed-look foundation implemented, renderer activation/UI wiring still pending.**
+**PF2 IN PROGRESS — native composed-look preview and real Camera Film/Filter/Adjust controls are implemented on PR #48. Exact-head CI and physical-device validation remain open.**
 
-Active work is on PR #48 / `feature/pf2-unified-camera-look`.
+Active work:
 
-Verified gates before this refresh:
+```text
+PR #48
+feature/pf2-unified-camera-look
+```
+
+Verified baseline before the current activation slice:
 
 - CI #387: success
 - CI #390: success
 - CI #392: success
 - CI #394: success
+- CI #400 / run `31944473130`: success; includes the Swift/Xcode 26 composer compatibility fix
 
-The latest composer commit at the time of this refresh is `3ac954558f8ed7a70f4f9caea10c440050789390`. CI #396 was started for that head and must not be treated as green until GitHub reports success.
+Do not infer the current activation head is green from these older runs. Verify the exact current PR head before closing PF2.
 
 ## Goal
 
 PF2 exposes Film, Creative Filter and a bounded set of faithful Adjust controls directly in the phone/tablet Camera without creating a second image-processing authority.
 
-The camera state is intentionally transient:
-
 ```text
 Flutter CameraLookState
   -> CameraLookPreviewCoordinator
   -> versioned setCameraLook control payload
-  -> native GPU preview mirror
+  -> native control-rate 33^3 LUT composition
+  -> existing single-LUT Metal/OpenGL ES per-frame hot path
   -> clean camera capture remains untouched
-  -> PF3 translates the same configuration to Rust operations
-  -> Rust full-resolution JPEG render/save
 ```
+
+Until PF3, camera capture still opens the editor. The temporary handoff now replays the complete `CameraLookState` through Rust-backed editor operations so Film/Filter/Adjust are not lost.
 
 ## Authority
 
@@ -38,11 +43,12 @@ Flutter CameraLookState
 - Flutter owns interaction/transient look state only.
 - Live camera framebuffers never become capture/render authority.
 - Camera frame data never crosses MethodChannel.
-- Native preview failure fails closed and must not mutate canonical camera state.
+- Native preview failure fails closed and must not mutate authoritative edit state.
+- PF2 does not save the preview framebuffer.
 
 ## Composition order
 
-PF2 now freezes the preview composition order as:
+PF2 freezes the look order as:
 
 ```text
 clean camera sample
@@ -52,7 +58,7 @@ clean camera sample
   -> display
 ```
 
-The three look surfaces remain independent state layers:
+The three surfaces remain independent state layers:
 
 ```text
 Film
@@ -60,17 +66,13 @@ Film
 + Adjust
 ```
 
-Changing one layer must not clear the other two.
-
-To protect the camera 60fps hot path, PF2 does **not** plan to execute the full composition pipeline independently for every camera pixel from Flutter. Native code pre-composes the selected look into a 33³ LUT when look state changes, then the existing camera renderer keeps a single LUT sample in the per-frame shader path.
-
-This preserves the existing verified LUT sampling architecture while allowing Film + Creative + Adjust to coexist.
+Changing or opening one tool must not clear the other two.
 
 ## Flutter camera state
 
 `lib/camera/camera_look_state.dart`
 
-`CameraLookState` stores:
+`CameraLookState` contains:
 
 - Film profile id + strength;
 - Creative Filter id + strength;
@@ -78,25 +80,30 @@ This preserves the existing verified LUT sampling architecture while allowing Fi
 - contrast;
 - saturation.
 
-Film/Creative strengths are clamped to `0.0 ... 1.0`.
-
-Adjustment bounds/defaults come from `dxtr_pixs_editing`; Camera does not duplicate canonical numeric ranges.
+Film/Creative strengths are clamped to `0.0 ... 1.0`. Adjustment ranges/defaults come from `dxtr_pixs_editing`; Camera does not maintain duplicate numeric semantics.
 
 ## Preview coordinator
 
-The camera preview coordinator provides:
+`lib/camera/camera_look_preview_coordinator.dart`
 
+The coordinator provides:
+
+- complete-state dispatch instead of partial Film/Filter messages;
 - latest-value-wins coalescing for rapid slider updates;
 - generation invalidation on detach;
 - stale-request protection;
-- fail-closed native error handling;
-- full composed-state dispatch rather than partial Film/Filter replacement messages.
+- fail-closed error callback;
+- `flush()` before native shutter capture so the most recently submitted control state is no longer waiting in Dart.
 
-This prevents rapid tool/slider changes from allowing an older native update to overwrite a newer state.
+Native renderers add a second generation guard around composed-LUT work. An older composition result must not overwrite a newer look.
 
 ## Native protocol
 
-`packages/dxtr_pixs_gpu/lib/camera_look_preview_bridge.dart`
+Flutter bridge:
+
+```text
+packages/dxtr_pixs_gpu/lib/camera_look_preview_bridge.dart
+```
 
 MethodChannel:
 
@@ -110,7 +117,7 @@ Method:
 setCameraLook
 ```
 
-Control payload includes:
+Payload:
 
 ```text
 protocolVersion
@@ -124,9 +131,9 @@ contrast
 saturation
 ```
 
-No pixel buffers are transported by this call.
+No frame or pixel buffers are transported by this method.
 
-Native contracts exist on both platforms:
+Native contracts:
 
 ```text
 Android: NativeGpuCameraLook.kt
@@ -137,17 +144,15 @@ They clamp numeric values and reject unsupported Creative Filter ids determinist
 
 ## Film
 
-Film Profile ids and strengths keep the existing G1/Rust contract:
+Film uses existing canonical profile ids and canonical Rust-generated 33³ LUT assets.
 
-- profile id is the canonical Film Profile id;
-- strength is normalized `0.0 ... 1.0`;
-- disabled Film is represented by empty id / zero strength in camera state.
-
-Film LUTs remain canonical Rust-generated assets.
+- strength: `0.0 ... 1.0`;
+- disabled: empty id / zero strength;
+- Film remains an independent layer when Creative or Adjust changes.
 
 ## Creative Filter
 
-Canonical operation ids remain:
+Canonical ids:
 
 - `grayscale`
 - `invert`
@@ -158,7 +163,7 @@ Canonical operation ids remain:
 - `golden`
 - `pastel_pink`
 
-Canonical preset LUT assets:
+Canonical LUT-backed asset ids:
 
 - `creative_vintage`
 - `creative_oceanic`
@@ -167,37 +172,38 @@ Canonical preset LUT assets:
 - `creative_golden`
 - `creative_pastel_pink`
 
-The `creative_` prefix is GPU-asset plumbing only and must not replace the canonical Rust operation id in recipes/state.
+The `creative_` prefix is GPU asset plumbing only. It never replaces the canonical Rust operation id.
 
-### Exact operations
+### Exact grayscale / invert semantics
 
-`grayscale` and `invert` retain the editor GPU exact arithmetic semantics.
-
-Grayscale uses rounded 8-bit RGB values and integer average, not luminance:
+`grayscale` and `invert` mirror the existing rounded-u8 editor semantics.
 
 ```text
-source8 = round(source * 255)
+source8 = round(clamp(source) * 255)
+```
+
+Grayscale:
+
+```text
 average = (r + g + b) / 3
 effected8 = [average, average, average]
 ```
 
-Invert uses:
+Invert:
 
 ```text
-effected8 = 255 - source8
+effected8 = [255-r, 255-g, 255-b]
 ```
 
-Creative intensity blends in 8-bit space with rounding consistent with the existing verified editor path.
+Creative intensity blends in 8-bit space with rounding consistent with the existing editor path.
 
-## Adjust — initial PF2 realtime set
+## Adjust — PF2 realtime scope
 
-PF2 enables only:
+PF2 exposes only:
 
 - `brightness`
 - `contrast`
 - `saturation`
-
-The exact existing editor GPU formulas are retained.
 
 Brightness:
 
@@ -219,69 +225,136 @@ luminance = dot(color, [0.2126, 0.7152, 0.0722])
 color = clamp(luminance + (color - luminance) * saturation, 0.0, 1.0)
 ```
 
-Other editor adjustments remain excluded until camera-preview parity and performance are proven. A visible Camera control must never be a fake placeholder.
+Other adjustments remain excluded until their live-camera parity and performance are proven. A visible Camera control must never be a fake placeholder.
 
-## Native LUT composers
+## Native LUT composition and renderer activation
 
-PF2 now contains platform composers for the same semantic order:
+Composers:
 
 ```text
-Android camera-look composer
-iOS camera-look composer
+Android: CameraLookLutComposer.kt
+iOS:     CameraLookLutComposer.swift
 ```
 
-They build a composed 33³ look from:
+They evaluate the complete semantic order only when CameraLook changes:
 
 ```text
-identity color
+identity 33^3 color
  -> Adjust
- -> optional Film LUT + Film strength
- -> optional Creative exact op or Creative LUT + strength
- -> composed LUT texel
+ -> optional Film LUT + strength
+ -> optional exact Creative op or Creative LUT + strength
+ -> composed 33^3 LUT
 ```
 
-The composer runs when look state changes, not once per camera frame.
+Renderer activation is now wired:
 
-## Current activation state
+```text
+Android
+setCameraLook
+ -> GpuPreviewRendererSessionRegistry
+ -> AndroidGpuCameraOesRenderer
+ -> CameraLookLutComposer on dedicated look thread
+ -> generation check
+ -> upload composed atlas into existing GLES LUT texture
+ -> existing OES shader samples one LUT per frame at strength 1.0
 
-Android `setCameraLook` is routed into the native channel/session layer.
+iOS
+setCameraLook
+ -> GpuPreviewChannel
+ -> MetalCameraPreviewRenderer
+ -> CameraLookLutComposer on dedicated look queue
+ -> generation check
+ -> swap current 3D LUT texture
+ -> existing Metal fragment path samples one LUT per frame at strength 1.0
+```
 
-Until the renderer consumes the composed LUT, non-neutral camera-look requests intentionally fail closed rather than returning success while showing an unchanged or partially composed preview.
+This intentionally keeps composition out of Dart and out of the per-frame camera hot path.
 
-Neutral state may safely disable the active look.
+Legacy `setFilm` remains available for compatibility, but PF2 Camera UI sends complete `CameraLookState` through `setCameraLook`.
 
-The same principle applies to iOS activation: do not report a successful non-neutral composed preview until the Metal camera renderer actually uses the composed LUT.
+## Runtime failure / fallback behavior
 
-## UI rules
+If native composed-look preview fails:
 
-- Film / Filter / Adjust stay in the Camera shell.
-- Switching tabs changes controls, not accumulated look state.
-- Film and Filter selection is direct; no confirmation dialog.
-- Sliders may update continuously through the coalescing coordinator.
-- The photograph remains visually dominant.
-- Filter/Adjust controls must not be enabled until the native/runtime path is real on the active capability path.
-- Unsupported GPU paths fail closed rather than approximate Rust semantics.
+1. native emits the existing `runtimeFailure` signal;
+2. Camera detaches the look coordinator and destroys that renderer;
+3. Camera falls back to the Flutter camera path;
+4. the visible/active look is reduced to Film-only, because fallback preview supports only Film;
+5. Filter/Adjust controls are no longer exposed on that path.
+
+This prevents a hidden Filter/Adjust state from being applied at capture when the user cannot see it in fallback preview.
+
+## Camera UI
+
+`lib/ui/screens/camera_film_preview_screen_g1.dart`
+
+PF2 now has real camera controls:
+
+```text
+Film
+  canonical Film selector
+  strength slider
+
+Filter
+  Original
+  grayscale / invert
+  vintage / oceanic / lofi / dramatic / golden / pastel_pink
+  intensity slider
+
+Adjust
+  brightness / contrast / saturation
+  canonical-range slider
+```
+
+Rules:
+
+- switching tabs preserves accumulated state;
+- controls submit the complete look through `CameraLookPreviewCoordinator`;
+- Filter/Adjust are available only on the active native GPU camera path;
+- fallback Camera does not expose fake Filter/Adjust controls;
+- new PF2 labels are localized in `en` and `th`.
+
+## Temporary PF2 capture -> editor handoff
+
+PF2 does not yet implement PF3 save-to-Gallery behavior.
+
+Before native capture, Camera calls `CameraLookPreviewCoordinator.flush()` and snapshots the current `CameraLookState`.
+
+The clean JPEG capture is then passed to `CameraFilmEditorHandoff` with the full look.
+
+The handoff replays through the normal Rust-backed editor path in deterministic order:
+
+```text
+brightness
+contrast
+saturation
+Film
+Creative
+```
+
+It waits for the editor preview queue to become idle between operations so the editor's latest-value-wins queue cannot coalesce an intermediate adjustment away.
+
+Gallery-picked sources still open with a neutral Camera look; they never inherit Camera Film/Filter/Adjust state.
 
 ## PF2 implementation sequence
 
-1. Freeze `CameraLookState` and canonical filter/adjust mappings. **DONE**
+1. Freeze `CameraLookState` and canonical mappings. **DONE**
 2. Add versioned `setCameraLook` Flutter bridge. **DONE**
-3. Add latest-value-wins preview coordinator and stale-state guards. **DONE**
-4. Add Android/iOS native camera-look parsing/contracts. **DONE**
-5. Add parity-preserving 33³ composed-look builders for Android/iOS. **DONE — compile/CI gate in progress at latest refresh**
-6. Connect composed LUT output to Android OpenGL ES camera renderer. **NEXT**
-7. Connect composed LUT output to iOS Metal camera renderer. **NEXT**
-8. Remove temporary non-neutral fail-closed activation gate after real renderer support exists. **NEXT**
-9. Replace PF1 Filter/Adjust placeholders with real compact controls. **PENDING**
-10. Add rapid-switch / continuous-slider / neutral-state regression coverage. **PARTIAL**
-11. Validate on physical device, including iPhone 11 reference device. **PENDING**
-12. Sync `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, README as the slice closes. **IN PROGRESS**
+3. Add latest-value-wins coordinator and stale-state guards. **DONE**
+4. Add Android/iOS native parsing/contracts. **DONE**
+5. Add Android/iOS 33³ composed-look builders. **DONE**
+6. Connect composed LUT to Android OpenGL ES renderer. **DONE — exact-head CI pending**
+7. Connect composed LUT to iOS Metal renderer/channel. **DONE — exact-head CI pending**
+8. Remove Android temporary non-neutral activation gate. **DONE**
+9. Replace PF1 Filter/Adjust placeholders with real controls. **DONE — exact-head CI pending**
+10. Preserve full CameraLook through temporary capture -> editor handoff. **DONE — exact-head CI pending**
+11. Add/extend rapid-switch, continuous-slider, neutral and handoff regression coverage. **NEXT**
+12. Physical-device validation, including iPhone 11 reference device. **PENDING**
+13. Sync handoff/walkthrough/README and close PF2 only after exact-head CI and required device evidence. **IN PROGRESS**
 
 ## PF3 boundary
 
-PF2 does not change final capture authority.
-
-PF3 remains responsible for:
+PF3 remains responsible for replacing the temporary editor handoff with:
 
 ```text
 clean capture
@@ -293,4 +366,4 @@ clean capture
  -> remain in Camera
 ```
 
-Until PF3 lands, the existing temporary capture -> editor flow remains acceptable only if the selected look is preserved accurately in the authoritative handoff. Preview pixels themselves must never be used as the saved result.
+PF2 preview pixels are never used as saved output.
