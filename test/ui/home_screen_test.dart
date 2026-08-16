@@ -23,44 +23,16 @@ class _MemoryWorkspaceCatalogStore extends WorkspaceCatalogStore {
 
   @override
   Future<List<WorkspaceCatalogItem>> load() async => List.unmodifiable(_items);
-
-  @override
-  Future<void> markAvailability(
-    String id,
-    WorkspaceSourceAvailability availability, {
-    DateTime? now,
-  }) async {
-    final index = _items.indexWhere((item) => item.id == id);
-    if (index == -1) return;
-    _items[index] = _items[index].copyWith(
-      availability: availability,
-      updatedAt: (now ?? DateTime.now()).toUtc(),
-    );
-  }
-
-  @override
-  Future<void> markOpened(String id, {DateTime? now}) async {
-    final index = _items.indexWhere((item) => item.id == id);
-    if (index == -1) return;
-    final timestamp = (now ?? DateTime.now()).toUtc();
-    _items[index] = _items[index].copyWith(
-      updatedAt: timestamp,
-      lastOpenedAt: timestamp,
-    );
-  }
 }
 
-WorkspaceCatalogItem _item(
-  String name, {
-  WorkspaceSourceAvailability availability = WorkspaceSourceAvailability.missing,
-}) {
+WorkspaceCatalogItem _item(String name) {
   final timestamp = DateTime.utc(2026, 8, 16, 3);
   return WorkspaceCatalogItem(
     id: 'workspace-$name',
     sourceKind: WorkspaceSourceKind.gallery,
     retention: WorkspaceSourceRetention.externalReference,
     sourcePath: '/does-not-exist/$name',
-    availability: availability,
+    availability: WorkspaceSourceAvailability.missing,
     importedAt: timestamp,
     updatedAt: timestamp,
   );
@@ -112,7 +84,7 @@ void main() {
     expect(find.text('Your workspace is empty'), findsNothing);
   });
 
-  testWidgets('preserves missing source catalog identity when open fails',
+  testWidgets('renders missing source without deleting catalog identity',
       (tester) async {
     final item = _item('missing.png');
     final catalogStore = _MemoryWorkspaceCatalogStore([item]);
@@ -123,21 +95,14 @@ void main() {
           recoverLostPickerData: false,
           showGpuDiagnostics: false,
           catalogStoreForTesting: catalogStore,
-          sourceExistsForTesting: (_) async => false,
         ),
       ),
     );
     await _pumpUntilFound(tester, find.text('missing.png'));
 
-    await tester.tap(find.text('missing.png'));
-    await _pumpUntilFound(
-      tester,
-      find.text('This source file is no longer available.'),
-    );
-
+    expect(find.text('Source missing'), findsOneWidget);
     final saved = (await catalogStore.load()).single;
     expect(saved.id, item.id);
     expect(saved.availability, WorkspaceSourceAvailability.missing);
-    expect(find.text('Source missing'), findsOneWidget);
   });
 }
