@@ -17,7 +17,13 @@
     "back": "ย้อนกลับ",
     "try_again": "ลองอีกครั้ง",
     "film_preview": "พรีวิวฟิล์ม",
-    "gpu_film_preview": "พรีวิวฟิล์มด้วย GPU"
+    "gpu_film_preview": "พรีวิวฟิล์มด้วย GPU",
+    "original": "ต้นฉบับ",
+    "intensity": "ความเข้ม",
+    "brightness": "ความสว่าง",
+    "contrast": "คอนทราสต์",
+    "saturation": "ความอิ่มสี",
+    "native_look_required": "ฟิลเตอร์และการปรับแต่งต้องใช้พรีวิวกล้อง GPU แบบ Native"
   },
   "errors": {
     "camera_unavailable": "ไม่สามารถใช้งานกล้องได้",
