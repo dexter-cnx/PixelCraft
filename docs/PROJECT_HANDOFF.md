@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. UX-01 and the first UX-02 workspace modernization slice are merged and verified on main. PR #39 is the active UX-02 real-recent-edit slice. G7B and Dart 3.13 native tree-shaking remain deferred.**
+Last refresh: **2026-08-16. UX-01 and UX-02 are merged and verified on main through PR #39 and main CI #345. No persistent multi-item workspace/catalog model exists yet. G7B and Dart 3.13 native tree-shaking remain deferred.**
 
 ---
 
@@ -88,7 +88,8 @@ G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHED
 
 Post-G7A Product / Editor UX                    ACTIVE
 UX-01 Modern import/add-photo entry flow        CLOSED / VERIFIED
-UX-02 Home / Workspace modernization            ACTIVE
+UX-02 Home / Workspace modernization            CLOSED / VERIFIED
+W1 Real workspace/catalog foundation           NEXT / DESIGN + CONTRACT FIRST
 O1 Dart 3.13 native tree-shaking / RecordUse   FUTURE / DEFERRED / DO NOT START NOW
 ```
 
@@ -113,6 +114,7 @@ PR #33  roadmap refresh + deferred Dart 3.13 native tree-shaking plan
 PR #36  replace broken Home PNG golden with structural regression gate
 PR #37  direct primary Import acquisition path
 PR #38  Home workspace modernization; remove demo/sample hierarchy
+PR #39  real persisted recent-edit card with bounded thumbnail decode
 ```
 
 Verification evidence:
@@ -124,6 +126,11 @@ main CI after #37: #337 / 31897159986 / success
 PR #38 merge: 4c35eeaeaeadb0334394509b03bc194393720691
 PR #38 final head CI: #340 / 31898608876 / success
 main CI after #38: #341 / 31899235126 / success
+
+PR #39 final head: 9f55fd4b1f21bd8c74283134473e860d19782b68
+PR #39 final head CI: #344 / 31919129394 / success
+PR #39 merge: 4afb8a38f045abb00c9e6dccf9b75f3b19ad4dd7
+main CI after #39: #345 / 31919832339 / success
 ```
 
 PR hygiene/history:
@@ -166,9 +173,9 @@ Films remains separate.
 
 Verified through PR #37 and resulting main CI #337.
 
-## UX-02 — Home / Workspace modernization — ACTIVE
+## UX-02 — Home / Workspace modernization — CLOSED / VERIFIED
 
-Completed slice via PR #38:
+PR #38:
 
 - removed permanent sample-photo grid;
 - removed demo/marketing/implementation explanatory copy;
@@ -177,23 +184,27 @@ Completed slice via PR #38:
 - retained Import as primary action;
 - no fake recent/catalog data.
 
-Active slice via PR #39:
+PR #39:
 
-```text
-branch: feature/ux02-workspace-recents
-PR: #39
-base: main @ 4c35eeaeaeadb0334394509b03bc194393720691
-```
+- promoted the existing persisted `EditorSessionStore` recovery generation into the real `Recent edit` hierarchy;
+- thumbnail uses stored `originalBytes`;
+- thumbnail decode is bounded by 88 logical pixels × device pixel ratio rather than full-resolution decode;
+- timestamp uses stored `savedAt`;
+- legacy epoch sentinel is hidden rather than rendered as 1970;
+- Resume / Discard semantics remain unchanged;
+- no fake recent images, catalog rows, or new persistence model were introduced.
 
-Goal:
+Verified through PR #39 final head CI #344 and resulting main CI #345.
 
-- promote the existing persisted `EditorSessionStore` recovery generation into a real `Recent edit` workspace item;
-- thumbnail comes from stored `originalBytes`;
-- timestamp comes from stored `savedAt`;
-- Resume / Discard behavior remains unchanged;
-- do not invent recent images or a catalog persistence model in this slice.
+### Workspace data boundary discovered during UX-02
 
-Design direction:
+At the end of UX-02, the repository has one real persisted workspace datum suitable for Home: the latest recoverable editor generation from `EditorSessionStore`.
+
+There is **no persistent multi-item workspace/catalog/history model** that can truthfully power a Lightroom-style list/grid of imported or edited images. Do not fabricate such rows from bundled assets, temporary picker results, or recovery generations.
+
+Any multi-item workspace UI must therefore begin with W1 below.
+
+### Design direction
 
 - image first;
 - direct manipulation;
@@ -206,7 +217,55 @@ Design direction:
 
 ---
 
-# 6. Package graph and naming
+# 6. W1 — Real workspace/catalog foundation — NEXT
+
+Purpose: establish a truthful multi-item workspace data model before adding a multi-image Recent/Library UI.
+
+Do **not** start by drawing a grid. Define and validate the data contract first.
+
+Initial contract questions:
+
+```text
+W1.0 ownership
+- decide which layer owns workspace/catalog metadata
+- Rust remains authoritative for edit semantics; catalog metadata must not become a second image-edit authority
+
+W1.1 item identity
+- stable item id independent of display name/path
+- source origin: import / camera / film camera
+- original source reference/path where platform policy permits
+- created/imported/last-edited timestamps
+
+W1.2 edit linkage
+- link item to authoritative recipe/checkpoint/session identity without duplicating Rust edit semantics
+- recovery session remains crash recovery, not the catalog itself
+
+W1.3 storage policy
+- define app-owned copy vs external-reference behavior per platform
+- define missing/moved source behavior
+- no silent destructive migration of existing recovery data
+
+W1.4 thumbnail policy
+- persist or generate bounded thumbnails; never decode full-resolution originals merely to populate Home
+- define invalidation when orientation/source changes
+
+W1.5 lifecycle
+- import -> catalog item
+- open/edit -> recipe/checkpoint linkage
+- discard recovery must not accidentally delete catalog identity
+- delete/remove semantics must be explicit
+
+W1.6 tests/migration
+- deterministic repository tests
+- legacy/no-catalog startup remains valid
+- recovery store compatibility retained
+```
+
+Implementation should remain focused and may be split into contract/storage/UI PRs. Do not add fake data to make the UI look complete.
+
+---
+
+# 7. Package graph and naming
 
 ```text
 PixelCraft app
@@ -257,7 +316,7 @@ dxtr_pixs_raw      future real RAW pipeline only if a clean boundary is proven
 
 ---
 
-# 7. Future O1 — Dart 3.13 RecordUse / native tree-shaking
+# 8. Future O1 — Dart 3.13 RecordUse / native tree-shaking
 
 **FUTURE / DEFERRED / DO NOT START NOW.**
 
@@ -271,13 +330,13 @@ Do not change the Dart SDK constraint, Flutter baseline, Flutter Rust Bridge int
 
 ---
 
-# 8. G7B
+# 9. G7B
 
 G7B is **deferred indefinitely / not scheduled**. Do not treat it as a blocker and do not resume it without an explicit project decision.
 
 ---
 
-# 9. Reliability / device evidence
+# 10. Reliability / device evidence
 
 G6 is closed/verified.
 
@@ -295,7 +354,7 @@ Historical evidence must not be rewritten to newer branding.
 
 ---
 
-# 10. Release baseline
+# 11. Release baseline
 
 Android:
 
@@ -322,7 +381,7 @@ release --no-codesign is part of CI validation
 
 ---
 
-# 11. Verification rules
+# 12. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
 2. Never commit signing secrets, certificates, provisioning profiles, passwords, or store credentials.
@@ -347,21 +406,21 @@ flutter test
 
 ---
 
-# 12. Current next action
+# 13. Current next action
 
-**Finish UX-02 real recent-edit hierarchy on PR #39 / `feature/ux02-workspace-recents`.**
+**Start W1 real workspace/catalog foundation. Contract and storage semantics come before multi-item Home UI.**
 
 Required sequence:
 
 ```text
-1. validate thumbnail/timestamp rendering from the real persisted recovery generation
-2. preserve Resume / Discard semantics
-3. keep empty workspace behavior unchanged when no session exists
-4. run full PR CI
-5. address all review threads
-6. merge only when final head is green
-7. verify resulting main push CI is fully green
-8. then choose the next UX-02 slice based on real persisted user data; do not fake a catalog
+1. inspect existing editor/recovery/session persistence and platform source-path assumptions
+2. write the W1 catalog item/repository contract and ownership decision
+3. define import/camera source lifecycle and missing-source behavior
+4. define bounded thumbnail storage/generation policy
+5. implement the smallest persistent repository with deterministic tests
+6. integrate Import with catalog creation without changing Rust edit authority
+7. only then expose real multi-item workspace content on Home
+8. keep recovery generation separate from catalog identity
 ```
 
-Do not start O1, G7B, MobileSAM, or restoration during this sequence.
+Do not start O1, G7B, MobileSAM, restoration, or fake catalog UI during this sequence.
