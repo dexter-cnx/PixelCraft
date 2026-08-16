@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -122,7 +123,7 @@ void main() {
     expect(items.single.id, second.id);
   });
 
-  test('serializes concurrent writes instead of dropping entries', () async {
+  test('serializes concurrent writes from one store', () async {
     await Future.wait([
       store.add(
         sourceKind: WorkspaceSourceKind.gallery,
@@ -144,6 +145,51 @@ void main() {
     expect(await store.load(), hasLength(3));
   });
 
+  test('serializes concurrent writes across store instances', () async {
+    final other = WorkspaceCatalogStore(rootDirectory: root);
+
+    await Future.wait([
+      store.add(
+        sourceKind: WorkspaceSourceKind.gallery,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: '/photos/a.jpg',
+      ),
+      other.add(
+        sourceKind: WorkspaceSourceKind.gallery,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: '/photos/b.jpg',
+      ),
+      store.add(
+        sourceKind: WorkspaceSourceKind.systemCamera,
+        retention: WorkspaceSourceRetention.managedCopy,
+        sourcePath: '/managed/c.jpg',
+      ),
+    ]);
+
+    expect(await other.load(), hasLength(3));
+  });
+
+  test('recreated stores do not reuse an id at the same timestamp', () async {
+    final timestamp = DateTime.utc(2026, 8, 16, 5);
+    final first = await store.add(
+      sourceKind: WorkspaceSourceKind.gallery,
+      retention: WorkspaceSourceRetention.externalReference,
+      sourcePath: '/photos/first.jpg',
+      now: timestamp,
+    );
+
+    final recreated = WorkspaceCatalogStore(rootDirectory: root);
+    final second = await recreated.add(
+      sourceKind: WorkspaceSourceKind.gallery,
+      retention: WorkspaceSourceRetention.externalReference,
+      sourcePath: '/photos/second.jpg',
+      now: timestamp,
+    );
+
+    expect(second.id, isNot(first.id));
+    expect(await recreated.load(), hasLength(2));
+  });
+
   test('rejects empty source paths', () async {
     expect(
       () => store.add(
@@ -155,11 +201,75 @@ void main() {
     );
   });
 
-  test('invalid manifest fails closed to an empty catalog', () async {
+  test('invalid manifest fails closed for reads', () async {
     final directory = Directory('${root.path}/pixelcraft-workspace');
     await directory.create(recursive: true);
     await File('${directory.path}/catalog.json').writeAsString('{broken');
 
     expect(await store.load(), isEmpty);
+  });
+
+  test('invalid manifest blocks mutations and preserves original bytes', () async {
+    final directory = Directory('${root.path}/pixelcraft-workspace');
+    await directory.create(recursive: true);
+    final manifest = File('${directory.path}/catalog.json');
+    const broken = '{broken';
+    await manifest.writeAsString(broken);
+
+    await expectLater(
+      store.add(
+        sourceKind: WorkspaceSourceKind.gallery,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: '/photos/new.jpg',
+      ),
+      throwsFormatException,
+    );
+    expect(await manifest.readAsString(), broken);
+  });
+
+  test('newer schema blocks mutations instead of being overwritten', () async {
+    final directory = Directory('${root.path}/pixelcraft-workspace');
+    await directory.create(recursive: true);
+    final manifest = File('${directory.path}/catalog.json');
+    final original = jsonEncode({'version': 99, 'items': []});
+    await manifest.writeAsString(original);
+
+    await expectLater(
+      store.add(
+        sourceKind: WorkspaceSourceKind.gallery,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: '/photos/new.jpg',
+      ),
+      throwsFormatException,
+    );
+    expect(await manifest.readAsString(), original);
+  });
+
+  test('backup manifest remains readable after interrupted replacement', () async {
+    final item = await store.add(
+      sourceKind: WorkspaceSourceKind.gallery,
+      retention: WorkspaceSourceRetention.externalReference,
+      sourcePath: '/photos/source.jpg',
+      now: DateTime.utc(2026, 8, 16, 6),
+    );
+    final directory = Directory('${root.path}/pixelcraft-workspace');
+    final manifest = File('${directory.path}/catalog.json');
+    final backup = File('${manifest.path}.bak');
+    await manifest.rename(backup.path);
+
+    final recreated = WorkspaceCatalogStore(rootDirectory: root);
+    final loaded = await recreated.load();
+    expect(loaded.single.id, item.id);
+
+    await recreated.add(
+      sourceKind: WorkspaceSourceKind.systemCamera,
+      retention: WorkspaceSourceRetention.managedCopy,
+      sourcePath: '/managed/next.jpg',
+      now: DateTime.utc(2026, 8, 16, 7),
+    );
+
+    expect(await manifest.exists(), isTrue);
+    expect(await backup.exists(), isFalse);
+    expect(await recreated.load(), hasLength(2));
   });
 }
