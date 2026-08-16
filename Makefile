@@ -121,8 +121,8 @@ clean: ## Flutter clean
 clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 	rm -rf build android/.gradle $(RUST_CRATE_DIR)/target
 
-format-check: ## Fail if tracked Dart files require formatting
-	@git ls-files '*.dart' -z | xargs -0 dart format --output=none --set-exit-if-changed
+format-check: ## Fail if changed Dart files require formatting
+	@bash tool/ci_format_changed.sh
 
 analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
@@ -148,7 +148,8 @@ package-check: ## Analyze/test split Flutter packages without platform builds
 	done; \
 	for pkg in packages/dxtr_pixs_engine packages/dxtr_pixs_gpu; do \
 		echo "[Pixel Craft] Flutter package check: $$pkg"; \
-		(cd "$$pkg" && $(FLUTTER) pub get && $(FLUTTER) analyze); \
+		(cd "$$pkg" && $(FLUTTER) pub get); \
+		if [ -d "$$pkg/lib" ]; then (cd "$$pkg" && $(FLUTTER) analyze lib); fi; \
 		if [ -d "$$pkg/test" ]; then (cd "$$pkg" && $(FLUTTER) test); fi; \
 	done
 
