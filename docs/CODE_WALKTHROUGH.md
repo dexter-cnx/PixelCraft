@@ -201,7 +201,7 @@ More ways to add -> Take Photo
  -> ProductEditorScreen(imagePath: XFile.path)
 ```
 
-Lost picker data recovered by Home is cataloged as `systemCamera` before opening the editor.
+Lost picker recovery is deliberately **not cataloged** because `image_picker.retrieveLostData()` does not preserve whether the recovered `XFile` originated from gallery or camera. Home opens the recovered file in the editor without inventing source metadata. A future durable pending-acquisition marker can make that provenance recoverable explicitly.
 
 Catalog writes are **fail-soft for editing** but **fail-closed for metadata preservation**:
 
@@ -217,20 +217,22 @@ Film Camera is intentionally not catalog-integrated in this slice because its ca
 
 Home loads persisted items through `WorkspaceCatalogStore.load()`.
 
-When a user taps an item:
+When a user taps an item, Home sets an in-flight open guard **before** any file-system/catalog await. While that guard is active, workspace rows and other acquisition actions are disabled, preventing double taps from stacking duplicate editor routes.
 
 ```text
-File(sourcePath).exists?
- ├── yes
- │    -> mark availability = available when needed
- │    -> markOpened(id)
- │    -> ProductEditorScreen(imagePath: sourcePath)
- │    -> refresh recovery + catalog after editor returns
- │
- └── no
-      -> mark availability = missing
-      -> preserve catalog identity
-      -> show "This source file is no longer available."
+set opening guard
+ -> File(sourcePath).exists?
+    ├── yes
+    │    -> mark availability = available when needed
+    │    -> markOpened(id)
+    │    -> ProductEditorScreen(imagePath: sourcePath)
+    │    -> refresh recovery + catalog after editor returns
+    │
+    └── no
+         -> mark availability = missing
+         -> preserve catalog identity
+         -> show "This source file is no longer available."
+ -> clear opening guard in finally
 ```
 
 Missing source handling never silently deletes the catalog row. This preserves identity for future relink/recovery work.
@@ -528,11 +530,13 @@ Current sequence:
 3. preserve recovery card as a separate concern
 4. mark missing source without deleting catalog identity
 5. keep thumbnails decode-bounded
-6. verify widget + catalog persistence tests and full CI
-7. address review feedback
-8. merge and verify resulting main CI
-9. inspect Film Camera capture handoff before integrating it
-10. decide managed-copy policy before promising durable source retention across platform picker/cache lifetimes
+6. avoid inventing provenance for lost picker recovery
+7. serialize workspace-item opening in the UI to prevent duplicate editor routes
+8. verify widget + catalog persistence tests and full CI
+9. address review feedback
+10. merge and verify resulting main CI
+11. inspect Film Camera capture handoff before integrating it
+12. decide managed-copy policy before promising durable source retention across platform picker/cache lifetimes
 ```
 
 Do not fake catalog data, do not migrate recovery identity into catalog identity, and do not start G7B/O1/MobileSAM/restoration as part of W1.
