@@ -10,14 +10,15 @@ DEVICE ?=
 APK ?= build/app/outputs/flutter-apk/app-debug.apk
 RUST_CRATE_DIR ?= rust
 RUST_BUILDER_DIR ?= packages/dxtr_pixs_engine
+GPU_CRATE_DIR ?= packages/dxtr_pixs_gpu/rust
 GPU_LUT_DIR ?= build/gpu_luts
 
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
         setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test g3-device-verify run run-release clean clean-all \
-        analyze test test-unit test-gpu test-widget golden-test golden-update native-test profile-native test-full \
-        rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
+        format-check analyze test test-unit test-gpu test-widget test-fast package-check gpu-check device-safety-check ci-fast preflight \
+        golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
 	@printf "Pixel Craft development commands\n\n"
@@ -120,6 +121,9 @@ clean: ## Flutter clean
 clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 	rm -rf build android/.gradle $(RUST_CRATE_DIR)/target
 
+format-check: ## Fail if tracked Dart files require formatting
+	@git ls-files '*.dart' -z | xargs -0 $(FLUTTER) format --output=none --set-exit-if-changed
+
 analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
 
@@ -133,6 +137,47 @@ test-gpu: ## Run GPU presentation/render-plan unit tests
 
 test-widget: ## Run widget tests
 	$(FLUTTER) test test/ui --exclude-tags=golden
+
+test-fast: test ## Run fast host-side Flutter tests without goldens/integration/device suites
+
+package-check: ## Analyze/test split Flutter packages without platform builds
+	@set -euo pipefail; \
+	for pkg in packages/dxtr_pixs_editing packages/dxtr_pixs_film; do \
+		echo "[Pixel Craft] Dart package check: $$pkg"; \
+		(cd "$$pkg" && dart pub get && dart analyze && dart test); \
+	done; \
+	for pkg in packages/dxtr_pixs_engine packages/dxtr_pixs_gpu; do \
+		echo "[Pixel Craft] Flutter package check: $$pkg"; \
+		(cd "$$pkg" && $(FLUTTER) pub get && $(FLUTTER) analyze); \
+		if [ -d "$$pkg/test" ]; then (cd "$$pkg" && $(FLUTTER) test); fi; \
+	done
+
+gpu-check: ## Run cheap shared GPU/native Rust formatting, lint and tests on the host
+	$(CARGO) fmt --manifest-path $(GPU_CRATE_DIR)/Cargo.toml --all -- --check
+	$(CARGO) clippy --manifest-path $(GPU_CRATE_DIR)/Cargo.toml --all-targets -- -D warnings
+	$(CARGO) test --manifest-path $(GPU_CRATE_DIR)/Cargo.toml
+
+device-safety-check: ## Verify G6 verifier isolation and primary app identifier policy
+	bash tool/ci_device_safety_guard.sh
+
+ci-fast: ## Mandatory cheap CI gate before platform/native build jobs
+	@$(MAKE) format-check
+	@$(MAKE) pub-get
+	@$(MAKE) analyze
+	@$(MAKE) package-boundaries
+	@$(MAKE) test-fast
+	@$(MAKE) package-check
+	@$(MAKE) rust-fmt
+	@$(MAKE) rust-clippy
+	@$(MAKE) rust-test
+	@$(MAKE) gpu-check
+	@$(MAKE) device-safety-check
+
+preflight: ## Run the same fast checks locally before pushing
+	@$(MAKE) ci-fast
+
+package-boundaries: ## Verify package dependency direction contracts
+	bash tool/check_package_boundaries.sh
 
 golden-test: ## Compare UI with committed golden PNG files
 	$(FLUTTER) test test/golden
