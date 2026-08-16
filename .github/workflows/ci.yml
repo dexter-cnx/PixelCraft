@@ -4,197 +4,250 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run complete supported-platform and Tier 3 automated reliability validation
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
 
 concurrency:
-  group: pixelcraft-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: pixelcraft-${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FLUTTER_VERSION: '3.44.7'
+  RUST_VERSION: '1.95.0'
 
 jobs:
-  validate:
+  changes:
+    name: Change Detection
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 5
+    outputs:
+      docs: ${{ steps.domains.outputs.docs }}
+      docs_only: ${{ steps.domains.outputs.docs_only }}
+      flutter_app: ${{ steps.domains.outputs.flutter_app }}
+      flutter_packages: ${{ steps.domains.outputs.flutter_packages }}
+      native_gpu: ${{ steps.domains.outputs.native_gpu }}
+      shared_native_gpu: ${{ steps.domains.outputs.shared_native_gpu }}
+      android: ${{ steps.domains.outputs.android }}
+      ios: ${{ steps.domains.outputs.ios }}
+      macos: ${{ steps.domains.outputs.macos }}
+      windows_linux: ${{ steps.domains.outputs.windows_linux }}
+      package_api: ${{ steps.domains.outputs.package_api }}
+      reliability: ${{ steps.domains.outputs.reliability }}
+      ci: ${{ steps.domains.outputs.ci }}
+      full: ${{ steps.policy.outputs.full }}
+    steps:
+      - name: Checkout with history for change detection
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Self-test change classifier
+        run: python3 tool/ci_changed_domains.py --self-test
+
+      - name: Resolve changed paths
+        id: diff
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              base="$PR_BASE_SHA"
+              ;;
+            push)
+              base="$PUSH_BEFORE"
+              if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+                base="$(git rev-list --max-parents=0 HEAD | tail -1)"
+              fi
+              ;;
+            merge_group)
+              base="$MERGE_BASE_SHA"
+              ;;
+            workflow_dispatch)
+              base="$(git rev-parse HEAD^)"
+              ;;
+            *)
+              echo "Unsupported event: $EVENT_NAME" >&2
+              exit 2
+              ;;
+          esac
+          git diff --name-only --diff-filter=ACMR "$base" "$GITHUB_SHA" | sort -u | tee changed-files.txt
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Classify change domains
+        id: domains
+        run: python3 tool/ci_changed_domains.py --file-list changed-files.txt --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve validation policy
+        id: policy
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CI_CHANGED: ${{ steps.domains.outputs.ci }}
+          LABEL_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+          DISPATCH_FULL: ${{ inputs.full }}
+        run: |
+          set -euo pipefail
+          full=false
+          case "$EVENT_NAME" in
+            push|merge_group)
+              full=true
+              ;;
+            workflow_dispatch)
+              [[ "$DISPATCH_FULL" == "true" ]] && full=true
+              ;;
+            pull_request)
+              [[ "$LABEL_FULL" == "true" ]] && full=true
+              ;;
+          esac
+          [[ "$CI_CHANGED" == "true" ]] && full=true
+          echo "full=$full" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Change summary
+        run: |
+          {
+            echo '### PixelCraft CI change policy'
+            echo
+            echo '- Full validation: `${{ steps.policy.outputs.full }}`'
+            echo '- Docs only: `${{ steps.domains.outputs.docs_only }}`'
+            echo '- Flutter app: `${{ steps.domains.outputs.flutter_app }}`'
+            echo '- Flutter packages: `${{ steps.domains.outputs.flutter_packages }}`'
+            echo '- Shared native/GPU: `${{ steps.domains.outputs.shared_native_gpu }}`'
+            echo '- Android: `${{ steps.domains.outputs.android }}`'
+            echo '- iOS: `${{ steps.domains.outputs.ios }}`'
+            echo '- macOS: `${{ steps.domains.outputs.macos }}`'
+            echo '- Windows/Linux: `${{ steps.domains.outputs.windows_linux }}`'
+            echo '- Package API: `${{ steps.domains.outputs.package_api }}`'
+            echo '- Reliability: `${{ steps.domains.outputs.reliability }}`'
+            echo '- CI/tooling: `${{ steps.domains.outputs.ci }}`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  fast-ci:
+    name: Fast CI
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Repository whitespace guard
+        run: git diff --check
+
+      - name: Device verifier isolation guard
+        run: bash tool/ci_device_safety_guard.sh
+
+      - name: Change classifier self-test
+        run: python3 tool/ci_changed_domains.py --self-test
+
       - name: Set up Flutter
+        if: needs.changes.outputs.docs_only != 'true'
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.7'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
       - name: Set up Rust
+        if: needs.changes.outputs.docs_only != 'true'
         uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
 
       - name: Cache Cargo
+        if: needs.changes.outputs.docs_only != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust
+            packages/dxtr_pixs_gpu/rust
 
+      - name: Fast pre-merge gate
+        if: needs.changes.outputs.docs_only != 'true'
+        run: make ci-fast
+
+      - name: Docs-only repository validation
+        if: needs.changes.outputs.docs_only == 'true'
+        run: |
+          test -f docs/PROJECT_HANDOFF.md
+          test -f docs/G6_RELIABILITY_MATRIX.md
+
+  native-core:
+    name: Native/GPU Core
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.shared_native_gpu == 'true' ||
+       needs.changes.outputs.package_api == 'true' ||
+       needs.changes.outputs.reliability == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            packages/dxtr_pixs_gpu/rust
       - name: Flutter dependencies
         run: flutter pub get
-
-      - name: Package dependency boundaries
-        run: bash tool/check_package_boundaries.sh
-
-      - name: Install flutter_rust_bridge codegen
+      - name: Install pinned FRB codegen
         run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
-
       - name: Regenerate FRB bridge
         run: make codegen
-
-      - name: Verify generated native bridge is committed
-        run: git diff --exit-code -- rust/src/frb_generated.rs ios/Runner/frb_generated.h
-
-      - name: Verify generated Dart bridge exists
-        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
-
-      - name: Rust format
-        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-
-      - name: Rust clippy
-        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
-
-      - name: Rust tests
-        run: cargo test --manifest-path rust/Cargo.toml
-
-      - name: G6 12 MP image characterization
-        env:
-          G6_MAX_MP: '12'
-        run: cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -- --ignored --nocapture
-
+      - name: Verify generated bridge is committed
+        run: git diff --exit-code -- rust/src/frb_generated.rs ios/Runner/frb_generated.h lib/src/rust/api.dart lib/src/rust/frb_generated.dart
       - name: GPU LUT parity
         run: make gpu-lut-verify
 
-      - name: Editing package dependencies
-        working-directory: packages/dxtr_pixs_editing
-        run: dart pub get
-
-      - name: Editing package analyze
-        working-directory: packages/dxtr_pixs_editing
-        run: dart analyze
-
-      - name: Editing package tests
-        working-directory: packages/dxtr_pixs_editing
-        run: dart test
-
-      - name: Film package dependencies
-        working-directory: packages/dxtr_pixs_film
-        run: dart pub get
-
-      - name: Film package analyze
-        working-directory: packages/dxtr_pixs_film
-        run: dart analyze
-
-      - name: Film package tests
-        working-directory: packages/dxtr_pixs_film
-        run: dart test
-
-      - name: GPU package dependencies
-        working-directory: packages/dxtr_pixs_gpu
-        run: flutter pub get
-
-      - name: GPU package analyze
-        working-directory: packages/dxtr_pixs_gpu
-        run: flutter analyze
-
-      - name: GPU package tests
-        working-directory: packages/dxtr_pixs_gpu
-        run: flutter test
-
-      - name: Flutter analyze
-        run: flutter analyze
-
-      - name: State tests
-        run: flutter test test/state
-
-      - name: GPU plan/session tests
-        run: flutter test test/gpu
-
-      - name: Widget tests
-        run: flutter test test/ui --exclude-tags=golden
-
-      - name: Android Rust plugin packaging smoke
-        run: make verify-native
-
-  gpu-desktop-core:
-    name: wgpu core (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.95.0
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache wgpu Cargo artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/dxtr_pixs_gpu/rust
-
-      - name: Rust format
-        run: cargo fmt --manifest-path packages/dxtr_pixs_gpu/rust/Cargo.toml --all -- --check
-
-      - name: Rust clippy
-        run: cargo clippy --manifest-path packages/dxtr_pixs_gpu/rust/Cargo.toml --all-targets -- -D warnings
-
-      - name: Rust tests
-        run: cargo test --manifest-path packages/dxtr_pixs_gpu/rust/Cargo.toml
-
   golden:
-    name: Golden tests (macOS)
+    name: Golden Tests
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.flutter_app == 'true' ||
+       needs.changes.outputs.flutter_packages == 'true')
     runs-on: macos-latest
-    timeout-minutes: 35
-
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.7'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.95.0
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-
-      - name: Flutter dependencies
-        run: flutter pub get
-
-      - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
-
-      - name: Regenerate FRB bridge
-        run: make codegen
-
-      - name: Verify generated Dart bridge exists
-        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
-
+      - run: flutter pub get
       - name: Golden tests
         run: flutter test test/golden
-
-      - name: iOS Rust plugin packaging smoke
-        run: flutter build ios --debug --no-codesign
-
       - name: Upload golden failures
         if: failure()
         uses: actions/upload-artifact@v4
@@ -203,50 +256,41 @@ jobs:
           path: test/golden/failures/**
           if-no-files-found: ignore
 
-  android-release:
-    name: Android release artifact
+  android:
+    name: Android Build
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.android == 'true' ||
+       needs.changes.outputs.shared_native_gpu == 'true' ||
+       needs.changes.outputs.package_api == 'true' ||
+       needs.changes.outputs.reliability == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 35
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          flutter-version: '3.44.7'
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.95.0
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-
-      - name: Flutter dependencies
-        run: flutter pub get
-
-      - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
-
-      - name: Regenerate FRB bridge
-        run: make codegen
-
-      - name: Verify generated Dart bridge exists
-        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
-
+      - run: flutter pub get
       - name: Build unsigned release APK
         run: flutter build apk --release
-
       - name: Verify Rust native library is packaged
         run: |
           unzip -l build/app/outputs/flutter-apk/app-release.apk | tee /tmp/pixelcraft-apk.txt
           grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/libpixelcraft_engine\.so' /tmp/pixelcraft-apk.txt
-
       - name: Verify release artifact is not debug-signed
         run: |
           test ! -f android/key.properties
@@ -254,62 +298,253 @@ jobs:
             echo "Release build still references debug signing" >&2
             exit 1
           fi
-
       - name: Upload Android release artifact
+        if: needs.changes.outputs.full == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pixelcraft-android-release-${{ github.sha }}
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-  ios-release:
-    name: iOS release no-codesign
+  ios:
+    name: iOS Build
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.ios == 'true' ||
+       needs.changes.outputs.shared_native_gpu == 'true' ||
+       needs.changes.outputs.package_api == 'true' ||
+       needs.changes.outputs.reliability == 'true')
     runs-on: macos-latest
     timeout-minutes: 40
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.7'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.95.0
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-
-      - name: Flutter dependencies
-        run: flutter pub get
-
-      - name: Install flutter_rust_bridge codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
-
-      - name: Regenerate FRB bridge
-        run: make codegen
-
-      - name: Verify generated Dart bridge exists
-        run: test -f lib/src/rust/api.dart && test -f lib/src/rust/frb_generated.dart
-
+      - run: flutter pub get
       - name: Build iOS release without signing
         run: flutter build ios --release --no-codesign
-
       - name: Verify app bundle and native output exist
         run: |
           test -d build/ios/iphoneos/Runner.app
           find build/ios/iphoneos/Runner.app -maxdepth 3 -type f | sort > /tmp/pixelcraft-ios-files.txt
           grep -E '(pixelcraft_engine|Runner)' /tmp/pixelcraft-ios-files.txt
-
       - name: Upload unsigned iOS app bundle
+        if: needs.changes.outputs.full == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pixelcraft-ios-release-${{ github.sha }}
           path: build/ios/iphoneos/Runner.app
           if-no-files-found: error
+
+  macos:
+    name: macOS Build
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.macos == 'true' ||
+       needs.changes.outputs.shared_native_gpu == 'true' ||
+       needs.changes.outputs.package_api == 'true' ||
+       needs.changes.outputs.reliability == 'true')
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            packages/dxtr_pixs_gpu/rust
+      - run: flutter pub get
+      - name: Build macOS application
+        run: flutter build macos --debug
+
+  windows:
+    name: Windows Build
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.windows_linux == 'true' ||
+       needs.changes.outputs.shared_native_gpu == 'true' ||
+       needs.changes.outputs.package_api == 'true' ||
+       needs.changes.outputs.reliability == 'true')
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            packages/dxtr_pixs_gpu/rust
+      - run: flutter pub get
+      - name: Build Windows application
+        run: flutter build windows --debug
+
+  linux:
+    name: Linux Build
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.full == 'true' ||
+       needs.changes.outputs.windows_linux == 'true' ||
+       needs.changes.outputs.shared_native_gpu == 'true' ||
+       needs.changes.outputs.package_api == 'true' ||
+       needs.changes.outputs.reliability == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            packages/dxtr_pixs_gpu/rust
+      - run: flutter pub get
+      - name: Build Linux application
+        run: flutter build linux --debug
+
+  reliability-tier2:
+    name: Reliability Tier 2
+    needs: [changes, fast-ci]
+    if: >-
+      needs.fast-ci.result == 'success' &&
+      (needs.changes.outputs.native_gpu == 'true' ||
+       needs.changes.outputs.reliability == 'true' ||
+       needs.changes.outputs.full == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: flutter pub get
+      - name: G6 failure injection
+        run: flutter test test/state/g6_failure_injection_test.dart
+      - name: G6 12 MP image characterization
+        env:
+          G6_MAX_MP: '12'
+        run: cargo test --manifest-path rust/Cargo.toml --test g6_image_matrix -- --ignored --nocapture
+      - name: Device safety contract
+        run: bash tool/ci_device_safety_guard.sh
+      - name: Physical-device boundary
+        run: echo 'Hosted CI does not claim physical-device validation; docs/G6_DEVICE_MANUAL_CHECKLIST.md remains manual evidence.'
+
+  reliability-tier3:
+    name: Reliability Tier 3
+    needs: [changes, fast-ci]
+    if: needs.fast-ci.result == 'success' && needs.changes.outputs.full == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: flutter pub get
+      - name: Complete hosted automated G6 validation
+        env:
+          G6_MAX_MP: '48'
+        run: bash tool/g6_complete_remaining.sh
+      - name: Manual physical validation remains explicit
+        run: |
+          echo 'No DEVICE was supplied to hosted CI.'
+          echo 'Physical camera/lifecycle/GPU checks remain in docs/G6_DEVICE_MANUAL_CHECKLIST.md and are never fabricated.'
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs:
+      - changes
+      - fast-ci
+      - native-core
+      - golden
+      - android
+      - ios
+      - macos
+      - windows
+      - linux
+      - reliability-tier2
+      - reliability-tier3
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all selected validation to pass
+        shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          FAST: ${{ needs.fast-ci.result }}
+          NATIVE: ${{ needs.native-core.result }}
+          GOLDEN: ${{ needs.golden.result }}
+          ANDROID: ${{ needs.android.result }}
+          IOS: ${{ needs.ios.result }}
+          MACOS: ${{ needs.macos.result }}
+          WINDOWS: ${{ needs.windows.result }}
+          LINUX: ${{ needs.linux.result }}
+          REL2: ${{ needs.reliability-tier2.result }}
+          REL3: ${{ needs.reliability-tier3.result }}
+        run: |
+          set -euo pipefail
+          printf '%-22s %s\n' \
+            'Change Detection' "$CHANGES" \
+            'Fast CI' "$FAST" \
+            'Native/GPU Core' "$NATIVE" \
+            'Golden Tests' "$GOLDEN" \
+            'Android Build' "$ANDROID" \
+            'iOS Build' "$IOS" \
+            'macOS Build' "$MACOS" \
+            'Windows Build' "$WINDOWS" \
+            'Linux Build' "$LINUX" \
+            'Reliability Tier 2' "$REL2" \
+            'Reliability Tier 3' "$REL3"
+          for result in "$CHANGES" "$FAST" "$NATIVE" "$GOLDEN" "$ANDROID" "$IOS" "$MACOS" "$WINDOWS" "$LINUX" "$REL2" "$REL3"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "CI Gate rejected result: $result" >&2; exit 1 ;;
+            esac
+          done
