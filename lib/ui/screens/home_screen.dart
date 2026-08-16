@@ -30,19 +30,8 @@ class HomeScreen extends StatefulWidget {
     this.pickImageForTesting,
   });
 
-  /// Android can recreate the app while the external camera is open. Keep
-  /// this enabled in production so accepted captures are recovered through
-  /// image_picker. Tests that are not exercising that platform handoff can
-  /// disable it to stay deterministic and avoid a real platform-channel call.
   final bool recoverLostPickerData;
-
-  /// Debug-only diagnostics entry point. It defaults to [kDebugMode] in the
-  /// real app but can be disabled by deterministic/product-oriented tests so
-  /// visual baselines do not encode debug-only chrome.
   final bool showGpuDiagnostics;
-
-  /// Test seam for acquisition-flow widget tests. Production leaves this null
-  /// and continues to use the platform [ImagePicker].
   final HomePickImage? pickImageForTesting;
 
   @override
@@ -217,41 +206,78 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _formatSavedAt(DateTime savedAt) {
+    final local = savedAt.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
+
   Widget _buildWorkspaceBody(BuildContext context, {required bool blocked}) {
-    if (_recoverableSession != null) {
+    final session = _recoverableSession;
+    if (session != null) {
       return ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 112),
         children: [
-          Text('Continue editing', style: Theme.of(context).textTheme.titleLarge),
+          Text('Recent edit', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           Card.filled(
+            clipBehavior: Clip.antiAlias,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Icon(Icons.history_rounded),
-                  const SizedBox(width: 12),
-                  const Expanded(
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      session.originalBytes,
+                      width: 88,
+                      height: 88,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        width: 88,
+                        height: 88,
+                        alignment: Alignment.center,
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        child: const Icon(Icons.image_not_supported_outlined),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Last edit',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        SizedBox(height: 2),
-                        Text('Continue from your saved edit state.'),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Saved ${_formatSavedAt(session.savedAt)}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.tonal(
+                              onPressed: blocked ? null : _resumeLastSession,
+                              child: const Text('Resume'),
+                            ),
+                            TextButton(
+                              onPressed: blocked ? null : _discardRecovery,
+                              child: const Text('Discard'),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                  ),
-                  TextButton(
-                    onPressed: blocked ? null : _discardRecovery,
-                    child: const Text('Discard'),
-                  ),
-                  const SizedBox(width: 4),
-                  FilledButton(
-                    onPressed: blocked ? null : _resumeLastSession,
-                    child: const Text('Resume'),
                   ),
                 ],
               ),
