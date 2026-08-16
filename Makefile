@@ -164,10 +164,11 @@ device-safety-check: ## Verify G6 verifier isolation and primary app identifier 
 ci-fast: ## Mandatory cheap CI gate before platform/native build jobs
 	@$(MAKE) format-check
 	@$(MAKE) pub-get
+	@$(MAKE) package-check
+	@$(MAKE) codegen
 	@$(MAKE) analyze
 	@$(MAKE) package-boundaries
 	@$(MAKE) test-fast
-	@$(MAKE) package-check
 	@$(MAKE) rust-fmt
 	@$(MAKE) rust-clippy
 	@$(MAKE) rust-test
