@@ -77,6 +77,10 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
           : platformInitialLocation,
       routes: [
         GoRoute(
+          path: AppRoutePaths.root,
+          redirect: (_, __) => platformInitialLocation,
+        ),
+        GoRoute(
           path: AppRoutePaths.camera,
           name: AppRouteNames.camera,
           builder: (_, __) => const RustBootstrapScreen(
