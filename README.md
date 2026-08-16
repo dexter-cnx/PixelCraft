@@ -1,241 +1,291 @@
 # PixelCraft
 
-PixelCraft is an offline-first mobile photo editor and film-simulation camera built with Flutter, Rust, Metal, and OpenGL ES.
+**Dextryx Pixels** (`Dxtr Pixs`) is an offline-first camera, photo editor, and image-processing product built with Flutter, Rust, Metal, and OpenGL ES.
 
-The architecture separates semantic authority from interactive rendering:
+PixelCraft uses a platform-adaptive product shell:
 
-- **Rust is authoritative** for committed editing semantics, recipes, history, checkpoints, recovery, and full-resolution export.
-- **Native GPU is preview-only** for low-latency camera/editor interaction where the requested operation graph can be reproduced faithfully.
+- **phone + tablet:** camera-first;
+- **desktop:** editor/open/drop-first;
+- **future Nixin integration:** explicit external-edit request/result contract.
 
-Normal PixelCraft editing/export flows do not require user images to leave the device.
+PixelCraft is not the long-lived DAM/library product. **Nixin / Dextryx Images** owns Workplaces, cataloging, organization, browsing, and large-library workflows.
 
-## Current status
+## Product flow
 
-As of 2026-08-12:
+### Phone and tablet
+
+Launch directly into Camera:
 
 ```text
-G1  Camera GPU Preview                          CLOSED
-G2  Editor GPU Preview Foundation               CLOSED / MERGED
-G3  Production Rendering Pipeline               CLOSED / MERGED
-G4  Product Editor UX / Session Workflow        CLOSED / MERGED
-G5  Editing Feature Completeness                CLOSED / VERIFIED
-G6  Reliability / Performance / Device Matrix   CLOSED / VERIFIED
-
-P0  pixelcraft_engine package extraction        MERGED
-P1  pixelcraft_gpu package extraction           MERGED
-P2  pixelcraft_editing package extraction       MERGED
-P3  pixelcraft_film package extraction          MERGED
-
-G7A Release Engineering / Store Preparation     MERGED — PR #18
-G7B Store Account Integration / Beta Upload     BLOCKED BY EXTERNAL ACCOUNTS
+┌─────────────────────────────┐
+│                             │
+│       live preview          │
+│                             │
+│   Film  Filter  Adjust      │
+│                             │
+├─────────────────────────────┤
+│ Gallery   SHUTTER   Controls│
+└─────────────────────────────┘
 ```
 
-G7A merged into `main` as:
+Target behavior:
 
 ```text
-507875b2e1187e2bc2f0a6d0535b77dc0455b69f
+Shutter
+ -> clean camera capture
+ -> apply selected Film / Filter / Adjust through Rust-authoritative processing
+ -> JPEG output
+ -> save to system Gallery
+ -> remain in Camera
 ```
 
-The final G7A PR head passed full CI in run #221 (`31611799174`). That run included package-boundary checks, Rust tests, editing/film/GPU package analyze/tests, Flutter analyze/tests, golden/native packaging, Android release packaging, iOS release no-codesign packaging, and wgpu Linux/macOS/Windows.
+Live GPU pixels are preview-only and never become final-render authority.
 
-Old PR #10 was audited after G7A merge and is now **CLOSED / SUPERSEDED**. Its implementation was recreated and expanded by PR #18; it must not be merged as an alternate G7 line.
-
-G7B remains blocked until Apple Developer/App Store Connect and Google Play Console accounts are available.
-
-## Canonical runtime flow
+Gallery flow:
 
 ```text
-Camera / imported image
+Gallery
+ -> choose source
+ -> keep original source untouched
+ -> Editor
+ -> Film / Filter / Adjust / transforms / future masks
+ -> Rust full-resolution render
+ -> save processed result to Gallery
+```
+
+The original source format is preserved as source data. JPEG stays JPEG source, PNG stays PNG source, WebP stays WebP source, and a future RAW input remains RAW source. Export is a separate output decision.
+
+### Desktop
+
+Desktop launches into an editor/open/drop surface rather than the mobile camera shell:
+
+```text
+Open Image / Drag & Drop
         ↓
-clean source
+Editor
         ↓
-Flutter UI + control state
+Film / Filter / Adjust / transforms / masks
         ↓
-GPU interactive preview when faithfully representable
-        ↓ gesture release / command
-Rust semantic edit / recipe
+Export / Save Copy
+```
+
+Secondary/future inputs may include Open Recent, Paste Image, Capture from Camera, Open With, and external-edit requests.
+
+The desktop editor should use collapsible multi-pane controls while remaining an editor, not a DAM/library clone.
+
+## Architecture
+
+```text
+Flutter UI / Riverpod application state
         ↓
-authoritative preview + history + checkpoint
+GPU low-latency preview where faithful
+        ↓ commit / capture / export
+Rust semantic edit engine
         ↓
-full-resolution Rust replay/export
+recipe / history / checkpoint / recovery
+        ↓
+full-resolution replay / export
 ```
 
-## Architecture contracts
+Hard contracts:
 
-1. Rust owns committed edit semantics.
-2. GPU preview is never final-render authority.
-3. Camera Film is preview-only; capture remains clean.
-4. Live camera buffers never cross Dart MethodChannel or Flutter Rust Bridge.
-5. Film/Creative LUT data originates from Rust-owned canonical data.
-6. Unsupported GPU operation order falls back rather than silently reordering.
-7. Native GPU failure fails closed to a valid Rust/product state.
-8. Film Profiles are reusable configuration, not per-image sessions or captured pixels.
-9. Imported recipe fields report exact, approximated, or unsupported mappings explicitly.
-10. New effects are defined and tested in Rust first; GPU support is enabled only when faithful.
+1. **Rust is authoritative** for committed edit semantics, recipe/history/checkpoint/recovery, and full-resolution render/export.
+2. **GPU is preview-only** and never final-render authority.
+3. Camera Film/Filter/Adjust preview never replaces the clean capture source.
+4. Live camera frame buffers never cross Dart MethodChannel or Flutter Rust Bridge.
+5. Film/Creative canonical LUT data remains Rust-owned.
+6. Unsupported GPU operation ordering falls back instead of silently changing semantics.
+7. Flutter/Riverpod state orchestrates UI and transient preview state; it must not become a second canonical edit recipe.
+8. PixelCraft editor-local source/recovery metadata never becomes a general DAM catalog.
 
-## Monorepo layout
+## State management
+
+PixelCraft standardizes on **Riverpod** for Flutter application/UI orchestration.
+
+Recommended state boundaries:
 
 ```text
-PixelCraft/
-├── lib/                          # Flutter app shell, UI, state, platform adapters
-├── rust/                         # authoritative Rust image engine
-├── packages/
-│   ├── pixelcraft_engine/        # FRB/CargoKit build integration
-│   ├── pixelcraft_gpu/           # preview-only Flutter GPU plugin
-│   ├── pixelcraft_editing/       # pure-Dart editing/configuration contracts
-│   └── pixelcraft_film/          # pure-Dart Film Profile orchestration
-├── android/
-├── ios/
-├── test/
-├── tool/
-└── docs/
+AppPreferencesState
+CameraState
+LiveLookState
+EditorUiState
+ProcessingJobState
+ExternalEditState   # future contract orchestration
 ```
 
-Dependency direction:
+Riverpod may represent loading, selected tools, camera state, transient Film/Filter/Adjust preview values, progress, errors, and export state.
+
+Canonical edit operations, history, checkpoints, and export semantics remain Rust-owned.
+
+Do not add Bloc/GetX or another competing global state framework without an explicit architectural reason.
+
+## Localization
+
+PixelCraft uses **easy_localization** as the UI localization foundation.
+
+Initial supported locales:
 
 ```text
-PixelCraft App
- ├── pixelcraft_film
- ├── pixelcraft_gpu
- ├── pixelcraft_editing
- └── pixelcraft_engine
-
-pixelcraft_film -> pixelcraft_editing
-pixelcraft_gpu  -> pixelcraft_editing
-pixelcraft_editing -> Dart SDK only
-pixelcraft_engine  -> repository rust/ crate through build integration
+en
+th
 ```
 
-Packages must not depend back on root app source. `tool/check_package_boundaries.sh` enforces the package graph in CI.
+Policy:
 
-## Packages
+- detect the device locale by default;
+- `th_*` selects Thai;
+- `en_*` selects English;
+- unsupported locales fall back to **English**;
+- new user-facing Flutter strings should enter localization resources rather than being hardcoded.
 
-### `pixelcraft_engine`
-
-Flutter FFI/build-integration package around the root Rust engine. It owns Flutter Rust Bridge integration, CargoKit build glue, platform native packaging, and generated builder normalization. Editing semantics remain authoritative in `rust/`.
-
-### `pixelcraft_gpu`
-
-Preview-only Flutter plugin for native GPU infrastructure.
-
-- Android: Camera2/OpenGL ES camera preview.
-- iOS: AVFoundation/Metal camera preview and native Editor GPU preview.
-- Android Editor preview currently stays on the valid Rust/product path; there is no Android native Editor GPU channel/view yet.
-
-### `pixelcraft_editing`
-
-Pure-Dart reusable editing/configuration contracts:
-
-- Edit Graph schema/models
-- adjustment catalog/ranges/neutrals
-- Film Profile schema/configuration/import mapping
-- deterministic Film Profile → Editor recipe materialization
-
-It does not own Flutter UI, GPU rollout policy, persistence, or pixel processing.
-
-### `pixelcraft_film`
-
-Pure-Dart Film Profile product/domain orchestration:
-
-- `FilmProfileRepository`
-- `FilmProfileLibrary`
-- `FilmProfileImportService`
-- exact/approximated/unsupported import-report propagation
-- `FilmProfileDraft` creator defaults/clamping/reset/metadata normalization/composition
-
-Filesystem storage remains app-owned through `FilmProfileStore`; canonical Film LUT data remains Rust-owned.
-
-## Editing model
-
-Rust retains the untouched source, reduced Editor preview, recipe/history state, and Apply checkpoint.
+Initial translation layout may use:
 
 ```text
-operations = [ ... semantic edits ... ]
-cursor
-checkpoint_cursor
+assets/translations/en.json
+assets/translations/th.json
 ```
 
-Typical interaction:
+## Preferences and persistence
+
+Do **not** add Hive merely as a future-proofing dependency.
+
+Use an `AppPreferencesStore` abstraction for lightweight preferences such as:
 
 ```text
-slider drag
-  -> GPU preview where a verified native Editor path exists
-
-slider release
-  -> Rust semantic commit/replace
-  -> authoritative Rust preview
-  -> recovery persistence
+last camera lens
+grid / flash / camera UI preferences
+last Film + strength
+last Filter + strength
+theme / optional locale override
+last UI tool preferences
 ```
 
-Unsupported/unavailable GPU paths keep the valid Rust preview.
+The persistence backend can remain lightweight and replaceable. It must not own image recipes or processing semantics.
 
-## Camera GPU preview
+Existing persistence remains separated by responsibility:
 
-Android:
+- `EditorSessionStore` — coherent editor recovery;
+- `WorkspaceCatalogStore` — bounded editor-local source/reopen metadata only;
+- filesystem/system Gallery — image files;
+- Rust recipe — authoritative editing semantics.
+
+## Application services for the platform-flow milestone
+
+The next product-flow work should converge on explicit service boundaries rather than screen-specific platform calls:
 
 ```text
-Camera2
- -> SurfaceTexture / external OES texture
- -> OpenGL ES Film LUT
- -> Flutter PlatformView
+AppPreferencesStore
+MediaPickerService
+MediaSaveService
+PermissionService
+CapabilityRegistry
+ProcessingJob orchestration
+App route/navigation abstraction
 ```
 
-iOS:
+`MediaSaveService` should be the common path for camera JPEG results and editor exports to system Gallery.
+
+Error handling should map typed failures such as permission denied, camera unavailable, decode failure, unsupported source, render failure, and save failure into localized UI messages.
+
+## Future-safe source contract
+
+Source handling should remain format-aware and should not assume every input is JPEG/PNG.
+
+A future external-edit request may carry fields such as:
 
 ```text
-AVCaptureVideoDataOutput
- -> CVPixelBuffer
- -> CVMetalTextureCache
- -> Metal Film LUT
- -> Flutter PlatformView
+version
+sourceUri / sourcePath
+sourceId?          # external identity owned by caller
+sourceMimeType
+requestedMode
+returnPolicy
+metadata?
 ```
 
-Capture returns a clean source image/file path. Live frame buffers stay native.
+A corresponding `PixelCraftEditResult` should return the edited output without transferring Nixin Workplaces/catalog authority into PixelCraft.
 
-## Film Profiles
+This contract is a **planned foundation only**; full Nixin integration is not part of the current implementation slice.
 
-Film Profiles are versioned reusable Tone/Color/Texture/Curve/HSL configuration. They exclude source-image bytes, crop/rotate session state, Editor history/checkpoints, and captured GPU pixels.
-
-Creation/import orchestration is handled by `pixelcraft_film`; configuration/mapping semantics remain in `pixelcraft_editing`; applying a profile materializes a normal Rust-backed recipe path.
-
-## G7A release engineering
-
-Current release identity:
+## Current capability status
 
 ```text
-app display name: Pixel Craft
-version: 0.1.0+1
+G1  Camera GPU Preview                         CLOSED
+G2  Editor GPU Preview Foundation              CLOSED / MERGED
+G3  Production Rendering Pipeline              CLOSED / MERGED
+G4  Product Editor UX / Session Workflow       CLOSED / MERGED
+G5  Editing Feature Completeness               CLOSED / VERIFIED
+G6  Reliability / Performance / Device Matrix  CLOSED / VERIFIED
+
+P0-P3 package extraction                       MERGED
+PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE
+G7A Release Engineering / Store Preparation    MERGED
+G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY
+
+PF1 Camera-first mobile/tablet shell            NEXT / NOT IMPLEMENTED
+PF2 Unified Camera Film/Filter/Adjust UX        PLANNED
+PF3 Capture-process-save-to-Gallery             PLANNED
+PF4 Gallery-to-editor source flow               PLANNED
+PF5 External edit request/result contract       PLANNED FOUNDATION ONLY
+
+MobileSAM / ONNX                               FUTURE / NOT ACTIVATED
+Real RAW development                           FUTURE / NOT ACTIVATED
+Dart 3.13 RecordUse/native tree-shaking        FUTURE / DEFERRED
+```
+
+## Film and Filter foundation
+
+Film Profiles and Creative Filters are already real Rust-backed capabilities rather than fake UI controls.
+
+Film uses first-class operations and canonical 33x33x33 LUT data with full-resolution replay/export. Current inspired looks include Provia, Velvia, Astia, E100, Ektar, and Chrome 64.
+
+Creative filters include grayscale/invert and canonical LUT-backed presets such as vintage, oceanic, lofi, dramatic, golden, and pastel pink.
+
+PF2 is therefore primarily camera UX integration over existing processing foundations.
+
+## Future MobileSAM and RAW
+
+Future package direction:
+
+```text
+dxtr_pixs_segment  # MobileSAM/local segmentation
+dxtr_pixs_restore  # restoration capabilities
+dxtr_pixs_raw      # real RAW development
+```
+
+These are not activated by the camera-first milestone.
+
+A future MobileSAM/ONNX path should produce masks through a replaceable mask-provider boundary and must not become image-processing authority.
+
+A future real RAW milestone must separately define decode/demosaic, camera color/WB, highlight recovery, working color space, memory/performance, full-resolution replay, and export behavior.
+
+## Package graph
+
+```text
+PixelCraft app
+ ├── dxtr_pixs_film
+ ├── dxtr_pixs_gpu
+ ├── dxtr_pixs_editing
+ └── dxtr_pixs_engine
+
+dxtr_pixs_film    -> dxtr_pixs_editing
+dxtr_pixs_gpu     -> dxtr_pixs_editing
+dxtr_pixs_editing -> Dart SDK only
+dxtr_pixs_engine  -> repository rust/ crate through build integration
+```
+
+Native ABI/runtime identifiers remain stable unless separately approved.
+
+## Product identity
+
+```text
+master brand: Dextryx
+product: Dextryx Pixels
+installed label: Dxtr Pixs
+repository: PixelCraft
 Android applicationId: dev.cnxdev.pixelcraft
-Android min/target/compile SDK: 24 / 36 / 36
-iOS bundle identifier: dev.cnxdev.pixelcraft
-iOS deployment target: 13.0
+iOS bundle id: dev.cnxdev.pixelcraft
 ```
-
-Release CI produces:
-
-```text
-Android release APK
-  - no debug signing
-  - Rust native library packaged for arm64-v8a / armeabi-v7a / x86_64
-  - generated Film/Creative LUT assets packaged
-
-iOS release --no-codesign Runner.app
-  - pixelcraft_engine.framework present
-  - Film/Creative LUT assets present
-```
-
-Android microphone permission is explicitly removed because the still-camera fallback uses `enableAudio: false`.
-
-Privacy/recovery audit verifies:
-
-- recovery state is local private app-support data;
-- at most three coherent recovery generations are retained;
-- abandoned recovery `.tmp` files are cleaned during load/save;
-- Discard removes recovery data;
-- export/share is user initiated;
-- the current dependency set contains no analytics, advertising, or remote crash-reporting SDK.
-
-See `docs/G7A_RELEASE_READINESS.md` and `docs/G7A_PRIVACY_STORE_DRAFTS.md`.
 
 ## Requirements
 
@@ -269,79 +319,25 @@ After changing Rust APIs:
 make codegen
 ```
 
-Useful validation:
+Validation:
 
 ```bash
-make check
+bash tool/check_package_boundaries.sh
 make gpu-lut-verify
 make verify-native
+flutter analyze
+flutter test
 ```
 
-## Native integration notes
-
-`pixelcraft_engine` is the Flutter build plugin, while the authoritative crate remains `rust/`. FRB can regenerate a root `rust_builder/`; normalize it back into the package with:
-
-```bash
-python3 tool/normalize_rust_builder_layout.py
-# or
-make integrate
-```
-
-On Android, if `libpixelcraft_engine.so` is missing:
-
-```bash
-make repair
-make verify-native
-```
-
-On iOS, `pixelcraft_engine` and `pixelcraft_gpu` currently rely on CocoaPods-based native integration. See `docs/IOS_SWIFTPM_MIGRATION.md`.
-
-## Validation gates
-
-CI validates:
-
-```text
-package dependency boundaries
-FRB generation / committed bridge checks
-Rust fmt / clippy / tests
-G6 image characterization
-GPU LUT parity
-pixelcraft_editing analyze / tests
-pixelcraft_film analyze / tests
-pixelcraft_gpu analyze / tests
-Flutter analyze
-state tests
-GPU plan/session tests
-widget/golden tests
-Android native packaging smoke
-iOS native packaging smoke
-wgpu core Linux / macOS / Windows
-Android release artifact
-iOS release --no-codesign artifact
-```
-
-Latest fully verified G7A run:
-
-```text
-run #221
-run id: 31611799174
-HEAD: d5e0aab14a0ae9a5b8124a0b37fef78249cbbeb5
-SUCCESS
-```
-
-Unsigned/no-codesign artifacts are packaging evidence only. Signed RC physical-device smoke and actual TestFlight/Play validation belong to G7B.
+A green PR head alone does not close a milestone; resulting `main` CI must also be verified.
 
 ## Documentation
 
-- `docs/PROJECT_HANDOFF.md` — canonical continuation status and next action
-- `docs/CODE_WALKTHROUGH.md` — application/runtime/package/release architecture
-- `docs/G7A_RELEASE_READINESS.md` — G7A evidence/checklist
-- `docs/G7A_ANDROID_SIGNING.md` — Android signing setup
-- `docs/G7A_PRIVACY_STORE_DRAFTS.md` — offline privacy/Data Safety/App Privacy drafts
-- package `README.md` / `CODE_WALKTHROUGH.md` files — package-specific contracts
-- `docs/IOS_SWIFTPM_MIGRATION.md` — iOS dependency migration constraints
-
-Current continuation is **post-G7A**. PR #10 is closed/superseded. G7B remains blocked until Apple/Google store accounts are available; account-independent maintenance or product work can continue from `docs/PROJECT_HANDOFF.md`.
+- `docs/PROJECT_HANDOFF.md` — canonical continuation status and execution order
+- `docs/CODE_WALKTHROUGH.md` — runtime, state, localization, service, and package architecture
+- `docs/FILM_PROFILES_AND_RELIABILITY.md` — Film profile/reliability details
+- `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md` — deferred Dart 3.13 plan
+- release/device evidence documents under `docs/`
 
 ## License
 
