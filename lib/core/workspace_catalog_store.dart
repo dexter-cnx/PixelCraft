@@ -131,10 +131,9 @@ class WorkspaceCatalogStore {
   WorkspaceCatalogStore({this.rootDirectory});
 
   static const _schemaVersion = 1;
+  static final Map<String, Future<void>> _sharedWriteTails = {};
 
   final Directory? rootDirectory;
-  Future<void> _writeTail = Future.value();
-  int _idCounter = 0;
 
   Future<Directory> _directory() async {
     final root = rootDirectory ?? await getApplicationSupportDirectory();
@@ -148,24 +147,10 @@ class WorkspaceCatalogStore {
 
   Future<List<WorkspaceCatalogItem>> load() async {
     try {
-      await _writeTail;
-      final file = await _manifestFile();
-      if (!await file.exists()) return const [];
-
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map<String, dynamic> ||
-          decoded['version'] != _schemaVersion ||
-          decoded['items'] is! List) {
-        return const [];
-      }
-
-      final items = <WorkspaceCatalogItem>[];
-      for (final raw in decoded['items'] as List<dynamic>) {
-        final item = WorkspaceCatalogItem.fromJson(raw);
-        if (item != null) items.add(item);
-      }
-      items.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
-      return items;
+      final directory = await _directory();
+      final key = directory.absolute.path;
+      await (_sharedWriteTails[key] ?? Future<void>.value());
+      return await _loadUnlocked(strict: false);
     } catch (_) {
       return const [];
     }
@@ -178,28 +163,31 @@ class WorkspaceCatalogStore {
     WorkspaceSourceAvailability availability =
         WorkspaceSourceAvailability.unknown,
     DateTime? now,
-  }) async {
+  }) {
     if (sourcePath.trim().isEmpty) {
       throw const FormatException('Workspace source path must not be empty');
     }
 
     final timestamp = (now ?? DateTime.now()).toUtc();
-    final item = WorkspaceCatalogItem(
-      id: _nextId(timestamp),
-      sourceKind: sourceKind,
-      retention: retention,
-      sourcePath: sourcePath,
-      availability: availability,
-      importedAt: timestamp,
-      updatedAt: timestamp,
-    );
-    await upsert(item);
-    return item;
+    return _enqueueWrite(() async {
+      final items = await _loadUnlocked(strict: true);
+      final item = WorkspaceCatalogItem(
+        id: _nextAvailableId(timestamp, items),
+        sourceKind: sourceKind,
+        retention: retention,
+        sourcePath: sourcePath,
+        availability: availability,
+        importedAt: timestamp,
+        updatedAt: timestamp,
+      );
+      await _writeUnlocked([item, ...items]);
+      return item;
+    });
   }
 
   Future<void> upsert(WorkspaceCatalogItem item) {
     return _enqueueWrite(() async {
-      final items = await _loadUnlocked();
+      final items = await _loadUnlocked(strict: true);
       final next = [
         item,
         ...items.where((candidate) => candidate.id != item.id),
@@ -214,7 +202,7 @@ class WorkspaceCatalogStore {
     DateTime? now,
   }) {
     return _enqueueWrite(() async {
-      final items = await _loadUnlocked();
+      final items = await _loadUnlocked(strict: true);
       final timestamp = (now ?? DateTime.now()).toUtc();
       final next = items
           .map(
@@ -232,7 +220,7 @@ class WorkspaceCatalogStore {
 
   Future<void> markOpened(String id, {DateTime? now}) {
     return _enqueueWrite(() async {
-      final items = await _loadUnlocked();
+      final items = await _loadUnlocked(strict: true);
       final timestamp = (now ?? DateTime.now()).toUtc();
       final next = items
           .map(
@@ -250,7 +238,7 @@ class WorkspaceCatalogStore {
 
   Future<void> remove(String id) {
     return _enqueueWrite(() async {
-      final items = await _loadUnlocked();
+      final items = await _loadUnlocked(strict: true);
       await _writeUnlocked(
         items.where((item) => item.id != id).toList(),
       );
@@ -266,31 +254,68 @@ class WorkspaceCatalogStore {
     });
   }
 
-  Future<void> _enqueueWrite(Future<void> Function() operation) {
-    final completer = _writeTail.then((_) => operation());
-    _writeTail = completer.catchError((_) {});
-    return completer;
+  Future<T> _enqueueWrite<T>(Future<T> Function() operation) async {
+    final directory = await _directory();
+    final key = directory.absolute.path;
+    final previous = _sharedWriteTails[key] ?? Future<void>.value();
+    final current = previous.catchError((_) {}).then((_) => operation());
+    final tail = current.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    _sharedWriteTails[key] = tail;
+
+    try {
+      return await current;
+    } finally {
+      if (identical(_sharedWriteTails[key], tail)) {
+        _sharedWriteTails.remove(key);
+      }
+    }
   }
 
-  Future<List<WorkspaceCatalogItem>> _loadUnlocked() async {
+  Future<List<WorkspaceCatalogItem>> _loadUnlocked({
+    required bool strict,
+  }) async {
+    final file = await _manifestFile();
+    final backup = File('${file.path}.bak');
+
+    if (!await file.exists()) {
+      if (!await backup.exists()) return const [];
+      return _decodeManifest(backup);
+    }
+
     try {
-      final file = await _manifestFile();
-      if (!await file.exists()) return const [];
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map<String, dynamic> ||
-          decoded['version'] != _schemaVersion ||
-          decoded['items'] is! List) {
+      return await _decodeManifest(file);
+    } catch (_) {
+      if (strict) rethrow;
+      if (!await backup.exists()) return const [];
+      try {
+        return await _decodeManifest(backup);
+      } catch (_) {
         return const [];
       }
-      final items = <WorkspaceCatalogItem>[];
-      for (final raw in decoded['items'] as List<dynamic>) {
-        final item = WorkspaceCatalogItem.fromJson(raw);
-        if (item != null) items.add(item);
-      }
-      return items;
-    } catch (_) {
-      return const [];
     }
+  }
+
+  Future<List<WorkspaceCatalogItem>> _decodeManifest(File file) async {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map<String, dynamic> ||
+        decoded['version'] != _schemaVersion ||
+        decoded['items'] is! List) {
+      throw const FormatException('Unsupported workspace catalog manifest');
+    }
+
+    final items = <WorkspaceCatalogItem>[];
+    for (final raw in decoded['items'] as List<dynamic>) {
+      final item = WorkspaceCatalogItem.fromJson(raw);
+      if (item == null) {
+        throw const FormatException('Invalid workspace catalog item');
+      }
+      items.add(item);
+    }
+    items.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    return items;
   }
 
   Future<void> _writeUnlocked(List<WorkspaceCatalogItem> items) async {
@@ -299,6 +324,9 @@ class WorkspaceCatalogStore {
 
     final file = File('${directory.path}/catalog.json');
     final temp = File('${file.path}.tmp');
+    final backup = File('${file.path}.bak');
+
+    if (await temp.exists()) await temp.delete();
     await temp.writeAsString(
       jsonEncode({
         'version': _schemaVersion,
@@ -306,13 +334,36 @@ class WorkspaceCatalogStore {
       }),
       flush: true,
     );
-    if (await file.exists()) await file.delete();
-    await temp.rename(file.path);
+
+    if (await file.exists()) {
+      if (await backup.exists()) await backup.delete();
+      await file.rename(backup.path);
+    }
+
+    try {
+      await temp.rename(file.path);
+      if (await backup.exists()) await backup.delete();
+    } catch (_) {
+      if (!await file.exists() && await backup.exists()) {
+        await backup.rename(file.path);
+      }
+      rethrow;
+    }
   }
 
-  String _nextId(DateTime timestamp) {
+  String _nextAvailableId(
+    DateTime timestamp,
+    List<WorkspaceCatalogItem> items,
+  ) {
     final micros = timestamp.microsecondsSinceEpoch.toString().padLeft(20, '0');
-    final counter = (_idCounter++).toString().padLeft(6, '0');
-    return 'workspace-$micros-$counter';
+    final prefix = 'workspace-$micros';
+    final existing = items.map((item) => item.id).toSet();
+    var counter = 0;
+    while (true) {
+      final suffix = counter.toString().padLeft(6, '0');
+      final candidate = '$prefix-$suffix';
+      if (!existing.contains(candidate)) return candidate;
+      counter += 1;
+    }
   }
 }
