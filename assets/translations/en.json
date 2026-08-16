@@ -1,0 +1,24 @@
+{
+  "app": {
+    "title": "Dextryx Pixels",
+    "starting_engine": "Starting Rust image engine…",
+    "engine_start_failed": "Rust engine could not start",
+    "retry": "Retry"
+  },
+  "camera": {
+    "gallery": "Gallery",
+    "film": "Film",
+    "filter": "Filter",
+    "adjust": "Adjust",
+    "controls": "Controls"
+  },
+  "errors": {
+    "camera_unavailable": "Camera is unavailable.",
+    "permission_denied": "Permission denied.",
+    "permission_restricted": "Permission is restricted.",
+    "decode_failed": "Could not decode this image.",
+    "unsupported_source": "This source format is not supported.",
+    "render_failed": "Image processing failed.",
+    "save_failed": "Could not save the image."
+  }
+}
