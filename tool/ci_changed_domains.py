@@ -77,6 +77,7 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
         ):
             result["windows_linux"] = True
 
+        shared_cargokit = _match(path, "packages/dxtr_pixs_engine/cargokit/**")
         gpu_path = _match(
             path,
             "packages/dxtr_pixs_gpu/**",
@@ -93,10 +94,10 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
             token in path.lower()
             for token in ("gpu", "metal", "opengl", "shader", "texture", "renderer")
         ) and _match(path, "android/**", "ios/**", "macos/**", "windows/**", "linux/**")
-        if gpu_path or gpu_name:
+        if gpu_path or gpu_name or shared_cargokit:
             result["native_gpu"] = True
 
-        if _match(
+        if shared_cargokit or _match(
             path,
             "rust/**",
             "Cargo.toml",
@@ -162,6 +163,7 @@ def _self_test() -> None:
         (["packages/dxtr_pixs_gpu/android/src/main/kotlin/Gpu.kt"], {"android": True, "native_gpu": True, "shared_native_gpu": False}),
         (["packages/dxtr_pixs_gpu/rust/src/lib.rs"], {"native_gpu": True, "shared_native_gpu": True, "flutter_packages": True}),
         (["packages/dxtr_pixs_film/lib/src/profile.dart"], {"flutter_packages": True, "package_api": True}),
+        (["packages/dxtr_pixs_engine/cargokit/cmake/cargokit.cmake"], {"native_gpu": True, "shared_native_gpu": True, "flutter_packages": True}),
         (["ios/Runner/GpuPreviewChannel.swift"], {"ios": True, "native_gpu": True, "shared_native_gpu": False}),
         (["tool/g6_run_device_session.sh"], {"reliability": True}),
         ([".github/workflows/ci.yml"], {"ci": True}),
