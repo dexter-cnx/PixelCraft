@@ -14,10 +14,21 @@ final class MetalCameraPreviewRenderer: NSObject {
   private struct PreviewUniforms {
     var cropScale: SIMD2<Float>
     var mirrorX: Float
-    var strength: Float
-    var useLut: Float
+    var enabled: Float
+    var brightness: Float
+    var contrast: Float
+    var saturation: Float
+    var filmStrength: Float
+    var useFilm: Float
+    var creativeStrength: Float
+    var creativeMode: Float
     var padding: Float = 0
   }
+
+  private static let creativeNone: Float = 0
+  private static let creativeGrayscale: Float = 1
+  private static let creativeInvert: Float = 2
+  private static let creativeLut: Float = 3
 
   private static let shaderSource = """
   #include <metal_stdlib>
@@ -31,8 +42,14 @@ final class MetalCameraPreviewRenderer: NSObject {
   struct PreviewUniforms {
     float2 cropScale;
     float mirrorX;
-    float strength;
-    float useLut;
+    float enabled;
+    float brightness;
+    float contrast;
+    float saturation;
+    float filmStrength;
+    float useFilm;
+    float creativeStrength;
+    float creativeMode;
     float padding;
   };
 
@@ -55,10 +72,38 @@ final class MetalCameraPreviewRenderer: NSObject {
     return out;
   }
 
+  inline float3 sample_lut(
+    texture3d<float> lut,
+    sampler lutSampler,
+    float3 color
+  ) {
+    const float lutSize = 33.0;
+    float3 grid = clamp(color, 0.0, 1.0) * (lutSize - 1.0);
+    float3 lutUv = (grid + 0.5) / lutSize;
+    return lut.sample(lutSampler, lutUv).rgb;
+  }
+
+  inline float3 apply_exact_creative(float3 color, uint mode, float intensity) {
+    uint3 source8 = uint3(clamp(floor(color * 255.0 + 0.5), 0.0, 255.0));
+    uint3 effected8 = source8;
+    if (mode == 1) {
+      uint average = (source8.r + source8.g + source8.b) / 3;
+      effected8 = uint3(average);
+    } else if (mode == 2) {
+      effected8 = uint3(255) - source8;
+    }
+    float strength = clamp(intensity, 0.0, 1.0);
+    float3 blended8 = floor(
+      float3(source8) + (float3(effected8) - float3(source8)) * strength + 0.5
+    );
+    return clamp(blended8, 0.0, 255.0) / 255.0;
+  }
+
   fragment float4 pixelcraft_fragment(
     VertexOut in [[stage_in]],
     texture2d<float> camera [[texture(0)]],
-    texture3d<float> lut [[texture(1)]],
+    texture3d<float> filmLut [[texture(1)]],
+    texture3d<float> creativeLut [[texture(2)]],
     constant PreviewUniforms &uniforms [[buffer(0)]]) {
     constexpr sampler cameraSampler(coord::normalized, address::clamp_to_edge, filter::linear);
     constexpr sampler lutSampler(coord::normalized, address::clamp_to_edge, filter::linear);
@@ -66,14 +111,30 @@ final class MetalCameraPreviewRenderer: NSObject {
     float2 uv = (in.uv - float2(0.5)) * uniforms.cropScale + float2(0.5);
     uv.x = mix(uv.x, 1.0 - uv.x, uniforms.mirrorX);
     float3 source = camera.sample(cameraSampler, uv).rgb;
+    if (uniforms.enabled < 0.5) {
+      return float4(source, 1.0);
+    }
 
-    const float lutSize = 33.0;
-    float3 grid = clamp(source, 0.0, 1.0) * (lutSize - 1.0);
-    float3 lutUv = (grid + 0.5) / lutSize;
-    float3 film = lut.sample(lutSampler, lutUv).rgb;
+    float3 color = clamp(source + (uniforms.brightness - 1.0), 0.0, 1.0);
+    const float midpoint = 128.0 / 255.0;
+    color = clamp((color - midpoint) * uniforms.contrast + midpoint, 0.0, 1.0);
+    const float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+    color = clamp(luminance + (color - luminance) * uniforms.saturation, 0.0, 1.0);
 
-    float amount = clamp(uniforms.useLut * uniforms.strength, 0.0, 1.0);
-    return float4(mix(source, film, amount), 1.0);
+    if (uniforms.useFilm > 0.5) {
+      float3 film = sample_lut(filmLut, lutSampler, color);
+      color = mix(color, film, clamp(uniforms.filmStrength, 0.0, 1.0));
+    }
+
+    uint creativeMode = uint(uniforms.creativeMode + 0.5);
+    if (creativeMode == 1 || creativeMode == 2) {
+      color = apply_exact_creative(color, creativeMode, uniforms.creativeStrength);
+    } else if (creativeMode == 3) {
+      float3 creative = sample_lut(creativeLut, lutSampler, color);
+      color = mix(color, creative, clamp(uniforms.creativeStrength, 0.0, 1.0));
+    }
+
+    return float4(color, 1.0);
   }
   """
 
@@ -82,7 +143,6 @@ final class MetalCameraPreviewRenderer: NSObject {
   private let commandQueue: MTLCommandQueue
   private let pipeline: MTLRenderPipelineState
   private let lutLoader: MetalFilmLutLoader
-  private let cameraLookComposer: CameraLookLutComposer
   private let session = AVCaptureSession()
   private let videoOutput = AVCaptureVideoDataOutput()
   private let photoOutput = AVCapturePhotoOutput()
@@ -102,12 +162,19 @@ final class MetalCameraPreviewRenderer: NSObject {
   private var currentInput: AVCaptureDeviceInput?
   private var lensPosition: AVCaptureDevice.Position = .back
   private var interfaceOrientation: UIInterfaceOrientation = .portrait
-  private var currentLut: MTLTexture
+  private var currentFilmLut: MTLTexture
+  private var currentCreativeLut: MTLTexture
   private var profileId = ""
   private var strength: Float = 0
   private var enabled = false
   private var cameraLookMode = false
-  private var cameraLookHasEffect = false
+  private var lookBrightness: Float = 1
+  private var lookContrast: Float = 1
+  private var lookSaturation: Float = 1
+  private var lookUseFilm: Float = 0
+  private var lookFilmStrength: Float = 0
+  private var lookCreativeStrength: Float = 0
+  private var lookCreativeMode: Float = 0
   private var released = false
   private var configured = false
   private var captureHandler: CaptureHandler?
@@ -125,7 +192,7 @@ final class MetalCameraPreviewRenderer: NSObject {
       let vertex = library.makeFunction(name: "pixelcraft_vertex"),
       let fragment = library.makeFunction(name: "pixelcraft_fragment")
     else {
-      throw Self.error("Metal Film shader functions are unavailable")
+      throw Self.error("Metal camera look shader functions are unavailable")
     }
     let descriptor = MTLRenderPipelineDescriptor()
     descriptor.vertexFunction = vertex
@@ -139,8 +206,8 @@ final class MetalCameraPreviewRenderer: NSObject {
     self.commandQueue = commandQueue
     self.pipeline = pipeline
     self.lutLoader = loader
-    self.cameraLookComposer = CameraLookLutComposer(device: device)
-    self.currentLut = identity
+    self.currentFilmLut = identity
+    self.currentCreativeLut = identity
     self.onFailure = onFailure
     super.init()
 
@@ -289,18 +356,31 @@ final class MetalCameraPreviewRenderer: NSObject {
     let generation = lookGeneration
     frameLock.unlock()
 
-    renderQueue.async { [weak self] in
+    let clamped = Float(max(0, min(1, strength)))
+    lookQueue.async { [weak self] in
       guard let self, !self.released else { return }
-      self.cameraLookMode = false
-      self.cameraLookHasEffect = false
-      self.profileId = profileId
-      self.strength = Float(max(0, min(1, strength)))
       do {
-        self.currentLut = try self.lutLoader.load(profileId: profileId)
+        let texture = try self.lutLoader.load(profileId: profileId)
+        guard self.isCurrentLookGeneration(generation) else { return }
+        self.renderQueue.async { [weak self] in
+          guard let self, !self.released, self.isCurrentLookGeneration(generation) else { return }
+          self.cameraLookMode = false
+          self.profileId = profileId
+          self.strength = clamped
+          self.currentFilmLut = texture
+          self.lookBrightness = 1
+          self.lookContrast = 1
+          self.lookSaturation = 1
+          self.lookUseFilm = profileId.isEmpty || clamped <= 0 ? 0 : 1
+          self.lookFilmStrength = clamped
+          self.lookCreativeStrength = 0
+          self.lookCreativeMode = Self.creativeNone
+        }
       } catch {
-        self.fail("Unable to load Film LUT \(profileId): \(error.localizedDescription)")
+        if self.isCurrentLookGeneration(generation) {
+          self.fail("Unable to load Film LUT \(profileId): \(error.localizedDescription)")
+        }
       }
-      _ = generation
     }
   }
 
@@ -310,45 +390,60 @@ final class MetalCameraPreviewRenderer: NSObject {
     let generation = lookGeneration
     frameLock.unlock()
 
-    renderQueue.async { [weak self] in
-      guard let self, !self.released else { return }
-      self.cameraLookMode = true
-      self.cameraLookHasEffect = false
-    }
-
-    if look.isNeutral { return }
-
     lookQueue.async { [weak self] in
       guard let self, !self.released else { return }
       do {
-        let texture = try self.cameraLookComposer.compose(look)
-        self.frameLock.lock()
-        let stillCurrent = generation == self.lookGeneration && !self.released
-        self.frameLock.unlock()
-        guard stillCurrent else { return }
+        let filmTexture = look.hasFilm
+          ? try self.lutLoader.load(profileId: look.filmProfileId)
+          : nil
+        let creativeAsset = look.creativeLutAssetId
+        let creativeTexture = look.hasCreative && creativeAsset != nil
+          ? try self.lutLoader.load(profileId: creativeAsset!)
+          : nil
+        let mode: Float
+        if !look.hasCreative {
+          mode = Self.creativeNone
+        } else if look.creativeFilterId == "grayscale" {
+          mode = Self.creativeGrayscale
+        } else if look.creativeFilterId == "invert" {
+          mode = Self.creativeInvert
+        } else if creativeTexture != nil {
+          mode = Self.creativeLut
+        } else {
+          throw Self.error("Unsupported CameraLook creative stage: \(look.creativeFilterId)")
+        }
+
+        guard self.isCurrentLookGeneration(generation) else { return }
         self.renderQueue.async { [weak self] in
-          guard let self, !self.released else { return }
-          self.frameLock.lock()
-          let stillCurrent = generation == self.lookGeneration
-          self.frameLock.unlock()
-          guard stillCurrent else { return }
-          self.currentLut = texture
+          guard let self, !self.released, self.isCurrentLookGeneration(generation) else { return }
+          if let filmTexture { self.currentFilmLut = filmTexture }
+          if let creativeTexture { self.currentCreativeLut = creativeTexture }
           self.cameraLookMode = true
-          self.cameraLookHasEffect = true
+          self.profileId = look.filmProfileId
+          self.strength = look.filmStrength
+          self.lookBrightness = look.brightness
+          self.lookContrast = look.contrast
+          self.lookSaturation = look.saturation
+          self.lookUseFilm = look.hasFilm ? 1 : 0
+          self.lookFilmStrength = look.filmStrength
+          self.lookCreativeStrength = look.creativeFilterStrength
+          self.lookCreativeMode = mode
         }
       } catch {
-        self.frameLock.lock()
-        let stillCurrent = generation == self.lookGeneration
-        self.frameLock.unlock()
-        if stillCurrent {
-          self.fail("Unable to compose CameraLook LUT: \(error.localizedDescription)")
+        if self.isCurrentLookGeneration(generation) {
+          self.fail("Unable to prepare CameraLook resources: \(error.localizedDescription)")
         }
       }
     }
   }
 
   func setStrength(_ value: Double) {
-    strength = Float(max(0, min(1, value)))
+    let clamped = Float(max(0, min(1, value)))
+    strength = clamped
+    if !cameraLookMode {
+      lookFilmStrength = clamped
+      lookUseFilm = profileId.isEmpty || clamped <= 0 ? 0 : 1
+    }
   }
 
   func setEnabled(_ value: Bool) {
@@ -455,6 +550,13 @@ final class MetalCameraPreviewRenderer: NSObject {
       CVMetalTextureCacheFlush(cache, 0)
     }
     textureCache = nil
+  }
+
+  private func isCurrentLookGeneration(_ generation: UInt64) -> Bool {
+    frameLock.lock()
+    let current = generation == lookGeneration && !released
+    frameLock.unlock()
+    return current
   }
 
   private func configureAndStartIfNeeded() {
@@ -582,18 +684,23 @@ final class MetalCameraPreviewRenderer: NSObject {
       outputWidth: Float(max(drawableSize.width, 1)),
       outputHeight: Float(max(drawableSize.height, 1))
     )
-    let useCameraLook = cameraLookMode && cameraLookHasEffect
-    let useLegacyFilm = !cameraLookMode && !profileId.isEmpty
     var uniforms = PreviewUniforms(
       cropScale: crop,
       mirrorX: lensPosition == .front ? 1 : 0,
-      strength: cameraLookMode ? 1 : strength,
-      useLut: enabled && (useCameraLook || useLegacyFilm) ? 1 : 0
+      enabled: enabled ? 1 : 0,
+      brightness: lookBrightness,
+      contrast: lookContrast,
+      saturation: lookSaturation,
+      filmStrength: lookFilmStrength,
+      useFilm: lookUseFilm,
+      creativeStrength: lookCreativeStrength,
+      creativeMode: lookCreativeMode
     )
 
     encoder.setRenderPipelineState(pipeline)
     encoder.setFragmentTexture(sourceTexture, index: 0)
-    encoder.setFragmentTexture(currentLut, index: 1)
+    encoder.setFragmentTexture(currentFilmLut, index: 1)
+    encoder.setFragmentTexture(currentCreativeLut, index: 2)
     encoder.setFragmentBytes(&uniforms, length: MemoryLayout<PreviewUniforms>.stride, index: 0)
     encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     encoder.endEncoding()
