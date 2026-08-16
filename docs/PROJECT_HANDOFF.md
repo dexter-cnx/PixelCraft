@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. PR #42 is merged as `a5d015587a9eab0125d8605f91fff9307e8d0c11`; resulting main CI #363 is still running at the time of this edit. Product boundary has been corrected: PixelCraft is the photo-editing/image-processing product; Nixin/Dextryx Images is the image-management product. Nixin may reuse explicitly exposed PixelCraft modules/packages at a basic capability level, but PixelCraft must not evolve into a Lightroom-style DAM by default.**
+Last refresh: **2026-08-16. PR #42 is merged and verified through exact resulting main CI #363. Product boundary has been corrected: PixelCraft is the photo-editing/image-processing product; Nixin/Dextryx Images is the image-management product. Nixin may reuse explicitly exposed PixelCraft modules/packages at a basic capability level, but PixelCraft must not evolve into a Lightroom-style DAM by default.**
 
 ---
 
@@ -185,7 +185,7 @@ Post-G7A Product / Editor UX                    ACTIVE
 UX-01 Modern import/add-photo entry flow        CLOSED / VERIFIED
 UX-02 Home / Workspace modernization            CLOSED / VERIFIED
 W1A/W1B editor-local catalog contract/storage  CLOSED / VERIFIED
-W1C acquisition/catalog/Home integration       MERGED / MAIN CI VERIFICATION PENDING
+W1C acquisition/catalog/Home integration       CLOSED / VERIFIED
 W1D DAM-style multi-item expansion              CANCELLED AS DEFAULT DIRECTION
 O1 Dart 3.13 native tree-shaking / RecordUse   FUTURE / DEFERRED / DO NOT START NOW
 ```
@@ -243,7 +243,7 @@ main CI after #41: #352 / 31922895364 / success
 PR #42 final head: 1218ec44d0d9938a89b7f7ab294b0a55a2f435b5
 PR #42 final head CI: #362 / 31930004255 / success
 PR #42 merge: a5d015587a9eab0125d8605f91fff9307e8d0c11
-main CI after #42: #363 / 31930570158 / running at this handoff edit
+main CI after #42: #363 / 31930570158 / success
 ```
 
 Home regression policy:
@@ -330,7 +330,7 @@ lastOpenedAt?
 
 No recipe/history/checkpoint/pixels/edit settings are stored in catalog items.
 
-## W1C — acquisition/catalog/Home integration — MERGED
+## W1C — acquisition/catalog/Home integration — CLOSED / VERIFIED
 
 Current behavior:
 
@@ -353,6 +353,8 @@ Hardening retained:
 - thumbnails use bounded decode dimensions;
 - catalog mutation failure does not block editing;
 - persistence/corruption semantics remain separately tested.
+
+Verified through PR #42 final PR CI #362 and exact resulting main CI #363.
 
 ## Explicitly removed from PixelCraft default roadmap
 
@@ -387,7 +389,7 @@ Avoid turning those fixes into a broader asset-management program.
 
 # 8. PixelCraft next product direction
 
-Once PR #42 main CI is verified, prioritize **photo editing / processing** work rather than DAM expansion.
+Prioritize **photo editing / processing** work rather than DAM expansion.
 
 Candidate categories should be selected from the PixelCraft roadmap and current product needs, such as:
 
@@ -551,13 +553,11 @@ flutter test
 
 # 15. Current next action
 
-1. Verify resulting main push CI #363 for PR #42 merge `a5d015587a9eab0125d8605f91fff9307e8d0c11`.
-2. Mark W1C closed/verified only after that exact main CI succeeds.
-3. Merge this product-boundary documentation correction.
-4. Do **not** start the previously proposed DAM-style W1D.
-5. Select the next PixelCraft milestone from editing/processing/product-editor priorities.
-6. Allow Nixin to consume stable PixelCraft modules for concrete basic capabilities when appropriate, without mixing product roadmaps.
-7. Keep full Nixin external-edit integration as a future cross-product contract, not an implicit current implementation task.
-8. Continue updating `docs/CODE_WALKTHROUGH.md` and this handoff when implementation materially changes.
+1. Merge this product-boundary documentation correction after its exact-head CI is green.
+2. Do **not** start the previously proposed DAM-style W1D.
+3. Select the next PixelCraft milestone from editing/processing/product-editor priorities.
+4. Allow Nixin to consume stable PixelCraft modules for concrete basic capabilities when appropriate, without mixing product roadmaps.
+5. Keep full Nixin external-edit integration as a future cross-product contract, not an implicit current implementation task.
+6. Continue updating `docs/CODE_WALKTHROUGH.md` and this handoff when implementation materially changes.
 
 Do not start O1, G7B, or Nixin-style Workplaces/DAM expansion from this handoff.
