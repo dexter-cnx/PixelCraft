@@ -69,6 +69,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
+  CameraLookState get _fallbackFilmLook => _preset.isOriginal
+      ? CameraLookState()
+      : CameraLookState(
+          filmProfileId: _preset.id,
+          filmStrength: _strength,
+        );
+
   @override
   void initState() {
     super.initState();
@@ -219,6 +226,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     setState(() {
       _useNativeGpu = false;
       _selectedTool = CameraPrimaryTool.film;
+      _cameraLook = _fallbackFilmLook;
       _isInitializing = true;
     });
     try {
@@ -329,11 +337,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   Future<void> _captureNative(String rendererId) async {
+    await _lookCoordinator.flush();
+    final look = _cameraLook;
     final path = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
     await _gpuBridge.pause(rendererId);
     if (!mounted) return;
-    await _openEditor(path, profileId: _preset.id, strength: _strength);
+    await _openEditor(path, look: look);
     if (!mounted || rendererId != _gpuRendererId) return;
     await _gpuBridge.resume(rendererId);
   }
@@ -348,13 +358,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final capture = await controller.takePicture();
     if (!mounted) return;
     final camera = _activeCamera;
+    final look = _fallbackFilmLook;
     await _detachAndDisposeController(showLoading: true);
     if (!mounted) return;
-    await _openEditor(
-      capture.path,
-      profileId: _preset.id,
-      strength: _strength,
-    );
+    await _openEditor(capture.path, look: look);
     if (!mounted) return;
     if (camera != null) await _initializeCamera(camera);
   }
@@ -370,20 +377,20 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       );
       return;
     }
-    await _openEditor(source.uri.toFilePath(), profileId: '', strength: 0);
+    await _openEditor(source.uri.toFilePath(), look: CameraLookState());
   }
 
   Future<void> _openEditor(
     String imagePath, {
-    required String profileId,
-    required double strength,
+    required CameraLookState look,
   }) =>
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => CameraFilmEditorHandoff(
             imagePath: imagePath,
-            profileId: profileId,
-            strength: strength,
+            profileId: look.filmProfileId,
+            strength: look.filmStrength,
+            look: look,
           ),
         ),
       );
