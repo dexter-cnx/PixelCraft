@@ -2,14 +2,14 @@
 
 ## Purpose
 
-This is the canonical continuation document for repository **PixelCraft** and product **Dextryx Pixels**.
+Canonical continuation document for repository **PixelCraft** and product **Dextryx Pixels**.
 
 For a new session:
 
 1. read this file first;
 2. inspect `main`, active PRs, review threads, and latest CI;
 3. continue from **Current next action**;
-4. treat repository state and recorded CI/device evidence as authoritative over older chat history.
+4. repository state and recorded CI/device evidence override older chat history.
 
 Recommended continuation prompt:
 
@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-15, after PR #36 repaired the Home regression gate and main CI run 31895567304 passed. UX-01 direct import is now active on `feature/ux01-direct-import`. G7B and Dart 3.13 native tree-shaking remain deferred.**
+Last refresh: **2026-08-16. UX-01 and the first UX-02 workspace modernization slice are merged and verified on main. PR #39 is the active UX-02 real-recent-edit slice. G7B and Dart 3.13 native tree-shaking remain deferred.**
 
 ---
 
@@ -39,7 +39,7 @@ Rules:
 - user-facing copy uses **Dextryx Pixels**;
 - launcher/home-screen label uses **Dxtr Pixs**;
 - repository name and app identifiers remain unchanged unless a separate migration is approved;
-- historical evidence may retain the product name that existed when the evidence was produced;
+- historical evidence may retain the name that existed when it was produced;
 - native ABI/runtime identifiers and persisted schema names are not branding concerns.
 
 ---
@@ -65,8 +65,8 @@ Hard contracts:
 8. Film Profiles are reusable configuration, not per-image pixels/sessions.
 9. Imported recipe fields report exact / approximated / unsupported mappings.
 10. New effects are Rust-first; GPU support is enabled only when faithful.
-11. AI segmentation/restoration remains an optional capability layer and does not become committed-image authority.
-12. Do not casually replace the mobile runtime with wgpu. Cross-platform wgpu CI may exist, but mobile runtime stays Metal/OpenGL ES unless deliberately redesigned.
+11. AI segmentation/restoration is optional capability and never committed-image authority.
+12. Do not casually replace mobile Metal/OpenGL ES runtime with wgpu.
 
 ---
 
@@ -87,7 +87,8 @@ G7A Release Engineering / Store Preparation    MERGED
 G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHEDULED
 
 Post-G7A Product / Editor UX                    ACTIVE
-UX-01 Modern import/add-photo entry flow        IMPLEMENTATION ACTIVE
+UX-01 Modern import/add-photo entry flow        CLOSED / VERIFIED
+UX-02 Home / Workspace modernization            ACTIVE
 O1 Dart 3.13 native tree-shaking / RecordUse   FUTURE / DEFERRED / DO NOT START NOW
 ```
 
@@ -110,127 +111,98 @@ PR #30  dxtr_pixs_* reusable package namespace
 PR #32  post-namespace branding tests/golden repair
 PR #33  roadmap refresh + deferred Dart 3.13 native tree-shaking plan
 PR #36  replace broken Home PNG golden with structural regression gate
+PR #37  direct primary Import acquisition path
+PR #38  Home workspace modernization; remove demo/sample hierarchy
+```
+
+Verification evidence:
+
+```text
+PR #37 merge: eda3a04e44147d5d8e6e2edb7d8760a92a9ec340
+main CI after #37: #337 / 31897159986 / success
+
+PR #38 merge: 4c35eeaeaeadb0334394509b03bc194393720691
+PR #38 final head CI: #340 / 31898608876 / success
+main CI after #38: #341 / 31899235126 / success
 ```
 
 PR hygiene/history:
 
 ```text
-PR #29  closed, superseded by #30/#32
-PR #31  closed, superseded by #33
-PR #34  merged but did not repair the corrupt Home PNG golden
-PR #35  closed without merge; text/base64 bootstrap approach abandoned
-PR #36  merged; structural Home regression replaced the broken binary gate
+PR #29 closed, superseded by #30/#32
+PR #31 closed, superseded by #33
+PR #34 merged but did not repair corrupt Home PNG golden
+PR #35 closed without merge; bootstrap approach abandoned
+PR #36 merged; structural Home regression replaced broken binary gate
 ```
 
-## 4.1 Golden incident closure
+Home regression policy:
 
-The persistent macOS `home_phone.png` codec failure is closed.
-
-Authoritative evidence:
-
-```text
-PR #36 head CI: success
-main merge SHA: fba1f6454c28f0e5d15a92c9a94a68e6df5e64d2
-main push CI: 31895567304
-main push conclusion: success
-Golden tests (macOS): success
-```
-
-Policy going forward:
-
-- Home uses a structural/behavior regression test rather than the corrupted PNG baseline.
-- The remaining editor goldens continue pixel comparison.
-- Do not reintroduce binary/base64 bootstrap workarounds for the old Home golden.
-- Any future Home visual golden must be introduced intentionally from a verified local/CI baseline, not as part of UX-01.
+- Home uses structural/behavior regression rather than the old corrupt PNG baseline.
+- editor goldens continue pixel comparison.
+- do not reintroduce binary/base64 bootstrap workarounds for the old Home golden.
 
 ---
 
-# 5. UX-01 — Modern import/add-photo entry flow
+# 5. Product / Editor UX
 
-## Problem being replaced
+## UX-01 — Modern acquisition — CLOSED / VERIFIED
 
-```text
-primary Add Photo
- -> implementation-oriented three-choice source menu
- -> user chooses source/mode
- -> actual image task begins
-```
-
-## Target normal path
+Normal path:
 
 ```text
-primary Import
- -> directly invoke the gallery/platform image picker
+Import -> gallery/platform image picker directly
 ```
 
-The primary action **must not** open the old three-choice source menu.
-
-Secondary acquisition remains available through progressive disclosure:
+Secondary progressive disclosure:
 
 ```text
 More ways to add
  ├── Film Camera
  └── Take Photo
 
-Films remains a separate Film Profiles/library entry.
+Films remains separate.
 ```
 
-Current implementation branch:
+Verified through PR #37 and resulting main CI #337.
+
+## UX-02 — Home / Workspace modernization — ACTIVE
+
+Completed slice via PR #38:
+
+- removed permanent sample-photo grid;
+- removed demo/marketing/implementation explanatory copy;
+- retained real empty workspace state;
+- retained deterministic recovery/resume behavior;
+- retained Import as primary action;
+- no fake recent/catalog data.
+
+Active slice via PR #39:
 
 ```text
-feature/ux01-direct-import
-base: main @ fba1f6454c28f0e5d15a92c9a94a68e6df5e64d2
+branch: feature/ux02-workspace-recents
+PR: #39
+base: main @ 4c35eeaeaeadb0334394509b03bc194393720691
 ```
 
-Current implementation decisions:
+Goal:
 
-- primary FAB is `Import`;
-- primary Import calls `ImageSource.gallery` directly;
-- secondary app-bar popup exposes Film Camera and system camera;
-- production still uses `ImagePicker`;
-- a narrow picker injection seam exists only to make acquisition-flow widget tests deterministic;
-- no Rust image semantics, package boundary, ABI, channel, applicationId, or bundle id changes;
-- no Home PNG golden is added in UX-01.
+- promote the existing persisted `EditorSessionStore` recovery generation into a real `Recent edit` workspace item;
+- thumbnail comes from stored `originalBytes`;
+- timestamp comes from stored `savedAt`;
+- Resume / Discard behavior remains unchanged;
+- do not invent recent images or a catalog persistence model in this slice.
 
-UX-01 stabilization criteria:
-
-```text
-[ ] primary Import does not open the old source menu
-[ ] primary Import calls gallery picker directly
-[ ] Film Camera remains reachable through secondary disclosure
-[ ] system camera remains reachable through secondary disclosure
-[ ] focused widget tests verify gallery/camera source selection
-[ ] Home structural regression reflects the new Import affordance
-[ ] no regression to editor/camera semantic commit paths
-[ ] no expensive synchronous work is introduced on the tap path
-[ ] flutter analyze passes
-[ ] flutter test passes
-[ ] full PR CI passes
-[ ] no unresolved review thread remains
-[ ] UX-01 merges to main
-[ ] resulting main push CI passes before UX-01 is declared complete
-```
-
-Design direction for subsequent UX slices:
+Design direction:
 
 - image first;
 - direct manipulation;
 - progressive disclosure;
-- continuous preview where architecture safely supports it;
+- continuous preview only where architecture safely supports it;
 - micro motion ~80-120 ms, fast 140-180 ms, standard 200-260 ms, spatial 280-360 ms;
 - perceived direct-control latency target below roughly 100 ms;
 - compact precision controls with large invisible hit areas;
 - avoid excessive glass, blur, gradients, bounce, and oversized cards.
-
-Likely next UX slice after UX-01:
-
-```text
-UX-02 Home / Workspace modernization
-- replace demo/test-app feel
-- reduce onboarding/explanatory chrome
-- make recent edits/images/import the primary workspace hierarchy
-- retain deterministic recovery/resume behavior
-```
 
 ---
 
@@ -287,46 +259,21 @@ dxtr_pixs_raw      future real RAW pipeline only if a clean boundary is proven
 
 # 7. Future O1 — Dart 3.13 RecordUse / native tree-shaking
 
-**Status: FUTURE / DEFERRED / DO NOT START NOW.**
+**FUTURE / DEFERRED / DO NOT START NOW.**
 
-O1 is an evidence-driven binary-size/build optimization and must not interrupt Product / Editor UX work.
-
-Do not change the Dart SDK constraint, Flutter baseline, Flutter Rust Bridge integration, native build pipeline, Rust ABI, or release packaging merely to start O1.
-
-Detailed future plan:
+Detailed plan:
 
 ```text
 docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md
 ```
 
-Future activation order only after an explicit project decision:
-
-```text
-FNT-0 Toolchain gate
-FNT-1 Native size baseline
-FNT-2 Binding/API and linker audit
-FNT-3 Optional desktop GPU mechanics PoC
-FNT-4 Mobile engine feasibility PoC
-FNT-5 Linker/LTO verification
-FNT-6 Before/after evidence
-FNT-7 Adopt / limited-adopt / defer / reject decision
-```
-
-Guards:
-
-1. preserve native symbols if usage information is unavailable or ambiguous;
-2. do not remove Flutter Rust Bridge merely to enable RecordUse;
-3. desktop GPU work must not replace mobile engine evaluation;
-4. Rust authority and deterministic export remain unchanged;
-5. no adoption without measured before/after binary evidence.
+Do not change the Dart SDK constraint, Flutter baseline, Flutter Rust Bridge integration, native build pipeline, Rust ABI, or release packaging merely to start O1. Adoption requires measured before/after binary evidence.
 
 ---
 
 # 8. G7B
 
-G7B is **deferred indefinitely / not scheduled**.
-
-Do not treat it as a blocker and do not resume it without an explicit project decision.
+G7B is **deferred indefinitely / not scheduled**. Do not treat it as a blocker and do not resume it without an explicit project decision.
 
 ---
 
@@ -336,7 +283,7 @@ G6 is closed/verified.
 
 ```text
 main app id: dev.cnxdev.pixelcraft
-DO NOT uninstall or overwrite the installed main app during verifier runs
+DO NOT uninstall or overwrite installed main app during verifier runs
 temporary verifier id: dev.cnxdev.pixelcraft.g6verify
 
 iPhone 11 UDID: 00008030-0004694C3E68C02E
@@ -386,9 +333,9 @@ release --no-codesign is part of CI validation
 7. Native Rust/ABI names remain stable unless separately justified and validated.
 8. O1 / RecordUse is future/deferred and must not start without explicit activation.
 9. Do not claim a remote branch is deleted unless GitHub confirms the ref no longer exists.
-10. A PR being green is not enough to declare a repair complete; verify the resulting `main` push CI after merge.
+10. A PR being green is not enough to declare a slice complete; verify resulting `main` push CI after merge.
 
-Standard verification entry points:
+Standard verification:
 
 ```text
 bash tool/check_package_boundaries.sh
@@ -402,19 +349,19 @@ flutter test
 
 # 12. Current next action
 
-**Finish UX-01 on `feature/ux01-direct-import`.**
+**Finish UX-02 real recent-edit hierarchy on PR #39 / `feature/ux02-workspace-recents`.**
 
 Required sequence:
 
 ```text
-1. validate the direct Import implementation
-2. verify focused Home acquisition tests
-3. run full analysis/tests through PR CI
-4. address all review threads
-5. merge UX-01 only when final head is green
-6. verify resulting main push CI is fully green
-7. delete/supersede obsolete UX-01/repair branches where tooling permits
-8. then begin UX-02 Home / Workspace modernization
+1. validate thumbnail/timestamp rendering from the real persisted recovery generation
+2. preserve Resume / Discard semantics
+3. keep empty workspace behavior unchanged when no session exists
+4. run full PR CI
+5. address all review threads
+6. merge only when final head is green
+7. verify resulting main push CI is fully green
+8. then choose the next UX-02 slice based on real persisted user data; do not fake a catalog
 ```
 
-Do not start O1 or G7B during this sequence.
+Do not start O1, G7B, MobileSAM, or restoration during this sequence.
