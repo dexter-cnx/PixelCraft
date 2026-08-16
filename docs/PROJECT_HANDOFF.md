@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. Product direction is platform-adaptive: phone/tablet are camera-first; desktop is editor/open/drop-first. PixelCraft remains the camera/photo-editing/image-processing product. Nixin/Dextryx Images remains the image-management product and may invoke PixelCraft through a future versioned external-edit contract. Cross-cutting PF foundations are now explicitly defined: easy_localization, Riverpod, preferences/service boundaries, typed processing state, adaptive navigation, and future-safe source contracts. Package strategy is also explicit: consolidate ownership into the existing four packages before creating new packages; reconsider a dedicated camera package only after PF3 stabilizes its contracts; keep segmentation and RAW as future packages activated only with their actual milestones.**
+Last refresh: **2026-08-16. CI affected-validation architecture is implemented and full-validated on PR #49; product direction remains unchanged: phone/tablet are camera-first, desktop is editor/open/drop-first, PixelCraft owns camera/editor/image processing, Nixin/Dextryx Images owns long-lived image management. PF0 + PF1 remain the next product implementation slice.**
 
 ---
 
@@ -38,35 +38,35 @@ Rules:
 
 - user-facing copy uses **Dextryx Pixels**;
 - launcher/home-screen label uses **Dxtr Pixs**;
-- repository name and app identifiers remain unchanged unless a separate migration is approved;
+- repository name and runtime app identifiers remain unchanged unless a separate migration is approved;
 - historical evidence may retain the name that existed when produced;
 - native ABI/runtime identifiers and persisted schema names are not branding concerns.
 
 ---
 
-# 2. Canonical product boundary — PixelCraft vs Nixin
+# 2. Product boundary — PixelCraft vs Nixin
 
 ## PixelCraft / Dextryx Pixels
 
-**Primary role: camera + photo editor + image-processing product.**
+Primary role: **camera + photo editor + image-processing product**.
 
 Owns:
 
 ```text
 mobile/tablet camera experience
 edit session UX
-Rust authoritative recipe/history/checkpoint
+Rust authoritative recipe/history/checkpoint/recovery
 image-processing semantics
 GPU preview
-Film Profiles / Creative filters
+Film Profiles / Creative Filters
 adjustments / transforms / masks
 full-resolution render/export
 editor recovery/session continuity
 ```
 
-PixelCraft may keep a small editor-local source/recovery layer only when needed for continuity. It is not the long-lived DAM/catalog product.
+PixelCraft may keep bounded editor-local source/recovery metadata for continuity. It is not the long-lived DAM/catalog product.
 
-PixelCraft must not grow by default into:
+Do not expand PixelCraft by default into:
 
 ```text
 Workplaces hierarchy
@@ -79,13 +79,9 @@ Lightroom-style DAM behavior
 
 ## Nixin / Dextryx Images
 
-**Primary role: image manager / catalog / Workplaces product.**
+Primary role: **image manager / catalog / Workplaces product**.
 
 Nixin owns asset identity, long-lived organization, browsing, catalog metadata, import, source management, collections, and future library workflows.
-
-## Reusable PixelCraft modules
-
-Nixin may consume stable, explicitly reusable PixelCraft modules/packages for bounded capabilities. Reuse must not import PixelCraft app-internal UI/state or transfer ownership of Nixin catalog identity.
 
 ## Future external-edit direction
 
@@ -104,16 +100,16 @@ Guardrails:
 1. Nixin remains authoritative for Workplaces/catalog/asset identity.
 2. PixelCraft/Rust remains authoritative for PixelCraft edit recipes and pixel-processing semantics.
 3. The protocol must be versioned before implementation.
-4. Do not make Nixin depend on `HomeScreen`, `ProductEditorScreen`, or other app-internal Flutter classes.
-5. Prefer a narrow request/result contract that can later be transported by deep link, Android intent, iOS share/open-in, desktop launch arguments, or another explicit mechanism.
+4. Do not make Nixin depend on PixelCraft app-internal widgets/providers.
+5. Transport is separate from the request/result data model.
 
 ---
 
-# 3. Canonical platform product flow
+# 3. Canonical platform flow
 
 ## Phone and tablet — camera-first
 
-Phone and tablet share the same mental model. Tablet may adapt layout for larger screens, but the launch behavior remains camera-first.
+Phone and tablet share one mental model. Tablet may adapt layout for larger screens, but launch remains camera-first.
 
 ```text
 App launch
@@ -121,7 +117,7 @@ App launch
 Camera
 ```
 
-Target camera shell:
+Target shell:
 
 ```text
 ┌─────────────────────────────┐
@@ -139,10 +135,10 @@ Rules:
 
 - center bottom = **Shutter**;
 - bottom left = **Gallery** / recent-source entry;
-- bottom right = camera controls/settings surface;
-- Film, Filter, and Adjust are available without leaving Camera;
+- bottom right = camera controls/settings;
+- Film, Filter, and Adjust are available in Camera;
 - verified GPU paths provide low-latency preview where faithful;
-- unsupported GPU operations fall back safely rather than diverging from Rust semantics.
+- unsupported GPU operations fail closed/fallback safely.
 
 ### Camera capture target
 
@@ -163,13 +159,13 @@ remain in Camera
 
 Hard rules:
 
-1. camera capture remains clean internally;
+1. capture remains clean internally;
 2. live preview pixels are never final-render authority;
-3. camera result saved by the PF flow is JPEG;
-4. shutter does not force the user into the editor after every capture;
-5. after save, Camera remains active;
+3. PF camera result is JPEG;
+4. shutter does not force editor navigation after every capture;
+5. Camera remains active after save;
 6. recent thumbnail/confirmation may update;
-7. tapping the recent thumbnail may enter the editor for additional work.
+7. tapping recent media may enter the editor.
 
 ### Gallery/editor target
 
@@ -178,58 +174,44 @@ Gallery
  -> choose source
  -> preserve original source untouched
  -> Product Editor
- -> Film / Filter / Adjust / transforms / future masks
+ -> Film / Filter / Adjust / transforms / masks
  -> Rust full-resolution render
  -> save processed result to Gallery / explicit destination
 ```
 
-Source-format rule:
+Source preservation:
 
-- JPEG remains JPEG source;
-- PNG remains PNG source;
-- WebP remains WebP source;
-- future RAW remains RAW source;
-- output format is a separate decision from source preservation.
+```text
+JPEG source -> JPEG source remains untouched
+PNG source  -> PNG source remains untouched
+WebP source -> WebP source remains untouched
+future RAW  -> RAW source remains untouched
+```
+
+Output format is a separate decision.
 
 ## Desktop — editor/open/drop-first
 
-Desktop must **not** launch into the mobile camera shell.
+Desktop must not launch into the mobile camera shell.
 
 ```text
 App launch
    ↓
-Editor launcher / open / drop surface
+Open / Drop surface
+   ↓
+Editor
 ```
 
-Primary desktop input:
+Primary inputs:
 
 ```text
-Open Image / Drag & Drop
+Open Image
+Drag & Drop
 ```
 
-Secondary/future inputs:
+Secondary/future inputs may include Open Recent, Paste Image, Capture from Camera, Open With, and Nixin external edit.
 
-```text
-Open Recent
-Paste Image
-Capture from Camera
-Open With / external edit request
-Nixin external edit
-```
-
-Desktop editor direction:
-
-```text
-┌──────────────┬──────────────────────┬──────────────┐
-│ Film/Filter  │                      │ Adjustments  │
-│ Presets/Mask │    image preview     │ Light/Color  │
-│              │                      │ Detail/Curve │
-├──────────────┴──────────────────────┴──────────────┤
-│ context strip / thumbnails / history / compare    │
-└───────────────────────────────────────────────────┘
-```
-
-Panels should be collapsible. Desktop remains an editor, not a DAM/library clone.
+Desktop remains an editor, not a DAM/library clone.
 
 ---
 
@@ -259,9 +241,9 @@ Hard contracts:
 12. AI segmentation/restoration is optional capability and never committed-image authority.
 13. Do not casually replace mobile Metal/OpenGL ES runtime with wgpu.
 14. Editor-local workspace/catalog state is metadata/navigation state only and never authoritative edit/pixel state.
-15. Recovery generations remain crash/session recovery and are not catalog identity.
+15. Recovery generations are crash/session recovery, not catalog identity.
 16. Long-lived image-management ownership belongs to Nixin.
-17. External-edit integration must use explicit request/result contracts rather than app-internal UI coupling.
+17. External-edit integration uses explicit request/result contracts rather than app-internal UI coupling.
 
 ---
 
@@ -289,6 +271,8 @@ W1A/W1B editor-local catalog contract/storage  CLOSED / VERIFIED
 W1C acquisition/catalog/Home integration       CLOSED / VERIFIED
 W1D DAM-style multi-item expansion              CANCELLED AS DEFAULT DIRECTION
 
+CI-01 affected fast-fail / reliability tiers    PR #49 / FULL VALIDATION GREEN
+
 PF0 Platform-flow foundations                   NEXT / NOT IMPLEMENTED
 PF1 Camera-first mobile/tablet shell             PLANNED
 PF2 Unified Camera Film/Filter/Adjust UX         PLANNED
@@ -301,13 +285,148 @@ Real RAW development                            FUTURE / NOT ACTIVATED
 O1 Dart 3.13 native tree-shaking / RecordUse    FUTURE / DEFERRED / DO NOT START NOW
 ```
 
-`PF0` is a cross-cutting foundation slice introduced to avoid embedding platform behavior directly into screens before PF1-PF5.
+---
 
-Historical G7 PR #10 is closed/superseded. Do not reopen it.
+# 6. CI architecture baseline — PR #49
+
+CI optimization is a focused infrastructure slice. It does not reorder PF0/PF1 or change image/runtime semantics.
+
+Canonical CI document:
+
+```text
+docs/CI_ARCHITECTURE.md
+```
+
+## DAG
+
+```text
+Change Detection
+      ↓
+Fast CI
+      ↓
+selected affected/full jobs
+      ├─ Native/GPU Core
+      ├─ Golden Tests
+      ├─ Android Build
+      ├─ iOS Build
+      ├─ macOS Build
+      ├─ Windows Build
+      ├─ Linux Build
+      ├─ Reliability Tier 2
+      └─ Reliability Tier 3
+      ↓
+CI Gate
+```
+
+Core policy:
+
+- `Fast CI` is the fast-fail gate before expensive jobs;
+- iterative PRs run only materially affected jobs;
+- `main`, `merge_group`, explicit full mode, and CI/tooling changes force conservative full validation;
+- `CI Gate` is the stable aggregate result for conditional jobs;
+- branch protection should require `Fast CI` + `CI Gate`, not every conditional platform job individually;
+- superseded PR runs are cancelled; main/merge-group validation is isolated from unrelated PR runs.
+
+Local commands:
+
+```bash
+make format-check
+make analyze
+make test-fast
+make gpu-check
+make ci-fast
+make preflight
+```
+
+Generated FRB bridge policy:
+
+- Fast CI generates and verifies the complete bridge;
+- the whole `lib/src/rust/**` generated directory plus Rust/C header outputs are uploaded as a run-scoped artifact;
+- downstream platform jobs restore the same generated bridge rather than regenerating independently;
+- Native/GPU Core still performs pinned FRB regeneration/drift validation when selected.
+
+Reliability tiers:
+
+```text
+Tier 1 = fast deterministic correctness
+Tier 2 = sensitive native/GPU/reliability automation + 12 MP characterization + safety guard
+Tier 3 = full hosted G6 automation up to 48 MP, with physical-device status kept explicit
+```
+
+## Proven PR validation
+
+PR #49 run:
+
+```text
+run #432
+run id: 31951272254
+head fix: 7e7bf4d256cca462d5adb69b7f4f651eadb61d18
+result: SUCCESS
+```
+
+Passed jobs:
+
+```text
+Change Detection
+Fast CI
+Native/GPU Core
+Golden Tests
+Android Build
+iOS Build
+macOS Build
+Windows Build
+Linux Build
+Reliability Tier 2
+Reliability Tier 3
+CI Gate
+```
+
+The Windows final fix corrected the `dxtr_pixs_engine` CargoKit manifest relative path. Full run #432 then passed on all supported hosted platforms.
+
+**Important:** PR green is not the final closure condition. After merge, verify the resulting `main` push CI before declaring CI-01 fully closed.
 
 ---
 
-# 6. PF0 — platform-flow foundations
+# 7. G6 reliability and device safety
+
+G6 is closed/verified.
+
+Canonical identifiers:
+
+```text
+main app id: dev.cnxdev.pixelcraft
+isolated verifier id: dev.cnxdev.pixelcraft.g6verify
+```
+
+Hard invariant:
+
+```text
+DO NOT uninstall or overwrite dev.cnxdev.pixelcraft during verifier/device runs.
+```
+
+Physical evidence already recorded:
+
+```text
+iPhone 11 UDID: 00008030-0004694C3E68C02E
+10/50/100-cycle soak evidence: PASS / characterized
+thermal sustained workload: PASS / characterized
+manual physical checklist: completed
+```
+
+Hosted CI must never fabricate a physical-device PASS. Tier 3 may complete hosted G6 validation while explicitly skipping physical-device smoke when no real `DEVICE` is supplied.
+
+`tool/ci_device_safety_guard.sh` statically enforces the main/verifier ID and worktree isolation contract.
+
+See:
+
+```text
+docs/G6_RELIABILITY_MATRIX.md
+docs/G6_DEVICE_MANUAL_CHECKLIST.md
+```
+
+---
+
+# 8. PF0 — platform-flow foundations
 
 PF0 should be implemented before or as the first slice of PF1.
 
@@ -322,29 +441,29 @@ en
 th
 ```
 
-Locale policy:
+Policy:
 
 ```text
 device th_* -> th
 device en_* -> en
-unsupported locale -> en
+unsupported -> en
 fallback -> en
 ```
 
-Initial resource layout:
+Initial resources:
 
 ```text
 assets/translations/en.json
 assets/translations/th.json
 ```
 
-New user-facing Flutter strings should be localized rather than hardcoded.
+New user-facing Flutter strings should be localized.
 
 ## State management
 
-Use **Riverpod** as the Flutter state-management standard. `ProviderScope` already exists at the app root.
+Use **Riverpod** as the Flutter application/UI state standard.
 
-Recommended state boundaries:
+Recommended boundaries:
 
 ```text
 AppPreferencesState
@@ -355,17 +474,11 @@ ProcessingJobState
 ExternalEditState   # future orchestration
 ```
 
-Do not add Bloc/GetX or another competing global state framework without an explicit architectural reason.
-
 Riverpod is not image-processing authority.
 
 ## Preferences
 
-Introduce an abstraction such as:
-
-```text
-AppPreferencesStore
-```
+Introduce `AppPreferencesStore` with a lightweight replaceable backend.
 
 Candidate values:
 
@@ -380,11 +493,11 @@ optional locale override
 last editor UI tool
 ```
 
-Do **not** add Hive merely as future-proofing. Use a lightweight replaceable backend until a real database use case appears.
+Do not add Hive merely as future-proofing.
 
 ## Application services
 
-Introduce or converge toward explicit service boundaries:
+Converge toward explicit boundaries:
 
 ```text
 MediaPickerService
@@ -395,40 +508,9 @@ ProcessingJob coordinator/state
 AppRouter / navigation abstraction
 ```
 
-### MediaPickerService
-
-Returns source information without inventing edit semantics or DAM identity.
-
-### MediaSaveService
-
-Common output path for:
-
-- camera JPEG results;
-- editor Gallery exports;
-- future explicit save-copy destinations.
-
-### PermissionService
-
-Centralize Camera/Gallery/save permission state, denied/restricted behavior, and localized presentation mapping.
-
-### CapabilityRegistry
-
-UI should query capability rather than infer behavior only from platform names.
-
-Examples:
-
-```text
-native camera GPU preview available
-Film realtime preview available
-Creative Filter realtime preview available
-specific Adjust preview support
-source-format support
-future segmentation/RAW support
-```
-
 ## Processing job state
 
-Use an explicit job model for longer processing/saving work:
+Use explicit longer-work state:
 
 ```text
 idle
@@ -438,9 +520,9 @@ completed
 failed
 ```
 
-Prevent duplicate shutter/export submission while the relevant job is active.
+Prevent duplicate shutter/export while the relevant job is active.
 
-Typed failures should cover at least:
+Typed failures should include at least:
 
 ```text
 cameraUnavailable
@@ -452,30 +534,11 @@ renderFailed
 saveFailed
 ```
 
-Map these to localized user messages at the presentation boundary.
-
-## Navigation
-
-Introduce a lightweight route/navigation abstraction instead of expanding direct `Navigator.push` calls across every screen.
-
-Target intent flows:
-
-```text
-Mobile/tablet
-Launch -> Camera -> Gallery Picker -> Editor -> Export -> Camera
-
-Desktop
-Launch -> Open/Drop -> Editor -> Export
-
-Future external edit
-Nixin request -> Editor -> PixelCraftEditResult -> caller
-```
-
 ## Format-aware source descriptor
 
-Do not make new input contracts assume every file is JPEG/PNG.
+New input contracts must not assume every file is JPEG/PNG.
 
-A source descriptor should be able to carry:
+A source descriptor should carry:
 
 ```text
 uri/path
@@ -485,11 +548,11 @@ optional caller-owned external id
 metadata needed for opening/returning
 ```
 
-This is required so future RAW and Nixin integration do not force a redesign of source identity.
+This keeps future RAW and Nixin integration from forcing a source-identity redesign.
 
 ---
 
-# 7. Existing implementation relevant to PF1-PF4
+# 9. Existing implementation relevant to PF1-PF4
 
 Current runtime still boots Rust and returns `HomeScreen`; PF1 changes platform routing.
 
@@ -498,24 +561,24 @@ Existing camera foundation already provides:
 - native GPU camera preview on supported iOS/Android paths;
 - Flutter `camera` fallback;
 - camera switch;
-- Film preview and strength control;
+- Film preview and strength;
 - permission/lifecycle handling;
-- clean capture path;
-- capture -> editor handoff.
+- clean capture;
+- current capture -> editor handoff.
 
 PF work must reuse this foundation rather than build a second camera stack.
 
-Current capture opens the editor after taking a picture. PF3 changes this to authoritative processing + JPEG save + remain in Camera.
+PF3 changes current capture behavior to authoritative processing + JPEG save + remain in Camera.
 
-Existing `WorkspaceCatalogStore` remains useful only for bounded continuity/reopen behavior. It must not become the primary launch experience or a DAM.
+`WorkspaceCatalogStore` remains only bounded continuity/reopen metadata and must not become the primary product library.
 
-Existing `EditorSessionStore` remains coherent edit recovery and is separate from preferences/catalog concerns.
+`EditorSessionStore` remains edit recovery and is separate from preferences/catalog concerns.
 
 ---
 
-# 8. Film and Filter status
+# 10. Film and Filter status
 
-Film and Creative Filter are already substantial production foundations.
+Film and Creative Filter are real Rust-backed production foundations.
 
 Film:
 
@@ -526,7 +589,7 @@ Rust-authoritative replay/export
 verified realtime GPU LUT preview where supported
 ```
 
-Current Film pack includes inspired looks such as:
+Current inspired Film pack includes:
 
 ```text
 Provia
@@ -550,11 +613,52 @@ golden
 pastel_pink
 ```
 
-PF2 is primarily a **camera UX integration milestone**, not a reinvention of Film/Filter semantics.
+PF2 is primarily a camera UX integration milestone, not a reinvention of Film/Filter semantics.
 
 ---
 
-# 9. Future MobileSAM / ONNX segmentation
+# 11. Package graph and extraction policy
+
+Current graph:
+
+```text
+PixelCraft app
+ ├── dxtr_pixs_film
+ ├── dxtr_pixs_gpu
+ ├── dxtr_pixs_editing
+ └── dxtr_pixs_engine
+
+dxtr_pixs_film    -> dxtr_pixs_editing
+dxtr_pixs_gpu     -> dxtr_pixs_editing
+dxtr_pixs_editing -> Dart SDK only
+dxtr_pixs_engine  -> repository rust/ crate through build integration
+```
+
+Policy:
+
+- prefer consolidation into the existing four packages before creating new packages;
+- do not create generic utility packages merely to reduce directory size;
+- app services/navigation/preferences remain application-layer boundaries unless reuse proves otherwise;
+- audit remaining `lib/core` ownership after PF0/PF1;
+- do not extract `dxtr_pixs_camera` before PF3 stabilizes capture and processing-handoff contracts.
+
+Future package family only when milestones activate:
+
+```text
+dxtr_pixs_segment
+dxtr_pixs_restore
+dxtr_pixs_raw
+```
+
+Boundary guard:
+
+```text
+tool/check_package_boundaries.sh
+```
+
+---
+
+# 12. Future MobileSAM / ONNX segmentation
 
 Future package direction:
 
@@ -564,7 +668,7 @@ dxtr_pixs_segment
 
 Status: **FUTURE / NOT ACTIVATED**.
 
-When activated, segmentation should sit behind a replaceable mask-provider boundary:
+Target boundary:
 
 ```text
 source / reduced analysis image
@@ -584,7 +688,7 @@ Do not mix MobileSAM implementation into PF0-PF5.
 
 ---
 
-# 10. Future real RAW development
+# 13. Future real RAW development
 
 Future package direction:
 
@@ -605,238 +709,11 @@ A real RAW milestone must separately define:
 - RAW-specific memory/performance policy;
 - authoritative full-resolution replay/export.
 
-PF source contracts must remain RAW-aware, but PF0-PF5 must not implement real RAW development unless explicitly activated.
+PF source contracts remain RAW-aware, but PF0-PF5 must not implement real RAW development unless explicitly activated.
 
 ---
 
-# 11. Future external-edit contract
-
-PF5 creates the foundation only; it does not implement a full Nixin integration automatically.
-
-A future request may contain:
-
-```text
-version
-sourceUri / sourcePath
-sourceId?          # caller-owned identity
-sourceMimeType
-requestedMode
-returnPolicy
-metadata?
-```
-
-A future result may contain:
-
-```text
-version
-outputUri / outputPath
-outputMimeType
-sourceId?
-recipeReference?   # only if explicitly designed
-metadata?
-```
-
-Rules:
-
-1. Nixin owns its asset id and Workplaces membership.
-2. PixelCraft owns its edit session/recipe semantics.
-3. Do not make Nixin import PixelCraft widgets or app-internal providers.
-4. Transport is separate from the request/result model.
-
----
-
-# 12. Persistence boundaries
-
-Keep responsibilities separated:
-
-```text
-EditorSessionStore
- = coherent edit-session recovery
-
-WorkspaceCatalogStore
- = bounded editor-local source/reopen metadata
-
-AppPreferencesStore
- = lightweight user/UI preferences
-
-filesystem/system Gallery
- = image files
-
-Rust recipe/history
- = authoritative editing semantics
-```
-
-Do not add a general database or Hive until an actual persistence problem requires one.
-
-Do not repurpose `WorkspaceCatalogStore` into Nixin-style Workplaces, folder ingestion, bulk organization, ratings, flags, keywords, or a large catalog browser.
-
----
-
-# 13. Package graph, ownership, and extraction policy
-
-Current package graph:
-
-```text
-PixelCraft app
- ├── dxtr_pixs_film
- ├── dxtr_pixs_gpu
- ├── dxtr_pixs_editing
- └── dxtr_pixs_engine
-
-dxtr_pixs_film    -> dxtr_pixs_editing
-dxtr_pixs_gpu     -> dxtr_pixs_editing
-dxtr_pixs_editing -> Dart SDK only
-dxtr_pixs_engine  -> repository rust/ crate through build integration
-```
-
-## Package policy
-
-Do **not** create packages merely to reduce directory size. A package boundary must represent a stable capability or ownership boundary with a meaningful dependency direction.
-
-Before creating another package, prefer consolidating app-level compatibility/facade code into the four existing packages when ownership is already clear.
-
-Do not create low-cohesion utility packages such as:
-
-```text
-dxtr_pixs_common
-dxtr_pixs_services
-dxtr_pixs_navigation
-dxtr_pixs_preferences
-dxtr_pixs_permissions
-dxtr_pixs_ui
-```
-
-PF0 application services such as `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, `AppPreferencesStore`, processing-job orchestration, and app routing remain application-layer boundaries unless a concrete reusable capability later proves otherwise.
-
-## PKG-02 — existing-package ownership audit
-
-**PLANNED AFTER PF0/PF1 STABILIZES.**
-
-Audit remaining `lib/core` compatibility/application code before adding packages.
-
-Priority candidates:
-
-```text
-film_profile_store.dart
-film_profile_v1.dart
-film_profile_recipe.dart
-image_engine.dart
-bridge/facade code where reusable ownership is clear
-```
-
-Direction:
-
-- Film profile schema/model/persistence/import-export behavior that is genuinely Film-owned should converge into `dxtr_pixs_film`.
-- reusable Flutter-facing Rust engine/render/recipe execution facades should converge into `dxtr_pixs_engine` where they are not application-specific orchestration.
-- compatibility export files may remain temporarily when they protect migrations, but should not become a second permanent ownership layer.
-- navigation, presentation errors, app state, and product workflow orchestration stay in the PixelCraft app.
-
-This is **consolidation**, not a mandate to increase package count.
-
-## PKG-03 — `dxtr_pixs_camera` extraction review
-
-**DEFER UNTIL AFTER PF3. DO NOT EXTRACT DURING PF0/PF1.**
-
-Camera currently spans native GPU preview, Flutter camera fallback, lifecycle, lens switching, clean capture, Film preview, and product-specific routing. PF1-PF3 are still changing those contracts.
-
-Re-evaluate a dedicated package only after this boundary is stable:
-
-```text
-camera runtime
- -> clean capture
- -> format-aware source descriptor
- -> authoritative processing handoff
-```
-
-A future package may look like:
-
-```text
-dxtr_pixs_camera
- ├── camera capability model
- ├── capture abstraction
- ├── lens model
- ├── lifecycle/runtime boundary
- ├── clean capture contract
- └── preview orchestration contracts
-```
-
-Keep camera-screen layout, PixelCraft navigation, localized product copy, and editor-routing policy in the application rather than the package.
-
-## Future package family
-
-Create these only when their milestones are explicitly activated:
-
-```text
-dxtr_pixs_segment  MobileSAM/local segmentation + MaskProvider boundary
-dxtr_pixs_restore  restoration capabilities
-dxtr_pixs_raw      real RAW development
-```
-
-Do not create empty placeholder packages ahead of actual implementation work.
-
-Target long-term graph:
-
-```text
-PixelCraft app
- ├── dxtr_pixs_editing
- ├── dxtr_pixs_engine
- ├── dxtr_pixs_film
- ├── dxtr_pixs_gpu
- ├── dxtr_pixs_camera   # only if PKG-03 proves the boundary after PF3
- ├── dxtr_pixs_segment  # future, when activated
- ├── dxtr_pixs_restore  # future, when activated
- └── dxtr_pixs_raw      # future, when activated
-```
-
-Native/runtime identifiers intentionally remain stable unless separately justified.
-
-Boundary guard:
-
-```text
-tool/check_package_boundaries.sh
-```
-
----
-
-# 14. Verified recent baseline
-
-Recent merged work includes:
-
-```text
-PR #20  Before/After Compare
-PR #21  Film library search/origin filters
-PR #22  Compare session/wide-layout fix
-PR #23  Zoom / Fit controls
-PR #24  precise numeric adjustment entry
-PR #25  histogram channel inspector
-PR #26  precise straighten angle entry
-PR #27  Dextryx Pixels / Dxtr Pixs identity
-PR #30  dxtr_pixs_* reusable package namespace
-PR #33  deferred Dart 3.13 native tree-shaking plan
-PR #37  direct primary Import acquisition path
-PR #38  Home workspace modernization
-PR #39  real persisted recent-edit card
-PR #41  editor-local workspace catalog foundation
-PR #42  acquisition/catalog/Home integration
-PR #43  product-boundary correction: PixelCraft editor vs Nixin manager
-```
-
-Verified W1 baseline before the platform-flow pivot:
-
-```text
-PR #42 final head: 1218ec44d0d9938a89b7f7ab294b0a55a2f435b5
-PR #42 PR CI: #362 / 31930004255 / success
-PR #42 merge: a5d015587a9eab0125d8605f91fff9307e8d0c11
-main CI after #42: #363 / 31930570158 / success
-```
-
-PR #43 is merged. Do not infer resulting-main CI status unless exact evidence is available.
-
-Historical G7 PR #10 remains closed/superseded.
-
----
-
-# 15. Deferred work
+# 14. Deferred work
 
 ## O1 — Dart 3.13 RecordUse / native tree-shaking
 
@@ -856,25 +733,7 @@ Neither O1 nor G7B blocks PF0-PF5.
 
 ---
 
-# 16. Reliability / device evidence
-
-G6 is closed/verified.
-
-```text
-main app id: dev.cnxdev.pixelcraft
-DO NOT uninstall or overwrite installed main app during verifier runs
-temporary verifier id: dev.cnxdev.pixelcraft.g6verify
-
-iPhone 11 UDID: 00008030-0004694C3E68C02E
-10 reliability cycles: PASS
-manual physical checklist: completed
-```
-
-Historical evidence must not be rewritten to newer branding.
-
----
-
-# 17. Release baseline
+# 15. Release baseline
 
 Android:
 
@@ -901,30 +760,49 @@ release --no-codesign is part of CI validation
 
 ---
 
-# 18. Verification rules
+# 16. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
 2. Never commit signing secrets, certificates, provisioning profiles, passwords, or store credentials.
 3. Never ship Android production artifacts with debug signing.
 4. Do not weaken Rust authority, GPU fail-closed behavior, or package boundaries.
 5. A PR being green is not enough to declare a slice complete; verify resulting `main` push CI after merge.
-6. Do not import Nixin roadmap items into PixelCraft; implement only the external-edit boundary explicitly approved here.
+6. Do not import Nixin roadmap items into PixelCraft beyond the explicit external-edit boundary.
 7. Do not bind Nixin to PixelCraft app-internal UI classes/providers.
-8. Mobile/tablet camera-first and desktop editor-first are product policies; do not collapse them into one generic Home UI.
+8. Mobile/tablet camera-first and desktop editor-first are product policies.
 9. Camera live preview pixels are never final-render authority.
-10. Camera captures saved by PF3 are JPEG outputs generated through the authoritative processing path.
+10. PF3 camera output is JPEG generated through the authoritative processing path.
 11. Gallery/external source inputs remain untouched; output is separate.
 12. Riverpod is UI/application orchestration only; Rust remains edit authority.
 13. Localization begins with en/th, device detection, fallback en.
 14. Do not introduce Hive without a concrete persistence requirement.
-15. Do not start MobileSAM, real RAW, O1, or G7B as part of PF0-PF5 unless explicitly activated.
+15. Do not start MobileSAM, real RAW, O1, or G7B during PF0-PF5 unless explicitly activated.
 16. Prefer consolidation into existing packages before creating new packages.
-17. Do not extract `dxtr_pixs_camera` before PF3 stabilizes capture and processing-handoff contracts.
+17. Do not extract `dxtr_pixs_camera` before PF3 stabilizes capture/processing-handoff contracts.
 18. Do not create placeholder future packages before their milestones are activated.
+19. Keep main/verifier device identifiers isolated and never uninstall/overwrite the main app during verifier runs.
+20. Hosted Tier 3 reliability must never be presented as new physical-device evidence.
+21. Branch protection should rely on stable `Fast CI` and `CI Gate` contexts rather than conditional platform jobs.
 
-Standard verification:
+Standard local validation:
 
-```text
+```bash
+make preflight
+```
+
+Focused CI-equivalent commands:
+
+```bash
+make format-check
+make analyze
+make test-fast
+make gpu-check
+make ci-fast
+```
+
+Additional project validation:
+
+```bash
 bash tool/check_package_boundaries.sh
 make gpu-lut-verify
 make verify-native
@@ -932,25 +810,23 @@ flutter analyze
 flutter test
 ```
 
-PF-specific tests should cover:
-
-```text
-platform-adaptive root routing
-phone/tablet camera launch
-desktop open/drop launch
-locale device detection + fallback
-preferences boundaries
-permission/error mapping
-processing-job duplicate-action prevention
-source preservation
-camera capture -> JPEG save -> remain in Camera
-Gallery -> editor -> export
-external-edit model versioning/serialization when PF5 starts
-```
-
 ---
 
-# 19. Current next action
+# 17. Current next action
+
+## First: finish CI-01 PR #49 closure
+
+PR #49 has a full green validation baseline on run #432. Documentation sync is being finalized on the PR head.
+
+Before calling CI-01 complete:
+
+1. require latest PR head `Fast CI` + `CI Gate` to be green;
+2. mark PR #49 Ready for Review;
+3. merge only after required checks remain green;
+4. verify the resulting `main` push full CI;
+5. then delete the merged feature branch when safe.
+
+## Product work after CI-01
 
 Implement **PF0 + PF1 first**.
 
@@ -979,7 +855,7 @@ PKG-02 audit remaining lib/core ownership
  -> defer dxtr_pixs_camera extraction decision until PF3 is stable
 ```
 
-Then proceed in order:
+Then proceed:
 
 ```text
 PF0 platform-flow foundations
@@ -991,4 +867,4 @@ PF0 platform-flow foundations
  -> PF5 versioned external-edit request/result foundation for future Nixin integration
 ```
 
-Update `docs/CODE_WALKTHROUGH.md`, `README.md`, tests, and this handoff as each PF slice lands.
+Keep `docs/CODE_WALKTHROUGH.md`, `README.md`, `docs/CI_ARCHITECTURE.md`, tests, and this handoff synchronized as each slice lands.
