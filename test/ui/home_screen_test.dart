@@ -7,6 +7,18 @@ import 'package:pixelcraft/ui/screens/home_screen.dart';
 
 import '../helpers/fake_image_engine.dart';
 
+Future<void> _pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  int maxPumps = 120,
+}) async {
+  for (var attempt = 0; attempt < maxPumps; attempt++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    if (finder.evaluate().isNotEmpty) return;
+  }
+  fail('Timed out waiting for ${finder.description}');
+}
+
 void main() {
   late Directory root;
   late WorkspaceCatalogStore catalogStore;
@@ -66,7 +78,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(tester, find.text('persisted.png'));
 
     expect(find.text('Workspace'), findsOneWidget);
     expect(find.text('persisted.png'), findsOneWidget);
@@ -93,12 +105,14 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(tester, find.text('missing.png'));
 
     await tester.tap(find.text('missing.png'));
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.text('This source file is no longer available.'),
+    );
 
-    expect(find.text('This source file is no longer available.'), findsOneWidget);
     final saved = (await catalogStore.load()).single;
     expect(saved.id, item.id);
     expect(saved.availability, WorkspaceSourceAvailability.missing);
