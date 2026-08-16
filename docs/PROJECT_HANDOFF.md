@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. UX-01 and UX-02 are merged and verified. W1 catalog contract/storage foundation from PR #41 is merged and verified on main CI #352. PR #42 integrates real gallery/system-camera acquisitions with the catalog and renders real persisted workspace items on Home; final PR head CI #361 is green, with merge/main verification still pending. G7B and Dart 3.13 native tree-shaking remain deferred.**
+Last refresh: **2026-08-16. PR #42 is merged and verified through exact resulting main CI #363. Product boundary has been corrected: PixelCraft is the photo-editing/image-processing product; Nixin/Dextryx Images is the image-management product. Nixin may reuse explicitly exposed PixelCraft modules/packages at a basic capability level, but PixelCraft must not evolve into a Lightroom-style DAM by default.**
 
 ---
 
@@ -44,7 +44,98 @@ Rules:
 
 ---
 
-# 2. Architecture invariants
+# 2. Canonical product boundary — PixelCraft vs Nixin
+
+This boundary overrides any earlier planning language that accidentally mixed the two products.
+
+## PixelCraft / Dextryx Pixels
+
+**Primary role: photo editor + image-processing product.**
+
+Owns:
+
+```text
+edit session UX
+Rust authoritative recipe/history/checkpoint
+image-processing semantics
+GPU preview
+Film Profiles / Creative filters
+masks / transforms / adjustments
+full-resolution render/export
+editor recovery/session continuity
+```
+
+PixelCraft may keep a **small editor-local workspace/catalog convenience layer** only when needed to support opening recent sources, recovery continuity, source availability, and navigation back into an edit.
+
+PixelCraft is **not** the primary image-management/DAM product. It must not automatically grow into:
+
+```text
+large library/catalog management
+Workplaces/collections hierarchy
+folder ingestion workflows
+bulk asset organization
+ratings/flags/keywords as a catalog system
+large-scale metadata browsing/search
+multi-folder archive management
+Lightroom-style DAM behavior
+```
+
+Those belong to Nixin/Dextryx Images unless a future explicit product decision says otherwise.
+
+## Nixin / Dextryx Images
+
+**Primary role: image manager / catalog / Workplaces product.**
+
+Nixin owns long-lived asset organization, import, browsing, catalog metadata, source management, and future library-management workflows.
+
+## Basic reusable-module consumption by Nixin
+
+Nixin may call or depend on **stable, explicitly reusable PixelCraft modules/packages at a basic capability level** when this reduces duplication.
+
+Acceptable shape:
+
+```text
+Nixin
+ -> documented reusable PixelCraft module/package API
+ -> bounded capability result
+ -> Nixin keeps catalog/UI ownership
+```
+
+Rules:
+
+1. reuse published/documented module boundaries, not PixelCraft app internals;
+2. prefer narrow capability/service APIs over importing PixelCraft product state;
+3. Nixin remains authoritative for Workplaces/catalog/asset identity;
+4. PixelCraft/Rust remains authoritative for editing semantics performed by reused processing modules;
+5. module reuse does not mean roadmap reuse — Nixin does not inherit PixelCraft milestones, and PixelCraft does not inherit Nixin milestones;
+6. if the integration requires PixelCraft editor session lifecycle, recipe/history ownership, substantial PixelCraft UI, or bidirectional return state, treat it as external-editor integration instead.
+
+## Future full external-edit direction
+
+A future integration may make Nixin invoke PixelCraft as an external editor:
+
+```text
+Nixin / Dextryx Images
+  owns asset/catalog identity
+  ↓ external edit request
+PixelCraft / Dextryx Pixels
+  owns edit session + processing + render/export
+  ↓ edited result / recipe reference / return contract
+Nixin resumes asset management
+```
+
+Guardrails:
+
+1. Do not create two competing authoritative catalogs for the same integration.
+2. Nixin must not become authoritative for PixelCraft edit recipes/pixel semantics.
+3. PixelCraft must not become authoritative for Nixin Workplaces/library organization.
+4. The full external-edit protocol is future work and must be explicitly designed/versioned before implementation.
+5. Do not copy Nixin roadmap terminology or Lightroom-style management requirements into PixelCraft by default.
+6. Distinguish basic module reuse from full external-editor integration.
+
+---
+
+# 3. Architecture invariants
 
 ```text
 Flutter   = UI / control / presentation plane
@@ -67,12 +158,14 @@ Hard contracts:
 10. New effects are Rust-first; GPU support is enabled only when faithful.
 11. AI segmentation/restoration is optional capability and never committed-image authority.
 12. Do not casually replace mobile Metal/OpenGL ES runtime with wgpu.
-13. Workspace/catalog state is metadata/navigation state only and must never become authoritative edit/recipe/pixel state.
+13. PixelCraft workspace/catalog state is metadata/navigation state only and must never become authoritative edit/recipe/pixel state.
 14. Recovery generations remain crash/session recovery and are not catalog identity.
+15. Workspace/catalog scope must remain editor-local; long-lived image-management ownership belongs to Nixin.
+16. Reusable PixelCraft modules may serve other products through explicit package/module contracts without transferring product ownership.
 
 ---
 
-# 3. Milestone status
+# 4. Milestone status
 
 ```text
 G1  Camera GPU Preview                         CLOSED
@@ -91,9 +184,9 @@ G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHED
 Post-G7A Product / Editor UX                    ACTIVE
 UX-01 Modern import/add-photo entry flow        CLOSED / VERIFIED
 UX-02 Home / Workspace modernization            CLOSED / VERIFIED
-W1A/W1B catalog contract + storage foundation  CLOSED / VERIFIED
-W1C acquisition/catalog/Home integration       ACTIVE / PR #42 GREEN, MERGE PENDING
-W1D multi-item workspace refinement            NEXT AFTER #42 MAIN CI
+W1A/W1B editor-local catalog contract/storage  CLOSED / VERIFIED
+W1C acquisition/catalog/Home integration       CLOSED / VERIFIED
+W1D DAM-style multi-item expansion              CANCELLED AS DEFAULT DIRECTION
 O1 Dart 3.13 native tree-shaking / RecordUse   FUTURE / DEFERRED / DO NOT START NOW
 ```
 
@@ -101,7 +194,7 @@ Historical G7 PR #10 is closed/superseded. Do not reopen it.
 
 ---
 
-# 4. Recent merged product work
+# 5. Recent merged product work
 
 ```text
 PR #20  discoverable Before/After Compare
@@ -120,7 +213,8 @@ PR #37  direct primary Import acquisition path
 PR #38  Home workspace modernization; remove demo/sample hierarchy
 PR #39  real persisted recent-edit card with bounded thumbnail decode
 PR #40  UX-02 closeout / W1 handoff definition
-PR #41  real workspace catalog storage foundation
+PR #41  editor-local workspace catalog storage foundation
+PR #42  acquisition/catalog/Home integration
 ```
 
 Verification evidence:
@@ -146,18 +240,10 @@ PR #41 final head CI: #351 / 31922407181 / success
 PR #41 merge: 7f3ae0eaaa6fe40711eca251ac746b3a24e1b69a
 main CI after #41: #352 / 31922895364 / success
 
-PR #42 head before handoff sync: 61a36e9e9c8068b5f7c47db4420688c2b9ac1576
-PR #42 head CI: #361 / 31929407911 / success
-```
-
-PR hygiene/history:
-
-```text
-PR #29 closed, superseded by #30/#32
-PR #31 closed, superseded by #33
-PR #34 merged but did not repair corrupt Home PNG golden
-PR #35 closed without merge; bootstrap approach abandoned
-PR #36 merged; structural Home regression replaced broken binary gate
+PR #42 final head: 1218ec44d0d9938a89b7f7ab294b0a55a2f435b5
+PR #42 final head CI: #362 / 31930004255 / success
+PR #42 merge: a5d015587a9eab0125d8605f91fff9307e8d0c11
+main CI after #42: #363 / 31930570158 / success
 ```
 
 Home regression policy:
@@ -168,7 +254,7 @@ Home regression policy:
 
 ---
 
-# 5. Product / Editor UX
+# 6. Product / Editor UX
 
 ## UX-01 — Modern acquisition — CLOSED / VERIFIED
 
@@ -188,34 +274,23 @@ More ways to add
 Films remains separate.
 ```
 
-Verified through PR #37 and resulting main CI #337.
-
 ## UX-02 — Home / Workspace modernization — CLOSED / VERIFIED
 
-PR #38:
+The Home surface is an editor entry/recovery surface, not a DAM browser.
 
-- removed permanent sample-photo grid;
-- removed demo/marketing/implementation explanatory copy;
-- retained real empty workspace state;
-- retained deterministic recovery/resume behavior;
-- retained Import as primary action;
-- no fake recent/catalog data.
+Valid responsibilities:
 
-PR #39:
+- primary Import entry;
+- recent recoverable edit;
+- small set of real persisted editor-local source entries when useful;
+- source missing status;
+- resume/open into editor;
+- bounded thumbnails;
+- no fake/demo/sample assets.
 
-- promoted the existing persisted `EditorSessionStore` recovery generation into the real `Recent edit` hierarchy;
-- thumbnail uses stored `originalBytes`;
-- thumbnail decode is bounded by 88 logical pixels × device pixel ratio rather than full-resolution decode;
-- timestamp uses stored `savedAt`;
-- legacy epoch sentinel is hidden rather than rendered as 1970;
-- Resume / Discard semantics remain unchanged;
-- no fake recent images, catalog rows, or new persistence model were introduced.
-
-Verified through PR #39 final head CI #344 and resulting main CI #345.
+Do not extrapolate this into a full asset-management product.
 
 ### Workspace data boundary
-
-`EditorSessionStore` and `WorkspaceCatalogStore` intentionally solve different problems:
 
 ```text
 EditorSessionStore
@@ -224,33 +299,21 @@ EditorSessionStore
 = generation-based recovery
 
 WorkspaceCatalogStore
-= stable multi-item navigation/metadata identity
-= source provenance / path retention / availability / timestamps
+= lightweight editor-local source/navigation metadata
+= provenance / path retention / availability / timestamps
 = no recipe/history/pixels authority
+= not Nixin Workplaces and not a general-purpose DAM catalog
 ```
 
 Never repurpose recovery generations as catalog rows.
 
-### Design direction
-
-- image first;
-- direct manipulation;
-- progressive disclosure;
-- continuous preview only where architecture safely supports it;
-- micro motion ~80-120 ms, fast 140-180 ms, standard 200-260 ms, spatial 280-360 ms;
-- perceived direct-control latency target below roughly 100 ms;
-- compact precision controls with large invisible hit areas;
-- avoid excessive glass, blur, gradients, bounce, and oversized cards.
-
 ---
 
-# 6. W1 — Real workspace/catalog foundation — ACTIVE
+# 7. W1 correction — editor-local workspace/catalog only
 
-Purpose: establish a truthful multi-item workspace data model and real Home navigation without introducing a second edit authority.
+W1A/W1B and W1C are retained because they provide useful editor-local continuity. Their scope must now remain bounded.
 
 ## W1A/W1B — contract + storage — CLOSED / VERIFIED
-
-Implemented in PR #41 and verified on resulting main CI #352.
 
 Catalog item contract:
 
@@ -267,76 +330,85 @@ lastOpenedAt?
 
 No recipe/history/checkpoint/pixels/edit settings are stored in catalog items.
 
-Storage properties:
-
-- app-local `pixelcraft-workspace/catalog.json` manifest;
-- versioned schema;
-- strict mutation semantics: malformed/newer manifests are not silently overwritten;
-- crash-safe publish with `.tmp` and `.bak`;
-- backup recovery for interrupted replacement;
-- shared per-directory serialization across store instances in the Dart isolate;
-- stable unique id allocation under the same write lock;
-- deterministic newest-`updatedAt` ordering;
-- focused persistence/concurrency/corruption/new-schema tests.
-
-## W1C — acquisition/catalog/Home integration — ACTIVE
-
-Implemented in PR #42; final merge/main verification still required.
+## W1C — acquisition/catalog/Home integration — CLOSED / VERIFIED
 
 Current behavior:
 
 ```text
-Import (gallery)
+Import / Take Photo
  -> picker result
- -> catalog item sourceKind=gallery
- -> externalReference path
- -> open ProductEditorScreen
-
-Take Photo (system camera)
- -> picker result
- -> catalog item sourceKind=systemCamera
- -> externalReference path
+ -> lightweight catalog metadata
  -> open ProductEditorScreen
 
 Home
- -> WorkspaceCatalogStore.load()
- -> render persisted real items only
- -> open existing source in ProductEditorScreen
- -> missing source => mark availability=missing, preserve stable identity
+ -> render real editor-local entries
+ -> reopen source in ProductEditorScreen
+ -> missing source => preserve identity + mark missing
 ```
 
-Additional hardening:
+Hardening retained:
 
-- lost picker recovery does **not** guess gallery-vs-camera provenance because `image_picker.retrieveLostData()` does not provide enough provenance; recovered files open without fabricated catalog metadata;
-- workspace item opening uses an in-flight guard before filesystem/catalog awaits, preventing double-tap duplicate editor routes;
-- Home thumbnails use bounded decode dimensions;
-- catalog mutation failure does not prevent the editor from opening, while catalog storage itself remains fail-closed;
-- Home widget tests use an in-memory catalog test double, while real disk/atomic/corruption semantics remain covered by `workspace_catalog_store_test.dart`;
-- `docs/CODE_WALKTHROUGH.md` is updated for acquisition → catalog → Home behavior.
+- lost picker recovery does not invent source provenance;
+- in-flight workspace opening prevents duplicate routes;
+- thumbnails use bounded decode dimensions;
+- catalog mutation failure does not block editing;
+- persistence/corruption semantics remain separately tested.
 
-Not yet done in W1C:
+Verified through PR #42 final PR CI #362 and exact resulting main CI #363.
 
-- Film Camera capture catalog handoff;
-- durable managed-copy policy for picker/camera sources;
-- durable pending-acquisition provenance for Android lost-data recovery;
-- duplicate asset reconciliation beyond stable catalog identity rules.
+## Explicitly removed from PixelCraft default roadmap
 
-## W1D — next UI/data refinement
+The following previously proposed W1D-style work was an accidental Nixin/DAM direction and is **not** a PixelCraft milestone by default:
 
-Start only after PR #42 merge and resulting main CI succeed.
+```text
+large multi-item library/grid as primary product surface
+folder import workflows
+bulk multi-select asset ingestion
+managed archive/folder organization
+Workplaces/collections hierarchy
+ratings/flags/keywords catalog system
+large catalog browser/search
+Lightroom-style DAM workflow
+```
 
-Targets:
+Do not implement these in PixelCraft unless a future explicit product decision reopens them.
 
-- refine real multi-item Home list/grid hierarchy using catalog data only;
-- deterministic sorting and item actions;
-- clearer Resume/Edit/missing-source affordances;
-- preserve Import as primary action;
-- no fake/demo/sample rows;
-- do not move recipe/pixel authority into Flutter catalog state.
+## Allowed follow-up hardening
+
+Only implement catalog-related work when it protects editor continuity, for example:
+
+- Film Camera source registration if needed for reopening the captured clean source;
+- source-retention/durability fixes required to prevent broken editor reopen behavior;
+- missing-source handling;
+- duplicate route/session prevention;
+- migration/failure fixes.
+
+Avoid turning those fixes into a broader asset-management program.
 
 ---
 
-# 7. Package graph and naming
+# 8. PixelCraft next product direction
+
+Prioritize **photo editing / processing** work rather than DAM expansion.
+
+Candidate categories should be selected from the PixelCraft roadmap and current product needs, such as:
+
+```text
+editor UX refinement
+processing correctness/performance
+Film/Creative workflow
+GPU preview fidelity/reliability
+export/render workflow
+masking/segmentation capability when explicitly activated
+restoration capability when explicitly activated
+future real RAW pipeline only when separately approved
+```
+
+Do not infer Nixin requirements as PixelCraft requirements. Reusable module APIs may be hardened when an actual cross-product consumer needs them, but that work must remain module-focused rather than importing the consumer's product roadmap.
+
+---
+
+# 9. Package graph and naming
 
 ```text
 PixelCraft app
@@ -387,7 +459,7 @@ dxtr_pixs_raw      future real RAW pipeline only if a clean boundary is proven
 
 ---
 
-# 8. Future O1 — Dart 3.13 RecordUse / native tree-shaking
+# 10. Future O1 — Dart 3.13 RecordUse / native tree-shaking
 
 **FUTURE / DEFERRED / DO NOT START NOW.**
 
@@ -401,13 +473,13 @@ Do not change the Dart SDK constraint, Flutter baseline, Flutter Rust Bridge int
 
 ---
 
-# 9. G7B
+# 11. G7B
 
 G7B is **deferred indefinitely / not scheduled**. Do not treat it as a blocker and do not resume it without an explicit project decision.
 
 ---
 
-# 10. Reliability / device evidence
+# 12. Reliability / device evidence
 
 G6 is closed/verified.
 
@@ -425,7 +497,7 @@ Historical evidence must not be rewritten to newer branding.
 
 ---
 
-# 11. Release baseline
+# 13. Release baseline
 
 Android:
 
@@ -452,7 +524,7 @@ release --no-codesign is part of CI validation
 
 ---
 
-# 12. Verification rules
+# 14. Verification rules
 
 1. Never claim CI/test/device/build/store validation passed unless actually run or explicitly reported.
 2. Never commit signing secrets, certificates, provisioning profiles, passwords, or store credentials.
@@ -464,6 +536,8 @@ release --no-codesign is part of CI validation
 8. O1 / RecordUse is future/deferred and must not start without explicit activation.
 9. Do not claim a remote branch is deleted unless GitHub confirms the ref no longer exists.
 10. A PR being green is not enough to declare a slice complete; verify resulting `main` push CI after merge.
+11. Do not import Nixin/Dextryx Images roadmap items into PixelCraft unless explicitly approved for PixelCraft.
+12. Nixin basic module consumption is allowed only through stable reusable PixelCraft boundaries; do not convert that into cross-project roadmap coupling.
 
 Standard verification:
 
@@ -477,20 +551,13 @@ flutter test
 
 ---
 
-# 13. Current next action
+# 15. Current next action
 
-**Finish PR #42 cleanly, then continue W1D from verified main.**
+1. Merge this product-boundary documentation correction after its exact-head CI is green.
+2. Do **not** start the previously proposed DAM-style W1D.
+3. Select the next PixelCraft milestone from editing/processing/product-editor priorities.
+4. Allow Nixin to consume stable PixelCraft modules for concrete basic capabilities when appropriate, without mixing product roadmaps.
+5. Keep full Nixin external-edit integration as a future cross-product contract, not an implicit current implementation task.
+6. Continue updating `docs/CODE_WALKTHROUGH.md` and this handoff when implementation materially changes.
 
-Required sequence:
-
-```text
-1. verify CI for the final PR #42 head after this handoff sync
-2. verify no actionable review threads remain
-3. merge PR #42 only when exact-head CI is green
-4. verify resulting main push CI for the exact merge SHA
-5. after main is green, begin W1D in a fresh branch
-6. keep Film Camera catalog handoff and managed-copy policy explicit follow-up decisions; do not guess platform durability
-7. continue updating docs/CODE_WALKTHROUGH.md and this handoff as implementation changes
-```
-
-Do not start O1, G7B, MobileSAM, restoration, or fake catalog UI during this sequence.
+Do not start O1, G7B, or Nixin-style Workplaces/DAM expansion from this handoff.

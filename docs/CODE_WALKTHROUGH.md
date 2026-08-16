@@ -1,8 +1,32 @@
 # PixelCraft Code Walkthrough
 
-เอกสารนี้อธิบาย architecture ปัจจุบันของ repository **PixelCraft** / product **Dextryx Pixels** หลัง G1–G7A, package extraction, UX modernization และ W1 real workspace/catalog work.
+Repository: **PixelCraft**  
+Product: **Dextryx Pixels**
 
-สถานะ ณ 2026-08-16:
+## Product scope
+
+PixelCraft is the **photo-editing and image-processing product**.
+
+Its primary responsibilities are:
+
+- editor UX and edit-session lifecycle;
+- Rust-authoritative edit recipe/history/checkpoint semantics;
+- adjustments, transforms, masks, Film/Creative processing;
+- realtime GPU preview where faithful;
+- full-resolution render/export;
+- editor recovery and source reopening continuity.
+
+**Nixin / Dextryx Images is a separate product** whose primary responsibility is image management: Workplaces, import, cataloging, browsing, organization, source management, and large-library UX.
+
+The PixelCraft workspace/catalog implementation is therefore an **editor-local convenience layer**, not a general DAM. Do not extend it into Nixin-style Workplaces, folder ingestion, bulk asset organization, ratings/flags/keywords, or a Lightroom-style library unless PixelCraft receives an explicit product decision to do so.
+
+Nixin may reuse stable, explicitly reusable PixelCraft packages/modules for bounded basic capabilities. That is module reuse, not roadmap reuse, and it must not depend on PixelCraft app internals or transfer catalog/edit authority between products.
+
+A future cross-product direction may allow Nixin to invoke PixelCraft as a full external editor. That protocol does not exist yet and must be designed explicitly before implementation.
+
+---
+
+## Current milestone status
 
 ```text
 G1  Camera GPU Preview                          CLOSED
@@ -20,69 +44,57 @@ G7B Store Account Integration / Beta Upload     DEFERRED INDEFINITELY
 
 UX-01 Modern import/add-photo flow               CLOSED / VERIFIED
 UX-02 Home / Workspace modernization             CLOSED / VERIFIED
-W1 Real workspace/catalog foundation             ACTIVE
+W1A/W1B editor-local catalog foundation          CLOSED / VERIFIED
+W1C acquisition/catalog/Home integration         CLOSED / VERIFIED
 ```
 
-Latest verified W1 baseline:
+PR #42:
 
 ```text
-PR #41 merge: 7f3ae0eaaa6fe40711eca251ac746b3a24e1b69a
-main CI: #352 / 31922895364 / SUCCESS
+final head: 1218ec44d0d9938a89b7f7ab294b0a55a2f435b5
+PR CI: #362 / 31930004255 / SUCCESS
+merge: a5d015587a9eab0125d8605f91fff9307e8d0c11
+main CI: #363 / 31930570158 / SUCCESS
 ```
-
-> Rust เป็น authoritative source สำหรับ committed semantic edits, recipe, history, checkpoint, recovery และ full-resolution export. Flutter เป็น product/control/presentation plane. Native GPU เป็น faithful low-latency preview path เท่านั้น. Workspace catalog เป็น product metadata และต้องไม่กลายเป็น semantic edit authority อีกชุดหนึ่ง.
 
 ---
 
-# 1. Canonical architecture
+## Canonical architecture
 
 ```text
 Camera / imported image
         ↓
 clean source image
         ↓
-Flutter product / control state
+Flutter product/control state
         ↓
-interactive GPU preview where faithfully representable
-        ↓ gesture release / command
+faithful low-latency GPU preview where supported
+        ↓ commit
 Rust semantic edit / recipe
         ↓
-authoritative reduced preview + history + checkpoint
+authoritative preview + history + checkpoint
         ↓
 full-resolution Rust replay/export
 ```
 
-Parallel product metadata path:
-
-```text
-Import / Take Photo
-        ↓
-WorkspaceCatalogStore
-        ↓
-stable catalog identity + source metadata
-        ↓
-Home workspace list
-        ↓
-open source path in ProductEditorScreen
-```
-
 Hard contracts:
 
-1. Rust owns committed edit semantics, history, checkpoints, recovery recipe, and export.
-2. GPU preview never becomes final-render source of truth.
-3. Camera Film is preview-only; capture source remains clean.
-4. Live camera frames never cross Dart MethodChannel or Flutter Rust Bridge.
+1. Rust owns committed edit semantics, recipe/history/checkpoint/recovery, and export.
+2. GPU is preview-only and never final-render authority.
+3. Camera Film is preview-only; capture remains clean.
+4. Live camera frames never cross MethodChannel/FRB.
 5. Canonical Film/Creative LUT data remains Rust-owned.
-6. Unsupported GPU order/native failure falls back to valid Rust/product state.
-7. Flutter presentation state must not become a parallel semantic recipe.
-8. Film Profiles are reusable configuration, not Editor session state or captured pixels.
-9. Workspace catalog owns product identity/source metadata only; it does not own recipe/history/checkpoint semantics.
-10. Recovery generation identity and workspace catalog identity are intentionally separate.
-11. New effects are defined/tested in Rust first; GPU support is optional and only enabled when faithful.
+6. Unsupported GPU operation ordering falls back rather than silently reordering semantics.
+7. Flutter state must not become a second semantic edit authority.
+8. Film Profiles are reusable configuration, not captured pixels/session authority.
+9. PixelCraft catalog metadata never owns recipe/history/pixels.
+10. Recovery generation identity and catalog identity remain separate.
+11. Nixin owns long-lived Workplaces/library organization; PixelCraft does not duplicate that responsibility.
+12. Other products may consume stable reusable PixelCraft modules without importing PixelCraft app state or ownership.
 
 ---
 
-# 2. Product identity and package graph
+## Product identity and package graph
 
 ```text
 master brand: Dextryx
@@ -92,8 +104,6 @@ repository: PixelCraft
 Android applicationId: dev.cnxdev.pixelcraft
 iOS bundle id: dev.cnxdev.pixelcraft
 ```
-
-Current package graph:
 
 ```text
 PixelCraft App
@@ -105,293 +115,53 @@ PixelCraft App
 dxtr_pixs_film    -> dxtr_pixs_editing
 dxtr_pixs_gpu     -> dxtr_pixs_editing
 dxtr_pixs_editing -> Dart SDK only
-dxtr_pixs_engine  -> repository rust/ crate through build integration
+dxtr_pixs_engine  -> repository rust/ crate
 ```
 
-Native/runtime identifiers intentionally remain stable, including Rust crate/native library/channel/storage schema names. `tool/check_package_boundaries.sh` enforces forbidden dependency directions.
+Native ABI/library/channel/persisted schema identifiers remain stable unless separately approved.
 
 ---
 
-# 3. App startup and Home workspace
+## Home and acquisition
 
-Entry point:
+Primary entry:
 
 ```text
-lib/main.dart
+Import -> gallery picker
 ```
 
-Conceptual flow:
+Secondary entry:
 
 ```text
-WidgetsFlutterBinding
- -> ProviderScope
- -> Rust bootstrap
- -> HomeScreen
-```
-
-Current acquisition hierarchy:
-
-```text
-Import                    primary direct gallery path
 More ways to add
  ├── Film Camera
  └── Take Photo
-Films                     separate secondary destination
 ```
 
-Home contains only real persisted product state:
+Home is an **editor-entry and recovery surface**, not a full image library.
 
-```text
-no recovery + no catalog items
- -> honest empty workspace
+It may show:
 
-recoverable session
- -> Recent edit card
- -> bounded thumbnail from recovery originalBytes
- -> savedAt when valid
- -> Resume / Discard
+- honest empty state;
+- latest recoverable edit;
+- bounded thumbnails for real editor-local source entries;
+- missing-source state;
+- direct reopen into `ProductEditorScreen`.
 
-catalog items
- -> Workspace section
- -> bounded file thumbnail
- -> source filename + source kind
- -> open source in ProductEditorScreen
-```
-
-The recovery card and catalog list are separate concepts. Discarding recovery must not delete workspace identity.
+No sample/fake asset rows are allowed.
 
 ---
 
-# 4. Acquisition → catalog integration
+## Editor-local workspace catalog
 
 Implementation:
 
 ```text
+lib/core/workspace_catalog_store.dart
 lib/ui/screens/home_screen.dart
-lib/core/workspace_catalog_store.dart
 ```
 
-Gallery flow:
-
-```text
-Import
- -> ImagePicker.gallery
- -> WorkspaceCatalogStore.add(
-      sourceKind: gallery,
-      retention: externalReference,
-      sourcePath: XFile.path,
-      availability: available,
-    )
- -> refresh Home catalog
- -> ProductEditorScreen(imagePath: XFile.path)
-```
-
-System camera flow:
-
-```text
-More ways to add -> Take Photo
- -> ImagePicker.camera
- -> WorkspaceCatalogStore.add(
-      sourceKind: systemCamera,
-      retention: externalReference,
-      sourcePath: XFile.path,
-      availability: available,
-    )
- -> refresh Home catalog
- -> ProductEditorScreen(imagePath: XFile.path)
-```
-
-Lost picker recovery is deliberately **not cataloged** because `image_picker.retrieveLostData()` does not preserve whether the recovered `XFile` originated from gallery or camera. Home opens the recovered file in the editor without inventing source metadata. A future durable pending-acquisition marker can make that provenance recoverable explicitly.
-
-Catalog writes are **fail-soft for editing** but **fail-closed for metadata preservation**:
-
-- if the catalog mutation fails because the manifest is malformed/newer/inaccessible, Home reports `Workspace catalog update failed`;
-- the selected image can still open in the editor;
-- the store itself refuses to reinterpret invalid existing catalog data as an empty catalog and therefore does not overwrite unknown data.
-
-Film Camera is intentionally not catalog-integrated in this slice because its capture handoff/path contract must be inspected separately first.
-
----
-
-# 5. Opening workspace items
-
-Home loads persisted items through `WorkspaceCatalogStore.load()`.
-
-When a user taps an item, Home sets an in-flight open guard **before** any file-system/catalog await. While that guard is active, workspace rows and other acquisition actions are disabled, preventing double taps from stacking duplicate editor routes.
-
-```text
-set opening guard
- -> File(sourcePath).exists?
-    ├── yes
-    │    -> mark availability = available when needed
-    │    -> markOpened(id)
-    │    -> ProductEditorScreen(imagePath: sourcePath)
-    │    -> refresh recovery + catalog after editor returns
-    │
-    └── no
-         -> mark availability = missing
-         -> preserve catalog identity
-         -> show "This source file is no longer available."
- -> clear opening guard in finally
-```
-
-Missing source handling never silently deletes the catalog row. This preserves identity for future relink/recovery work.
-
-Catalog thumbnails use `Image.file` with `cacheWidth/cacheHeight` derived from logical thumbnail extent × device pixel ratio, so Home does not intentionally decode full-resolution files merely to populate the list.
-
----
-
-# 6. Rust authority / dxtr_pixs_engine
-
-```text
-Flutter app
-   ↓
-dxtr_pixs_engine
-   ↓ FRB / CargoKit
-rust/
-```
-
-Rust owns:
-
-```text
-untouched source
-reduced preview
-semantic operations
-cursor
-checkpoint_cursor
-undo / redo
-recovery recipe
-full-resolution replay/export
-```
-
-Useful commands:
-
-```bash
-make codegen
-make integrate
-make repair
-make verify-native
-```
-
----
-
-# 7. Editing and Film contracts
-
-`dxtr_pixs_editing` contains reusable pure-Dart editing/profile contracts such as:
-
-```text
-EditGraphDocument / EditGraphNode
-EditorAdjustmentSpec
-FilmProfileV1
-FilmProfileOrigin
-FilmProfileImportReport
-applyFilmProfileToSessionRecipe()
-```
-
-Responsibility split:
-
-```text
-dxtr_pixs_editing = reusable edit/profile configuration semantics
-app/GPU layer      = product state + backend capability policy
-Rust               = committed image authority
-```
-
-`dxtr_pixs_film` owns product/domain orchestration around profile repository, library, import service and draft editing. Canonical built-in Film/LUT data remains Rust-owned.
-
----
-
-# 8. Editor transaction model
-
-Primary controller:
-
-```text
-lib/state/editor_controller.dart
-```
-
-Typical adjustment flow:
-
-```text
-slider drag
-  -> temporary GPU preview when faithfully supported
-
-slider release
-  -> semantic commit/replace
-  -> Rust authoritative preview
-  -> recovery persistence
-```
-
-GPU failure or unsupported render order never silently changes semantic order.
-
----
-
-# 9. GPU preview runtime
-
-Package:
-
-```text
-packages/dxtr_pixs_gpu/
-```
-
-Owns preview-only infrastructure:
-
-- Dart GPU transport/session/render-plan code
-- native camera control bridges
-- Android Camera2/OpenGL ES camera runtime
-- iOS AVFoundation/Metal camera runtime
-- iOS native Editor GPU preview
-- diagnostics/frame pacing
-
-Platform policy remains:
-
-```text
-Android -> Camera2/OpenGL ES camera preview
-iOS     -> AVFoundation/Metal camera preview + Metal Editor preview
-```
-
-Do not casually replace the mobile runtime with wgpu.
-
----
-
-# 10. Recovery persistence
-
-Implementation:
-
-```text
-lib/core/editor_session_store.dart
-```
-
-Current model:
-
-```text
-app-support/pixelcraft-session/
-  source.<fingerprint>.bin
-  recipe.<generation>.json
-  generation.<generation>.json
-```
-
-The generation manifest is the recovery commit point pairing source + recipe. Recovery answers: **"How do I resume the most recent editor state safely?"** It does not answer: **"What images belong to the user's workspace?"**
-
----
-
-# 11. W1 workspace catalog persistence
-
-Implementation introduced by PR #41:
-
-```text
-lib/core/workspace_catalog_store.dart
-test/core/workspace_catalog_store_test.dart
-```
-
-Persistent location:
-
-```text
-app-support/pixelcraft-workspace/
-  catalog.json
-  catalog.json.tmp       transient publish file
-  catalog.json.bak       previous committed fallback during replacement
-```
-
-`WorkspaceCatalogItem` stores product metadata only:
+`WorkspaceCatalogItem` stores only lightweight metadata:
 
 ```text
 id
@@ -404,48 +174,160 @@ updatedAt
 lastOpenedAt?
 ```
 
-Current enums:
+It does **not** store:
 
 ```text
-WorkspaceSourceKind
-  gallery
-  systemCamera
-  filmCamera
-
-WorkspaceSourceRetention
-  externalReference
-  managedCopy
-
-WorkspaceSourceAvailability
-  unknown
-  available
-  missing
+Rust recipe
+edit history
+checkpoint cursor
+rendered pixels as authority
+recovery generation identity
+Nixin Workplace membership
+ratings / flags / keywords
+large-library organization
 ```
 
-The catalog deliberately does not store Rust recipe, semantic operation history, checkpoint cursor, rendered pixels as authority, or recovery generation identity.
+Current source kinds:
 
-## Write safety
+```text
+gallery
+systemCamera
+filmCamera
+```
 
-1. write + flush `catalog.json.tmp`;
-2. preserve previous `catalog.json` as `catalog.json.bak`;
-3. publish temp as new `catalog.json`;
-4. remove backup only after successful publish;
-5. recover backup after interrupted replacement;
-6. mutations refuse malformed/newer-schema manifests;
-7. read-modify-write serialization is shared across store instances targeting the same directory inside the Dart isolate;
-8. IDs are allocated under that shared write lock against existing catalog IDs.
+Current retention states:
 
-Tests cover persistence, ordering, availability, last-opened metadata, removal, concurrent writes, cross-instance writes, recreated-store ID collision prevention, malformed/newer schema mutation refusal, and backup recovery.
+```text
+externalReference
+managedCopy
+```
+
+Current availability states:
+
+```text
+unknown
+available
+missing
+```
+
+The store uses `catalog.json`, `.tmp`, and `.bak` with fail-closed mutation semantics and focused corruption/concurrency tests.
 
 ---
 
-# 12. Export / share
+## Acquisition integration
+
+Gallery:
+
+```text
+Import
+ -> picker
+ -> catalog lightweight source metadata
+ -> ProductEditorScreen
+```
+
+System camera:
+
+```text
+Take Photo
+ -> picker
+ -> catalog lightweight source metadata
+ -> ProductEditorScreen
+```
+
+Lost picker recovery does not invent gallery/camera provenance when the platform does not provide it.
+
+Catalog failure does not block the editor from opening, while invalid existing catalog data is not silently overwritten.
+
+Film Camera catalog registration is not yet implemented. If added, it must remain a continuity/reopen feature rather than becoming a DAM expansion.
+
+---
+
+## Opening catalog entries
+
+```text
+set in-flight open guard
+ -> check source existence
+    ├── exists
+    │    -> mark available/opened
+    │    -> open ProductEditorScreen
+    └── missing
+         -> mark missing
+         -> preserve identity
+         -> report unavailable source
+ -> clear guard
+```
+
+Bounded thumbnail decode prevents Home from intentionally decoding full-resolution originals merely to populate the entry list.
+
+---
+
+## Recovery persistence
 
 Implementation:
 
 ```text
-lib/core/export_file_service.dart
+lib/core/editor_session_store.dart
 ```
+
+Recovery answers:
+
+> How can PixelCraft resume the latest coherent editor state safely?
+
+It is not an image-management catalog and must not be repurposed into one.
+
+---
+
+## Rust authority / engine
+
+```text
+Flutter app
+   ↓
+dxtr_pixs_engine
+   ↓ FRB / CargoKit
+rust/
+```
+
+Rust owns:
+
+- untouched source;
+- reduced preview;
+- semantic operations;
+- undo/redo cursor;
+- checkpoint cursor;
+- recovery recipe;
+- full-resolution replay/export.
+
+Useful commands:
+
+```bash
+make codegen
+make integrate
+make repair
+make verify-native
+```
+
+---
+
+## GPU preview
+
+Package:
+
+```text
+packages/dxtr_pixs_gpu/
+```
+
+Platform policy:
+
+```text
+Android -> Camera2/OpenGL ES camera preview
+iOS     -> AVFoundation/Metal camera preview + Metal editor preview
+```
+
+Do not casually replace the mobile runtime with wgpu.
+
+---
+
+## Export
 
 Canonical flow:
 
@@ -453,25 +335,52 @@ Canonical flow:
 untouched source
  -> Rust recipe replay
  -> encoded output bytes
- -> app documents/gallery
- -> system share sheet after explicit Share
+ -> destination/gallery
+ -> optional share sheet
 ```
 
-GPU preview pixels and workspace catalog metadata are never export authority.
+GPU preview pixels and workspace metadata are never export authority.
 
 ---
 
-# 13. Release and reliability baseline
+## Explicit PixelCraft non-goals for workspace/catalog
 
-G6 physical reliability is CLOSED / VERIFIED. Verifier tooling must not uninstall/overwrite installed main app `dev.cnxdev.pixelcraft`.
+Do not continue the current catalog work into these features by default:
 
-G7A account-independent release engineering is merged. G7B is **deferred indefinitely / not scheduled** and must not be restarted without an explicit project decision.
+```text
+Workplaces hierarchy
+folder import / recursive ingestion
+bulk asset organization
+large-library browser
+ratings / flags / keywords
+collections
+archive management
+Lightroom-style DAM workflow
+```
 
-Dart 3.13 RecordUse/native tree-shaking remains future/deferred in `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md`.
+Those are Nixin / Dextryx Images responsibilities.
+
+Catalog-related PixelCraft follow-up is allowed only when necessary for editor correctness or continuity, such as source durability, missing-source handling, or source reopening.
 
 ---
 
-# 14. Verification gates
+## Reusable module boundary
+
+Nixin or another product may consume a PixelCraft module when all of these hold:
+
+```text
+stable/documented reusable API
+bounded capability
+no dependency on PixelCraft app-internal UI/state
+clear authority ownership
+versioned dependency surface
+```
+
+If the consumer needs PixelCraft editor-session lifecycle, recipe/history ownership, substantial PixelCraft UI, or bidirectional state return, use a separately designed external-editor integration instead.
+
+---
+
+## Verification gates
 
 ```bash
 bash tool/check_package_boundaries.sh
@@ -481,62 +390,21 @@ flutter analyze
 flutter test
 ```
 
-Full CI additionally covers Rust fmt/clippy/tests, package suites, native builds, goldens, Android/iOS release packaging and configured wgpu jobs.
-
-A PR head being green is not enough to close a slice. Verify resulting `main` push CI after merge.
+A PR head being green is not enough; verify resulting `main` push CI.
 
 ---
 
-# 15. Important files
+## Current continuation point
 
-```text
-Architecture / continuation
-  docs/PROJECT_HANDOFF.md
-  docs/CODE_WALKTHROUGH.md
+PR #42 is fully closed/verified through exact resulting main CI #363.
 
-Workspace / recovery
-  lib/core/workspace_catalog_store.dart
-  lib/core/editor_session_store.dart
-  lib/ui/screens/home_screen.dart
-  test/core/workspace_catalog_store_test.dart
-  test/ui/home_screen_test.dart
-  test/ui/home_camera_source_test.dart
+Next:
 
-Editor/export
-  lib/state/editor_controller.dart
-  lib/core/export_file_service.dart
+1. do not start the previously suggested DAM-style W1D;
+2. choose the next milestone from **PixelCraft editing / processing / editor UX** priorities;
+3. keep catalog work bounded to editor continuity;
+4. allow stable reusable PixelCraft modules to serve Nixin when a concrete basic capability benefits from it;
+5. do not pull Nixin roadmap items into PixelCraft;
+6. do not modify Nixin during PixelCraft work unless the user explicitly requests Nixin or cross-product work.
 
-Packages
-  packages/dxtr_pixs_engine/
-  packages/dxtr_pixs_gpu/
-  packages/dxtr_pixs_editing/
-  packages/dxtr_pixs_film/
-
-Rust authority
-  rust/
-```
-
----
-
-# 16. Current continuation point
-
-W1 storage foundation is merged and verified through PR #41 / main CI #352. The active slice is acquisition/Home catalog integration on `feature/w1-catalog-integration`.
-
-Current sequence:
-
-```text
-1. catalog gallery Import and system Take Photo acquisition
-2. render only persisted catalog items on Home
-3. preserve recovery card as a separate concern
-4. mark missing source without deleting catalog identity
-5. keep thumbnails decode-bounded
-6. avoid inventing provenance for lost picker recovery
-7. serialize workspace-item opening in the UI to prevent duplicate editor routes
-8. verify widget + catalog persistence tests and full CI
-9. address review feedback
-10. merge and verify resulting main CI
-11. inspect Film Camera capture handoff before integrating it
-12. decide managed-copy policy before promising durable source retention across platform picker/cache lifetimes
-```
-
-Do not fake catalog data, do not migrate recovery identity into catalog identity, and do not start G7B/O1/MobileSAM/restoration as part of W1.
+See `docs/PROJECT_HANDOFF.md` for the canonical execution decision.
