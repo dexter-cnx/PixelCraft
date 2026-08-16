@@ -10,7 +10,14 @@
     "film": "ฟิล์ม",
     "filter": "ฟิลเตอร์",
     "adjust": "ปรับแต่ง",
-    "controls": "ควบคุม"
+    "controls": "ควบคุม",
+    "shutter": "ชัตเตอร์",
+    "take_photo": "ถ่ายภาพ",
+    "switch_camera": "สลับกล้อง",
+    "back": "ย้อนกลับ",
+    "try_again": "ลองอีกครั้ง",
+    "film_preview": "พรีวิวฟิล์ม",
+    "gpu_film_preview": "พรีวิวฟิล์มด้วย GPU"
   },
   "errors": {
     "camera_unavailable": "ไม่สามารถใช้งานกล้องได้",
