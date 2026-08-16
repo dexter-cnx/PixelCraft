@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:camera/camera.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../app/platform_flow_foundation.dart';
+import '../../app/platform_media_services.dart';
 import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
 import '../../gpu/android_gpu_camera_preview.dart';
@@ -12,9 +15,15 @@ import '../../gpu/gpu_preview_renderer.dart';
 import '../../gpu/ios_gpu_camera_preview.dart';
 import '../../gpu/native_gpu_camera_bridge.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
+import '../camera/camera_primary_controls.dart';
 
 class CameraFilmPreviewScreen extends StatefulWidget {
-  const CameraFilmPreviewScreen({super.key});
+  const CameraFilmPreviewScreen({
+    super.key,
+    this.mediaPickerService,
+  });
+
+  final MediaPickerService? mediaPickerService;
 
   @override
   State<CameraFilmPreviewScreen> createState() =>
@@ -37,10 +46,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   bool _useNativeGpu = false;
 
   CameraFilmPreset _preset = cameraFilmPresets.first;
+  CameraPrimaryTool _selectedTool = CameraPrimaryTool.film;
   double _strength = 1;
   bool _isInitializing = true;
   bool _isCapturing = false;
   String? _error;
+
+  late final MediaPickerService _mediaPickerService =
+      widget.mediaPickerService ?? ImagePickerMediaService();
 
   bool get _supportsNativeGpuCamera => !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -112,7 +125,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         if (!mounted) return true;
         setState(() {
           _isInitializing = false;
-          _error = 'Camera access was denied. Allow camera access in system settings to use Film Camera.';
+          _error = 'errors.permission_denied'.tr();
         });
         return true;
       }
@@ -153,7 +166,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       if (cameras.isEmpty) {
         setState(() {
           _isInitializing = false;
-          _error = 'No camera is available on this device.';
+          _error = 'errors.camera_unavailable'.tr();
         });
         return;
       }
@@ -164,11 +177,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       await _initializeCamera(rear.isNotEmpty ? rear.first : cameras.first);
     } on CameraException catch (error) {
       _showCameraError(error);
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _isInitializing = false;
-        _error = 'Unable to start camera: $error';
+        _error = 'errors.camera_unavailable'.tr();
       });
     }
   }
@@ -180,19 +193,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (!mounted || rendererId != _gpuRendererId) return;
 
     _gpuRendererId = null;
-    if (mounted) {
-      setState(() {
-        _useNativeGpu = false;
-        _isInitializing = true;
-      });
-    }
+    setState(() {
+      _useNativeGpu = false;
+      _isInitializing = true;
+    });
     try {
       await _gpuBridge.destroyRenderer(rendererId);
     } catch (_) {}
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('GPU preview unavailable; using fallback. $message')),
-    );
     await _initializeFallbackCameraFlow();
   }
 
@@ -253,12 +261,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   void _showCameraError(CameraException error) {
     if (!mounted) return;
     final message = switch (error.code) {
-      'CameraAccessDenied' =>
-        'Camera access was denied. Allow camera access in system settings to use Film Camera.',
-      'CameraAccessDeniedWithoutPrompt' =>
-        'Camera access is disabled. Enable it in system settings to use Film Camera.',
-      'CameraAccessRestricted' => 'Camera access is restricted on this device.',
-      _ => 'Unable to start camera: ${error.description ?? error.code}',
+      'CameraAccessDenied' || 'CameraAccessDeniedWithoutPrompt' =>
+        'errors.permission_denied'.tr(),
+      'CameraAccessRestricted' => 'errors.permission_restricted'.tr(),
+      _ => 'errors.camera_unavailable'.tr(),
     };
     setState(() {
       _isInitializing = false;
@@ -274,14 +280,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (_isCapturing || !_canSwitchCamera) return;
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
-      try {
-        await _nativeCameraBridge.switchCamera(rendererId);
-      } catch (error) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera switch failed: $error')),
-        );
-      }
+      await _nativeCameraBridge.switchCamera(rendererId);
       return;
     }
 
@@ -300,11 +299,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       } else {
         await _captureFallback();
       }
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Capture failed: $error')),
-      );
     } finally {
       if (mounted) setState(() => _isCapturing = false);
     }
@@ -315,7 +309,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (!mounted) return;
     await _gpuBridge.pause(rendererId);
     if (!mounted) return;
-    await _openEditor(path);
+    await _openEditor(path, profileId: _preset.id, strength: _strength);
     if (!mounted || rendererId != _gpuRendererId) return;
     await _gpuBridge.resume(rendererId);
   }
@@ -332,17 +326,40 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final camera = _activeCamera;
     await _detachAndDisposeController(showLoading: true);
     if (!mounted) return;
-    await _openEditor(capture.path);
+    await _openEditor(
+      capture.path,
+      profileId: _preset.id,
+      strength: _strength,
+    );
     if (!mounted) return;
     if (camera != null) await _initializeCamera(camera);
   }
 
-  Future<void> _openEditor(String imagePath) => Navigator.of(context).push(
+  Future<void> _pickGallery() async {
+    if (_isCapturing) return;
+    final source = await _mediaPickerService.pickImage();
+    if (!mounted || source == null) return;
+    if (source.provenance != MediaSourceProvenance.gallery ||
+        !source.uri.isScheme('file')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('errors.unsupported_source'.tr())),
+      );
+      return;
+    }
+    await _openEditor(source.uri.toFilePath(), profileId: '', strength: 0);
+  }
+
+  Future<void> _openEditor(
+    String imagePath, {
+    required String profileId,
+    required double strength,
+  }) =>
+      Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => CameraFilmEditorHandoff(
             imagePath: imagePath,
-            profileId: _preset.id,
-            strength: _strength,
+            profileId: profileId,
+            strength: strength,
           ),
         ),
       );
@@ -382,6 +399,61 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
   }
 
+  void _selectTool(CameraPrimaryTool tool) {
+    if (tool == CameraPrimaryTool.film) {
+      setState(() => _selectedTool = tool);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          tool == CameraPrimaryTool.filter
+              ? 'camera.filter'.tr()
+              : 'camera.adjust'.tr(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCameraControls() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF111111),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'camera.controls'.tr(),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(color: Colors.white),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.cameraswitch_outlined),
+                iconColor: Colors.white,
+                textColor: Colors.white,
+                title: Text('camera.switch_camera'.tr()),
+                enabled: _canSwitchCamera,
+                onTap: _canSwitchCamera
+                    ? () {
+                        Navigator.pop(context);
+                        unawaited(_switchCamera());
+                      }
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -392,11 +464,30 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           children: [
             _buildViewfinder(),
             _buildTopBar(),
-            _buildFilmControls(),
+            if (_selectedTool == CameraPrimaryTool.film) _buildFilmControls(),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: CameraPrimaryControls(
+                selectedTool: _selectedTool,
+                onToolSelected: _selectTool,
+                onGalleryPressed: _pickGallery,
+                onShutterPressed: _capture,
+                onControlsPressed: _showCameraControls,
+                galleryLabel: 'camera.gallery'.tr(),
+                filmLabel: 'camera.film'.tr(),
+                filterLabel: 'camera.filter'.tr(),
+                adjustLabel: 'camera.adjust'.tr(),
+                controlsLabel: 'camera.controls'.tr(),
+                shutterSemanticLabel: 'camera.take_photo'.tr(),
+                isCapturing: _isCapturing,
+              ),
+            ),
             if (_isCapturing)
               const Positioned.fill(
                 child: IgnorePointer(
-                  child: ColoredBox(color: Color(0x33000000)),
+                  child: ColoredBox(color: Color(0x22000000)),
                 ),
               ),
           ],
@@ -413,9 +504,17 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.no_photography_outlined, color: Colors.white70, size: 48),
+              const Icon(
+                Icons.no_photography_outlined,
+                color: Colors.white70,
+                size: 48,
+              ),
               const SizedBox(height: 16),
-              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white),
+              ),
               const SizedBox(height: 20),
               FilledButton.tonal(
                 onPressed: () {
@@ -425,7 +524,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                   });
                   unawaited(_discoverAndInitialize());
                 },
-                child: const Text('Try again'),
+                child: Text('camera.try_again'.tr()),
               ),
             ],
           ),
@@ -442,7 +541,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
 
     final controller = _controller;
-    if (_isInitializing || controller == null || !controller.value.isInitialized) {
+    if (_isInitializing ||
+        controller == null ||
+        !controller.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -457,7 +558,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         var scale = screenAspect * previewAspect;
         if (scale < 1) scale = 1 / scale;
         return ClipRect(
-          child: Transform.scale(scale: scale, child: Center(child: preview)),
+          child: Transform.scale(
+            scale: scale,
+            child: Center(child: preview),
+          ),
         );
       },
     );
@@ -470,11 +574,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       top: 8,
       child: Row(
         children: [
-          _CameraCircleButton(
-            tooltip: 'Back',
-            icon: Icons.close,
-            onPressed: () => Navigator.maybePop(context),
-          ),
           const Spacer(),
           DecoratedBox(
             decoration: BoxDecoration(
@@ -484,7 +583,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               child: Text(
-                _useNativeGpu ? 'GPU FILM PREVIEW' : 'FILM PREVIEW',
+                _useNativeGpu
+                    ? 'camera.gpu_film_preview'.tr()
+                    : 'camera.film_preview'.tr(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -495,11 +596,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             ),
           ),
           const Spacer(),
-          _CameraCircleButton(
-            tooltip: 'Switch camera',
-            icon: Icons.cameraswitch_outlined,
-            onPressed: _canSwitchCamera ? _switchCamera : null,
-          ),
         ],
       ),
     );
@@ -509,58 +605,42 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 0,
+      bottom: 156,
       child: DecoratedBox(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Colors.transparent, Color(0xE6000000)],
+            colors: [Colors.transparent, Color(0xB3000000)],
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 72, 0, 18),
+          padding: const EdgeInsets.fromLTRB(0, 40, 0, 4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 _preset.name,
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 3),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  _preset.isOriginal
-                      ? _preset.description
-                      : '${_preset.description} · ${(100 * _strength).round()}%',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              if (!_preset.isOriginal) ...[
-                const SizedBox(height: 4),
+              if (!_preset.isOriginal)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 44),
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      activeTrackColor: Colors.white,
-                      inactiveTrackColor: Colors.white30,
-                      thumbColor: Colors.white,
-                      overlayColor: Colors.white.withValues(alpha: 0.12),
-                    ),
-                    child: Slider(
-                      value: _strength,
-                      min: 0,
-                      max: 1,
-                      onChanged: _isCapturing ? null : _setStrength,
-                    ),
+                  child: Slider(
+                    value: _strength,
+                    min: 0,
+                    max: 1,
+                    onChanged: _isCapturing ? null : _setStrength,
                   ),
-                ),
-              ] else
-                const SizedBox(height: 16),
+                )
+              else
+                const SizedBox(height: 12),
               SizedBox(
-                height: 46,
+                height: 42,
                 child: ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   scrollDirection: Axis.horizontal,
@@ -572,84 +652,27 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     return ChoiceChip(
                       selected: selected,
                       label: Text(preset.name.replaceAll(' Inspired', '')),
-                      onSelected: _isCapturing ? null : (_) => _selectPreset(preset),
+                      onSelected:
+                          _isCapturing ? null : (_) => _selectPreset(preset),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
-                      side: BorderSide(color: selected ? Colors.white : Colors.white38),
+                      side: BorderSide(
+                        color: selected ? Colors.white : Colors.white38,
+                      ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
                       ),
                       showCheckmark: false,
                     );
                   },
                 ),
               ),
-              const SizedBox(height: 16),
-              Semantics(
-                button: true,
-                label: 'Take photo with ${_preset.name} preview',
-                child: GestureDetector(
-                  onTap: _isCapturing ? null : _capture,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 120),
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      border: Border.all(color: Colors.white70, width: 4),
-                      boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 12)],
-                    ),
-                    child: Center(
-                      child: _isCapturing
-                          ? const SizedBox.square(
-                              dimension: 26,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
-                            )
-                          : Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.black12),
-                              ),
-                            ),
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _CameraCircleButton extends StatelessWidget {
-  const _CameraCircleButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton.filledTonal(
-      tooltip: tooltip,
-      style: IconButton.styleFrom(
-        backgroundColor: Colors.black54,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: Colors.black26,
-        disabledForegroundColor: Colors.white30,
-      ),
-      onPressed: onPressed,
-      icon: Icon(icon),
     );
   }
 }
