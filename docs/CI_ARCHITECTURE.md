@@ -1,6 +1,15 @@
 # PixelCraft CI Architecture
 
-Status: active design for the focused CI optimization PR.
+Status: **IMPLEMENTED / FULL CI VALIDATED** on PR #49.
+
+Validated PR run:
+
+```text
+run #432 / 31951272254 / success
+head fix: 7e7bf4d256cca462d5adb69b7f4f651eadb61d18
+```
+
+That run passed Change Detection, Fast CI, Native/GPU Core, Golden Tests, Android, iOS, macOS, Windows, Linux, Reliability Tier 2, Reliability Tier 3, and the aggregate CI Gate.
 
 This document describes hosted CI only. Existing physical-device evidence remains governed by `docs/G6_DEVICE_MANUAL_CHECKLIST.md` and `docs/G6_RELIABILITY_MATRIX.md`.
 
@@ -75,16 +84,34 @@ make preflight
 
 `make ci-fast` / `make preflight` run:
 
-- tracked Dart formatting check;
-- root dependency resolution and Flutter analysis;
-- package-boundary contract check;
-- fast state/GPU-plan/widget tests (no goldens/device/integration soak);
-- split package analyze/tests;
+- changed/tracked Dart formatting checks;
+- root and split-package dependency resolution;
+- Flutter analysis;
+- package-boundary contract checks;
+- fast state/GPU-plan/widget tests without goldens/device/integration soak;
+- split-package analyze/tests;
 - root Rust fmt/clippy/tests;
-- shared wgpu Rust fmt/clippy/tests on the host;
-- device verifier safety/identifier guard.
+- shared GPU Rust checks on the host;
+- device verifier safety/identifier guard;
+- FRB generation needed by downstream consumers.
 
-A docs-only PR intentionally avoids Flutter/Rust setup and runs repository/device-policy guards only.
+A docs-only iterative PR intentionally avoids Flutter/Rust setup and runs repository/device-policy guards only. Full mode still wins over docs-only optimization, so a docs-only `main`/merge/full run can produce the generated bridge required by selected downstream jobs.
+
+## Generated FRB bridge reuse
+
+`Fast CI` generates and verifies the complete Flutter Rust Bridge output, including companion Dart files such as:
+
+```text
+lib/src/rust/api.dart
+lib/src/rust/frb_generated.dart
+lib/src/rust/frb_generated.io.dart
+rust/src/frb_generated.rs
+ios/Runner/frb_generated.h
+```
+
+The full generated Dart directory plus native bridge outputs are uploaded as one run-scoped artifact. Platform jobs restore that artifact rather than each regenerating the bridge independently.
+
+`Native/GPU Core` still performs an independent pinned FRB regeneration/drift check because that job validates the native/API contract itself. Artifact reuse is therefore an execution optimization, not a relaxation of deterministic bridge validation.
 
 ## Affected behavior
 
@@ -142,7 +169,7 @@ Full validation is selected for:
 
 - pushes to `main`;
 - `merge_group` checks (merge queue);
-- workflow dispatch when full validation is requested (default);
+- workflow dispatch when full validation is requested;
 - PRs carrying `ci:full`;
 - any PR that changes CI/tooling itself.
 
@@ -156,7 +183,7 @@ Windows
 Linux
 ```
 
-and complete hosted automated G6 Tier 3 validation.
+plus Golden Tests, Native/GPU Core where applicable, Reliability Tier 2, and complete hosted automated G6 Tier 3 validation.
 
 ## Branch protection
 
@@ -175,12 +202,33 @@ For mechanically enforced complete pre-merge validation, use GitHub merge queue 
 
 PR runs cancel superseded commits. `push`/`merge_group` full validation uses a distinct group and is not cancelled merely because an unrelated PR run starts. Physical/manual evidence is outside hosted workflow cancellation state.
 
-## Caching policy
+## Caching and reuse policy
 
 - Flutter SDK/pub cache: retained through `subosito/flutter-action`;
 - Cargo caches: retained separately for root Rust and GPU Rust workspaces;
 - Gradle cache: enabled for Android through Java setup;
 - no unsafe cross-platform reuse of native build outputs;
-- generated bridge files remain source-controlled contract outputs and are diff-verified in Native/GPU Core rather than trusted from cache.
+- generated FRB source is passed only inside the same workflow run and independently validated by Native/GPU Core when selected.
 
 Correctness takes priority over marginal cache hit rate.
+
+## Proven validation baseline
+
+PR #49 full validation run #432 demonstrated the intended end-to-end behavior after the final Windows CargoKit path correction:
+
+```text
+Change Detection       PASS
+Fast CI                PASS
+Native/GPU Core        PASS
+Golden Tests           PASS
+Android Build          PASS
+iOS Build              PASS
+macOS Build            PASS
+Windows Build          PASS
+Linux Build            PASS
+Reliability Tier 2     PASS
+Reliability Tier 3     PASS
+CI Gate                PASS
+```
+
+This validates the CI architecture itself. It does not replace the repository rule that the resulting `main` push CI must also be checked after merge.
