@@ -12,6 +12,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.6.1
+  easy_localization: ^3.0.7
   camera: ^0.10.6
   image_picker: ^1.1.2
   flutter_rust_bridge: ^2.12.0
@@ -46,3 +47,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/samples/
+    - assets/translations/
