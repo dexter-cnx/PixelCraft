@@ -8,11 +8,13 @@ This slice activates the camera-first shell on the existing mobile camera runtim
 
 ```text
 Mobile/tablet launch
-  -> CameraFilmPreviewScreen (PF1)
+  -> CameraFilmPreviewScreen
   -> live native GPU camera when supported, Flutter camera fallback otherwise
   -> Film controls remain real and connected to the existing preview path
   -> bottom hierarchy: Gallery / Shutter / Controls
 ```
+
+The implementation keeps a **single camera runtime** in `camera_film_preview_screen_g1.dart`; PF1 extends that runtime rather than maintaining a second camera implementation.
 
 Gallery uses `MediaPickerService` and opens the existing editor handoff with the selected source untouched and no camera Film automatically applied.
 
@@ -34,7 +36,7 @@ Film is the only active camera tool in PF1. Filter and Adjust are visible as the
 
 ## Guardrails
 
-- no second camera stack;
+- one camera runtime only; no duplicate camera stack;
 - no live camera buffers through Flutter bridge/MethodChannel;
 - GPU remains preview-only;
 - Rust remains authoritative for committed edit semantics;
