@@ -17,7 +17,7 @@ DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
         setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test g3-device-verify run run-release clean clean-all \
-        format-check analyze test test-unit test-gpu test-widget test-fast package-check gpu-check device-safety-check ci-fast preflight \
+        format-check analyze test test-unit test-gpu test-widget test-fast package-check gpu-check device-safety-check package-boundaries ci-fast preflight \
         golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
@@ -122,7 +122,7 @@ clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 	rm -rf build android/.gradle $(RUST_CRATE_DIR)/target
 
 format-check: ## Fail if tracked Dart files require formatting
-	@git ls-files '*.dart' -z | xargs -0 $(FLUTTER) format --output=none --set-exit-if-changed
+	@git ls-files '*.dart' -z | xargs -0 dart format --output=none --set-exit-if-changed
 
 analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
