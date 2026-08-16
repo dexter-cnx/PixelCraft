@@ -1,9 +1,26 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pixelcraft/core/workspace_catalog_store.dart';
 import 'package:pixelcraft/ui/screens/home_screen.dart';
 
 void main() {
+  late Directory root;
+  late WorkspaceCatalogStore catalogStore;
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('pixelcraft-home-acquisition-');
+    catalogStore = WorkspaceCatalogStore(rootDirectory: root);
+  });
+
+  tearDown(() async {
+    if (await root.exists()) {
+      await root.delete(recursive: true);
+    }
+  });
+
   Future<XFile?> recordPick(
     List<ImageSource> sources, {
     required ImageSource source,
@@ -27,6 +44,7 @@ void main() {
         home: HomeScreen(
           recoverLostPickerData: false,
           showGpuDiagnostics: false,
+          catalogStoreForTesting: catalogStore,
           pickImageForTesting: ({
             required source,
             required preferredCameraDevice,
@@ -68,6 +86,7 @@ void main() {
         home: HomeScreen(
           recoverLostPickerData: false,
           showGpuDiagnostics: false,
+          catalogStoreForTesting: catalogStore,
           pickImageForTesting: ({
             required source,
             required preferredCameraDevice,
