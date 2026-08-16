@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. PR #42 is merged as `a5d015587a9eab0125d8605f91fff9307e8d0c11`; resulting main CI #363 is still running at the time of this edit. Product boundary has been corrected: PixelCraft is the photo-editing/image-processing product; Nixin/Dextryx Images is the image-management product. PixelCraft must not evolve into a Lightroom-style DAM by default.**
+Last refresh: **2026-08-16. PR #42 is merged as `a5d015587a9eab0125d8605f91fff9307e8d0c11`; resulting main CI #363 is still running at the time of this edit. Product boundary has been corrected: PixelCraft is the photo-editing/image-processing product; Nixin/Dextryx Images is the image-management product. Nixin may reuse explicitly exposed PixelCraft modules/packages at a basic capability level, but PixelCraft must not evolve into a Lightroom-style DAM by default.**
 
 ---
 
@@ -88,7 +88,29 @@ Those belong to Nixin/Dextryx Images unless a future explicit product decision s
 
 Nixin owns long-lived asset organization, import, browsing, catalog metadata, source management, and future library-management workflows.
 
-## Future external-edit direction
+## Basic reusable-module consumption by Nixin
+
+Nixin may call or depend on **stable, explicitly reusable PixelCraft modules/packages at a basic capability level** when this reduces duplication.
+
+Acceptable shape:
+
+```text
+Nixin
+ -> documented reusable PixelCraft module/package API
+ -> bounded capability result
+ -> Nixin keeps catalog/UI ownership
+```
+
+Rules:
+
+1. reuse published/documented module boundaries, not PixelCraft app internals;
+2. prefer narrow capability/service APIs over importing PixelCraft product state;
+3. Nixin remains authoritative for Workplaces/catalog/asset identity;
+4. PixelCraft/Rust remains authoritative for editing semantics performed by reused processing modules;
+5. module reuse does not mean roadmap reuse — Nixin does not inherit PixelCraft milestones, and PixelCraft does not inherit Nixin milestones;
+6. if the integration requires PixelCraft editor session lifecycle, recipe/history ownership, substantial PixelCraft UI, or bidirectional return state, treat it as external-editor integration instead.
+
+## Future full external-edit direction
 
 A future integration may make Nixin invoke PixelCraft as an external editor:
 
@@ -107,8 +129,9 @@ Guardrails:
 1. Do not create two competing authoritative catalogs for the same integration.
 2. Nixin must not become authoritative for PixelCraft edit recipes/pixel semantics.
 3. PixelCraft must not become authoritative for Nixin Workplaces/library organization.
-4. The external-edit protocol is future work and must be explicitly designed/versioned before implementation.
+4. The full external-edit protocol is future work and must be explicitly designed/versioned before implementation.
 5. Do not copy Nixin roadmap terminology or Lightroom-style management requirements into PixelCraft by default.
+6. Distinguish basic module reuse from full external-editor integration.
 
 ---
 
@@ -138,6 +161,7 @@ Hard contracts:
 13. PixelCraft workspace/catalog state is metadata/navigation state only and must never become authoritative edit/recipe/pixel state.
 14. Recovery generations remain crash/session recovery and are not catalog identity.
 15. Workspace/catalog scope must remain editor-local; long-lived image-management ownership belongs to Nixin.
+16. Reusable PixelCraft modules may serve other products through explicit package/module contracts without transferring product ownership.
 
 ---
 
@@ -378,7 +402,7 @@ restoration capability when explicitly activated
 future real RAW pipeline only when separately approved
 ```
 
-Do not infer Nixin requirements as PixelCraft requirements.
+Do not infer Nixin requirements as PixelCraft requirements. Reusable module APIs may be hardened when an actual cross-product consumer needs them, but that work must remain module-focused rather than importing the consumer's product roadmap.
 
 ---
 
@@ -511,6 +535,7 @@ release --no-codesign is part of CI validation
 9. Do not claim a remote branch is deleted unless GitHub confirms the ref no longer exists.
 10. A PR being green is not enough to declare a slice complete; verify resulting `main` push CI after merge.
 11. Do not import Nixin/Dextryx Images roadmap items into PixelCraft unless explicitly approved for PixelCraft.
+12. Nixin basic module consumption is allowed only through stable reusable PixelCraft boundaries; do not convert that into cross-project roadmap coupling.
 
 Standard verification:
 
@@ -531,7 +556,8 @@ flutter test
 3. Merge this product-boundary documentation correction.
 4. Do **not** start the previously proposed DAM-style W1D.
 5. Select the next PixelCraft milestone from editing/processing/product-editor priorities.
-6. Keep Nixin external-edit integration as a future cross-product contract, not an implicit current implementation task.
-7. Continue updating `docs/CODE_WALKTHROUGH.md` and this handoff when implementation materially changes.
+6. Allow Nixin to consume stable PixelCraft modules for concrete basic capabilities when appropriate, without mixing product roadmaps.
+7. Keep full Nixin external-edit integration as a future cross-product contract, not an implicit current implementation task.
+8. Continue updating `docs/CODE_WALKTHROUGH.md` and this handoff when implementation materially changes.
 
 Do not start O1, G7B, or Nixin-style Workplaces/DAM expansion from this handoff.
