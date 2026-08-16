@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. Product direction is platform-adaptive: phone/tablet are camera-first; desktop is editor/open/drop-first. PixelCraft remains the camera/photo-editing/image-processing product. Nixin/Dextryx Images remains the image-management product and may invoke PixelCraft through a future versioned external-edit contract. Cross-cutting PF foundations are now explicitly defined: easy_localization, Riverpod, preferences/service boundaries, typed processing state, adaptive navigation, and future-safe source contracts.**
+Last refresh: **2026-08-16. Product direction is platform-adaptive: phone/tablet are camera-first; desktop is editor/open/drop-first. PixelCraft remains the camera/photo-editing/image-processing product. Nixin/Dextryx Images remains the image-management product and may invoke PixelCraft through a future versioned external-edit contract. Cross-cutting PF foundations are now explicitly defined: easy_localization, Riverpod, preferences/service boundaries, typed processing state, adaptive navigation, and future-safe source contracts. Package strategy is also explicit: consolidate ownership into the existing four packages before creating new packages; reconsider a dedicated camera package only after PF3 stabilizes its contracts; keep segmentation and RAW as future packages activated only with their actual milestones.**
 
 ---
 
@@ -277,6 +277,8 @@ G6  Reliability / Performance / Device Matrix  CLOSED / VERIFIED
 
 P0-P3 package extraction                       MERGED
 PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE
+PKG-02 existing-package ownership audit         PLANNED AFTER PF0/PF1
+PKG-03 camera package extraction review         DEFER UNTIL AFTER PF3
 
 G7A Release Engineering / Store Preparation    MERGED
 G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHEDULED
@@ -670,7 +672,9 @@ Do not repurpose `WorkspaceCatalogStore` into Nixin-style Workplaces, folder ing
 
 ---
 
-# 13. Package graph and naming
+# 13. Package graph, ownership, and extraction policy
+
+Current package graph:
 
 ```text
 PixelCraft app
@@ -685,12 +689,103 @@ dxtr_pixs_editing -> Dart SDK only
 dxtr_pixs_engine  -> repository rust/ crate through build integration
 ```
 
-Future package family:
+## Package policy
+
+Do **not** create packages merely to reduce directory size. A package boundary must represent a stable capability or ownership boundary with a meaningful dependency direction.
+
+Before creating another package, prefer consolidating app-level compatibility/facade code into the four existing packages when ownership is already clear.
+
+Do not create low-cohesion utility packages such as:
 
 ```text
-dxtr_pixs_segment  MobileSAM/local segmentation
+dxtr_pixs_common
+dxtr_pixs_services
+dxtr_pixs_navigation
+dxtr_pixs_preferences
+dxtr_pixs_permissions
+dxtr_pixs_ui
+```
+
+PF0 application services such as `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, `AppPreferencesStore`, processing-job orchestration, and app routing remain application-layer boundaries unless a concrete reusable capability later proves otherwise.
+
+## PKG-02 — existing-package ownership audit
+
+**PLANNED AFTER PF0/PF1 STABILIZES.**
+
+Audit remaining `lib/core` compatibility/application code before adding packages.
+
+Priority candidates:
+
+```text
+film_profile_store.dart
+film_profile_v1.dart
+film_profile_recipe.dart
+image_engine.dart
+bridge/facade code where reusable ownership is clear
+```
+
+Direction:
+
+- Film profile schema/model/persistence/import-export behavior that is genuinely Film-owned should converge into `dxtr_pixs_film`.
+- reusable Flutter-facing Rust engine/render/recipe execution facades should converge into `dxtr_pixs_engine` where they are not application-specific orchestration.
+- compatibility export files may remain temporarily when they protect migrations, but should not become a second permanent ownership layer.
+- navigation, presentation errors, app state, and product workflow orchestration stay in the PixelCraft app.
+
+This is **consolidation**, not a mandate to increase package count.
+
+## PKG-03 — `dxtr_pixs_camera` extraction review
+
+**DEFER UNTIL AFTER PF3. DO NOT EXTRACT DURING PF0/PF1.**
+
+Camera currently spans native GPU preview, Flutter camera fallback, lifecycle, lens switching, clean capture, Film preview, and product-specific routing. PF1-PF3 are still changing those contracts.
+
+Re-evaluate a dedicated package only after this boundary is stable:
+
+```text
+camera runtime
+ -> clean capture
+ -> format-aware source descriptor
+ -> authoritative processing handoff
+```
+
+A future package may look like:
+
+```text
+dxtr_pixs_camera
+ ├── camera capability model
+ ├── capture abstraction
+ ├── lens model
+ ├── lifecycle/runtime boundary
+ ├── clean capture contract
+ └── preview orchestration contracts
+```
+
+Keep camera-screen layout, PixelCraft navigation, localized product copy, and editor-routing policy in the application rather than the package.
+
+## Future package family
+
+Create these only when their milestones are explicitly activated:
+
+```text
+dxtr_pixs_segment  MobileSAM/local segmentation + MaskProvider boundary
 dxtr_pixs_restore  restoration capabilities
 dxtr_pixs_raw      real RAW development
+```
+
+Do not create empty placeholder packages ahead of actual implementation work.
+
+Target long-term graph:
+
+```text
+PixelCraft app
+ ├── dxtr_pixs_editing
+ ├── dxtr_pixs_engine
+ ├── dxtr_pixs_film
+ ├── dxtr_pixs_gpu
+ ├── dxtr_pixs_camera   # only if PKG-03 proves the boundary after PF3
+ ├── dxtr_pixs_segment  # future, when activated
+ ├── dxtr_pixs_restore  # future, when activated
+ └── dxtr_pixs_raw      # future, when activated
 ```
 
 Native/runtime identifiers intentionally remain stable unless separately justified.
@@ -823,6 +918,9 @@ release --no-codesign is part of CI validation
 13. Localization begins with en/th, device detection, fallback en.
 14. Do not introduce Hive without a concrete persistence requirement.
 15. Do not start MobileSAM, real RAW, O1, or G7B as part of PF0-PF5 unless explicitly activated.
+16. Prefer consolidation into existing packages before creating new packages.
+17. Do not extract `dxtr_pixs_camera` before PF3 stabilizes capture and processing-handoff contracts.
+18. Do not create placeholder future packages before their milestones are activated.
 
 Standard verification:
 
@@ -871,6 +969,16 @@ Required first slice:
 11. keep Home/Workspace code only as bounded continuity/recovery support while the new root stabilizes;
 12. do not start MobileSAM, real RAW, O1, G7B, Hive migration, or Nixin DAM work.
 
+Package follow-up after PF0/PF1 stabilizes:
+
+```text
+PKG-02 audit remaining lib/core ownership
+ -> consolidate Film-owned code into dxtr_pixs_film where appropriate
+ -> consolidate reusable engine-facing code into dxtr_pixs_engine where appropriate
+ -> do not create new generic utility packages
+ -> defer dxtr_pixs_camera extraction decision until PF3 is stable
+```
+
 Then proceed in order:
 
 ```text
@@ -878,6 +986,7 @@ PF0 platform-flow foundations
  -> PF1 camera-first mobile/tablet + desktop editor-first shell
  -> PF2 unified camera Film/Filter/Adjust UX
  -> PF3 capture + authoritative render + JPEG Gallery save + remain in Camera
+ -> PKG-03 evaluate dxtr_pixs_camera extraction against stable PF3 contracts
  -> PF4 Gallery source -> editor -> Gallery export
  -> PF5 versioned external-edit request/result foundation for future Nixin integration
 ```
