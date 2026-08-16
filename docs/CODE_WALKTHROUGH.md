@@ -1,6 +1,6 @@
 # PixelCraft Code Walkthrough
 
-เอกสารนี้อธิบาย architecture ปัจจุบันของ repository **PixelCraft** / product **Dextryx Pixels** หลัง G1–G7A, package extraction, product UX modernization และการเริ่ม W1 real workspace/catalog foundation.
+เอกสารนี้อธิบาย architecture ปัจจุบันของ repository **PixelCraft** / product **Dextryx Pixels** หลัง G1–G7A, package extraction, UX modernization และ W1 real workspace/catalog work.
 
 สถานะ ณ 2026-08-16:
 
@@ -23,11 +23,11 @@ UX-02 Home / Workspace modernization             CLOSED / VERIFIED
 W1 Real workspace/catalog foundation             ACTIVE
 ```
 
-Latest verified baseline before W1:
+Latest verified W1 baseline:
 
 ```text
-PR #40 merge: 29af1b17fa3f0066aa9428190b79fe4e26d8a1b3
-main CI: #347 / 31921037298 / SUCCESS
+PR #41 merge: 7f3ae0eaaa6fe40711eca251ac746b3a24e1b69a
+main CI: #352 / 31922895364 / SUCCESS
 ```
 
 > Rust เป็น authoritative source สำหรับ committed semantic edits, recipe, history, checkpoint, recovery และ full-resolution export. Flutter เป็น product/control/presentation plane. Native GPU เป็น faithful low-latency preview path เท่านั้น. Workspace catalog เป็น product metadata และต้องไม่กลายเป็น semantic edit authority อีกชุดหนึ่ง.
@@ -55,13 +55,15 @@ full-resolution Rust replay/export
 Parallel product metadata path:
 
 ```text
-Import / Camera acquisition
+Import / Take Photo
         ↓
 WorkspaceCatalogStore
         ↓
 stable catalog identity + source metadata
         ↓
-Home / workspace presentation
+Home workspace list
+        ↓
+open source path in ProductEditorScreen
 ```
 
 Hard contracts:
@@ -106,9 +108,7 @@ dxtr_pixs_editing -> Dart SDK only
 dxtr_pixs_engine  -> repository rust/ crate through build integration
 ```
 
-Native/runtime identifiers intentionally remain stable, including Rust crate/native library/channel/storage schema names.
-
-`tool/check_package_boundaries.sh` enforces forbidden dependency directions.
+Native/runtime identifiers intentionally remain stable, including Rust crate/native library/channel/storage schema names. `tool/check_package_boundaries.sh` enforces forbidden dependency directions.
 
 ---
 
@@ -139,24 +139,107 @@ More ways to add
 Films                     separate secondary destination
 ```
 
-UX-02 removed demo/sample-photo Home content. Home now shows only real product state:
+Home contains only real persisted product state:
 
 ```text
-no recoverable session
+no recovery + no catalog items
  -> honest empty workspace
 
 recoverable session
  -> Recent edit card
- -> real thumbnail from recovery originalBytes
- -> real savedAt when available
+ -> bounded thumbnail from recovery originalBytes
+ -> savedAt when valid
  -> Resume / Discard
+
+catalog items
+ -> Workspace section
+ -> bounded file thumbnail
+ -> source filename + source kind
+ -> open source in ProductEditorScreen
 ```
 
-The recovery card is not a multi-item catalog. W1 introduces that persistent product model separately.
+The recovery card and catalog list are separate concepts. Discarding recovery must not delete workspace identity.
 
 ---
 
-# 4. Rust authority / dxtr_pixs_engine
+# 4. Acquisition → catalog integration
+
+Implementation:
+
+```text
+lib/ui/screens/home_screen.dart
+lib/core/workspace_catalog_store.dart
+```
+
+Gallery flow:
+
+```text
+Import
+ -> ImagePicker.gallery
+ -> WorkspaceCatalogStore.add(
+      sourceKind: gallery,
+      retention: externalReference,
+      sourcePath: XFile.path,
+      availability: available,
+    )
+ -> refresh Home catalog
+ -> ProductEditorScreen(imagePath: XFile.path)
+```
+
+System camera flow:
+
+```text
+More ways to add -> Take Photo
+ -> ImagePicker.camera
+ -> WorkspaceCatalogStore.add(
+      sourceKind: systemCamera,
+      retention: externalReference,
+      sourcePath: XFile.path,
+      availability: available,
+    )
+ -> refresh Home catalog
+ -> ProductEditorScreen(imagePath: XFile.path)
+```
+
+Lost picker data recovered by Home is cataloged as `systemCamera` before opening the editor.
+
+Catalog writes are **fail-soft for editing** but **fail-closed for metadata preservation**:
+
+- if the catalog mutation fails because the manifest is malformed/newer/inaccessible, Home reports `Workspace catalog update failed`;
+- the selected image can still open in the editor;
+- the store itself refuses to reinterpret invalid existing catalog data as an empty catalog and therefore does not overwrite unknown data.
+
+Film Camera is intentionally not catalog-integrated in this slice because its capture handoff/path contract must be inspected separately first.
+
+---
+
+# 5. Opening workspace items
+
+Home loads persisted items through `WorkspaceCatalogStore.load()`.
+
+When a user taps an item:
+
+```text
+File(sourcePath).exists?
+ ├── yes
+ │    -> mark availability = available when needed
+ │    -> markOpened(id)
+ │    -> ProductEditorScreen(imagePath: sourcePath)
+ │    -> refresh recovery + catalog after editor returns
+ │
+ └── no
+      -> mark availability = missing
+      -> preserve catalog identity
+      -> show "This source file is no longer available."
+```
+
+Missing source handling never silently deletes the catalog row. This preserves identity for future relink/recovery work.
+
+Catalog thumbnails use `Image.file` with `cacheWidth/cacheHeight` derived from logical thumbnail extent × device pixel ratio, so Home does not intentionally decode full-resolution files merely to populate the list.
+
+---
+
+# 6. Rust authority / dxtr_pixs_engine
 
 ```text
 Flutter app
@@ -190,7 +273,7 @@ make verify-native
 
 ---
 
-# 5. Editing and Film contracts
+# 7. Editing and Film contracts
 
 `dxtr_pixs_editing` contains reusable pure-Dart editing/profile contracts such as:
 
@@ -215,7 +298,7 @@ Rust               = committed image authority
 
 ---
 
-# 6. Editor transaction model
+# 8. Editor transaction model
 
 Primary controller:
 
@@ -239,7 +322,7 @@ GPU failure or unsupported render order never silently changes semantic order.
 
 ---
 
-# 7. GPU preview runtime
+# 9. GPU preview runtime
 
 Package:
 
@@ -263,11 +346,11 @@ Android -> Camera2/OpenGL ES camera preview
 iOS     -> AVFoundation/Metal camera preview + Metal Editor preview
 ```
 
-Do not casually replace the mobile runtime with wgpu. wgpu remains useful for separate supported targets/validation where already present.
+Do not casually replace the mobile runtime with wgpu.
 
 ---
 
-# 8. Recovery persistence
+# 10. Recovery persistence
 
 Implementation:
 
@@ -284,17 +367,11 @@ app-support/pixelcraft-session/
   generation.<generation>.json
 ```
 
-The generation manifest is the recovery commit point pairing source + recipe. The store keeps coherent generations and can fall back from incomplete newest data.
-
-Recovery answers: **"How do I resume the most recent editor state safely?"**
-
-It does not answer: **"What images belong to the user's workspace?"**
-
-That distinction is why W1 uses a separate catalog store.
+The generation manifest is the recovery commit point pairing source + recipe. Recovery answers: **"How do I resume the most recent editor state safely?"** It does not answer: **"What images belong to the user's workspace?"**
 
 ---
 
-# 9. W1 workspace catalog foundation
+# 11. W1 workspace catalog persistence
 
 Implementation introduced by PR #41:
 
@@ -343,48 +420,24 @@ WorkspaceSourceAvailability
   missing
 ```
 
-The catalog deliberately does **not** store:
+The catalog deliberately does not store Rust recipe, semantic operation history, checkpoint cursor, rendered pixels as authority, or recovery generation identity.
 
-```text
-Rust recipe
-semantic operation history
-checkpoint cursor
-rendered pixels as authority
-recovery generation identity
-```
+## Write safety
 
-## W1 write safety
+1. write + flush `catalog.json.tmp`;
+2. preserve previous `catalog.json` as `catalog.json.bak`;
+3. publish temp as new `catalog.json`;
+4. remove backup only after successful publish;
+5. recover backup after interrupted replacement;
+6. mutations refuse malformed/newer-schema manifests;
+7. read-modify-write serialization is shared across store instances targeting the same directory inside the Dart isolate;
+8. IDs are allocated under that shared write lock against existing catalog IDs.
 
-PR #41 hardens four important persistence rules:
-
-1. **Old manifest remains recoverable until replacement commit**
-
-```text
-write + flush catalog.json.tmp
-old catalog.json -> catalog.json.bak
-catalog.json.tmp -> catalog.json
-remove .bak only after successful publish
-```
-
-If publication fails after moving the old file, the backup is restored. If the process terminates between moves, a later load can recover the `.bak` manifest.
-
-2. **Read APIs fail closed; mutations fail loudly**
-
-`load()` may return an empty catalog when no valid committed manifest can be read. Read-modify-write operations do not interpret malformed/newer-schema data as an empty workspace; they surface the decode/version error so existing bytes are not overwritten.
-
-3. **Serialization is shared across store instances**
-
-Write tails are keyed by the absolute workspace directory path, so two `WorkspaceCatalogStore` objects targeting the same catalog participate in the same serialized read-modify-write queue within the Dart isolate.
-
-4. **IDs survive store recreation**
-
-IDs are chosen under the shared write lock from timestamp + the next unused suffix already present in the catalog. Recreating the store and adding another item at the same timestamp therefore does not replace the earlier identity.
-
-Focused tests cover reload, ordering, availability, last-opened metadata, removal, one-instance concurrency, cross-instance concurrency, recreated-store ID collision prevention, malformed/newer schema mutation refusal, and backup recovery.
+Tests cover persistence, ordering, availability, last-opened metadata, removal, concurrent writes, cross-instance writes, recreated-store ID collision prevention, malformed/newer schema mutation refusal, and backup recovery.
 
 ---
 
-# 10. Export / share
+# 12. Export / share
 
 Implementation:
 
@@ -406,25 +459,17 @@ GPU preview pixels and workspace catalog metadata are never export authority.
 
 ---
 
-# 11. Release and reliability baseline
+# 13. Release and reliability baseline
 
-G6 physical reliability is closed/verified, including iPhone 11 device evidence and the policy that verifier tooling must not uninstall/overwrite the installed main app `dev.cnxdev.pixelcraft`.
+G6 physical reliability is CLOSED / VERIFIED. Verifier tooling must not uninstall/overwrite installed main app `dev.cnxdev.pixelcraft`.
 
-G7A account-independent release engineering is merged. Android release validation rejects debug signing; iOS validates release `--no-codesign` packaging.
+G7A account-independent release engineering is merged. G7B is **deferred indefinitely / not scheduled** and must not be restarted without an explicit project decision.
 
-G7B is **deferred indefinitely / not scheduled**. It is not the current blocker for W1 and must not be restarted without an explicit project decision.
-
-Dart 3.13 RecordUse/native tree-shaking is documented separately as future/deferred work in:
-
-```text
-docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md
-```
+Dart 3.13 RecordUse/native tree-shaking remains future/deferred in `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md`.
 
 ---
 
-# 12. Verification gates
-
-Standard repo validation:
+# 14. Verification gates
 
 ```bash
 bash tool/check_package_boundaries.sh
@@ -434,13 +479,13 @@ flutter analyze
 flutter test
 ```
 
-Full CI additionally covers Rust fmt/clippy/tests, packages, native builds, golden tests, Android/iOS release packaging and configured wgpu jobs.
+Full CI additionally covers Rust fmt/clippy/tests, package suites, native builds, goldens, Android/iOS release packaging and configured wgpu jobs.
 
-A PR head being green is not enough to close a slice. After merge, the resulting `main` push CI must also be verified green.
+A PR head being green is not enough to close a slice. Verify resulting `main` push CI after merge.
 
 ---
 
-# 13. Important files
+# 15. Important files
 
 ```text
 Architecture / continuation
@@ -451,6 +496,9 @@ Workspace / recovery
   lib/core/workspace_catalog_store.dart
   lib/core/editor_session_store.dart
   lib/ui/screens/home_screen.dart
+  test/core/workspace_catalog_store_test.dart
+  test/ui/home_screen_test.dart
+  test/ui/home_camera_source_test.dart
 
 Editor/export
   lib/state/editor_controller.dart
@@ -468,21 +516,23 @@ Rust authority
 
 ---
 
-# 14. Current continuation point
+# 16. Current continuation point
 
-W1 is active on PR #41 / `feature/w1-workspace-catalog-foundation`.
+W1 storage foundation is merged and verified through PR #41 / main CI #352. The active slice is acquisition/Home catalog integration on `feature/w1-catalog-integration`.
 
 Current sequence:
 
 ```text
-1. stabilize WorkspaceCatalogItem + WorkspaceCatalogStore contract
-2. verify crash-safe manifest replacement and corruption policy
-3. verify cross-instance serialized writes and stable identity allocation
-4. keep catalog metadata separate from Rust/recovery authority
-5. pass full PR CI and address review feedback
-6. merge and verify resulting main CI
-7. only then integrate real acquisition paths with catalog writes
-8. only after real persisted items exist, render multi-item Home workspace UI
+1. catalog gallery Import and system Take Photo acquisition
+2. render only persisted catalog items on Home
+3. preserve recovery card as a separate concern
+4. mark missing source without deleting catalog identity
+5. keep thumbnails decode-bounded
+6. verify widget + catalog persistence tests and full CI
+7. address review feedback
+8. merge and verify resulting main CI
+9. inspect Film Camera capture handoff before integrating it
+10. decide managed-copy policy before promising durable source retention across platform picker/cache lifetimes
 ```
 
-Do not fake recent/catalog data, do not migrate recovery identity into catalog identity, and do not start G7B/O1/MobileSAM/restoration as part of W1.
+Do not fake catalog data, do not migrate recovery identity into catalog identity, and do not start G7B/O1/MobileSAM/restoration as part of W1.
