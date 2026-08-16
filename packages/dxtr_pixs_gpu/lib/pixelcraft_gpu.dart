@@ -1,5 +1,6 @@
 export 'android_gpu_camera_bridge.dart';
 export 'android_gpu_camera_preview.dart';
+export 'camera_look_preview_bridge.dart';
 export 'gpu_editor_diagnostics_bridge.dart';
 export 'gpu_editor_draft_session.dart';
 export 'gpu_editor_preview_bridge.dart';
