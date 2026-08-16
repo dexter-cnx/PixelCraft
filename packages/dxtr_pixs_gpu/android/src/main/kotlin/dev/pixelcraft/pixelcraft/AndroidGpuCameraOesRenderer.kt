@@ -27,15 +27,17 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /**
  * G1 Android renderer.
  *
  * Camera2 writes preview frames directly into an external OES texture. A GL
- * thread samples that texture, applies the canonical 33^3 Film LUT atlas, and
- * renders into the PlatformView Surface. Still capture goes to a separate JPEG
- * ImageReader and is saved unchanged; no preview pixels cross Dart.
+ * thread samples that texture, applies the active 33^3 LUT atlas, and renders
+ * into the PlatformView Surface. PF2 composes Film + Creative + Adjust only
+ * when CameraLook changes, then swaps that atlas into this proven single-LUT
+ * hot path. Still capture remains clean and no preview pixels cross Dart.
  */
 internal class AndroidGpuCameraOesRenderer(
     context: Context,
@@ -135,11 +137,15 @@ internal class AndroidGpuCameraOesRenderer(
     private val appContext = context.applicationContext
     private val cameraManager =
         appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val cameraLookComposer = CameraLookLutComposer(appContext)
+    private val lookGeneration = AtomicLong(0)
 
     private val glThread = HandlerThread("PixelCraft-GpuCamera-GL").apply { start() }
     private val glHandler = Handler(glThread.looper)
     private val cameraThread = HandlerThread("PixelCraft-GpuCamera-Camera2").apply { start() }
     private val cameraHandler = Handler(cameraThread.looper)
+    private val lookThread = HandlerThread("PixelCraft-GpuCamera-Look").apply { start() }
+    private val lookHandler = Handler(lookThread.looper)
 
     private val quad: FloatBuffer = ByteBuffer
         .allocateDirect(8 * 4)
@@ -157,6 +163,9 @@ internal class AndroidGpuCameraOesRenderer(
     @Volatile private var strength = 0f
     @Volatile private var lensFacing = CameraCharacteristics.LENS_FACING_BACK
     @Volatile private var lutUploadPending = false
+    @Volatile private var cameraLookMode = false
+    @Volatile private var cameraLookHasEffect = false
+    @Volatile private var composedLutBytes: ByteArray? = null
 
     private var outputSurface: Surface? = null
     private var outputWidth = 0
@@ -216,6 +225,10 @@ internal class AndroidGpuCameraOesRenderer(
     }
 
     override fun setFilm(profileId: String, strength: Float) {
+        lookGeneration.incrementAndGet()
+        cameraLookMode = false
+        cameraLookHasEffect = false
+        composedLutBytes = null
         val changed = this.profileId != profileId
         this.profileId = profileId
         this.strength = strength.coerceIn(0f, 1f)
@@ -226,6 +239,39 @@ internal class AndroidGpuCameraOesRenderer(
                 uploadPendingFilmLut()
             } catch (error: Throwable) {
                 fail("Unable to load Film LUT: $profileId", error)
+            }
+        }
+    }
+
+    fun setCameraLook(look: NativeGpuCameraLook) {
+        val generation = lookGeneration.incrementAndGet()
+        cameraLookMode = true
+        cameraLookHasEffect = false
+        composedLutBytes = null
+        lutUploadPending = false
+        if (look.isNeutral) return
+
+        lookHandler.post {
+            if (released || generation != lookGeneration.get()) return@post
+            try {
+                val bytes = cameraLookComposer.compose(look)
+                if (released || generation != lookGeneration.get()) return@post
+                glHandler.post {
+                    if (released || generation != lookGeneration.get()) return@post
+                    try {
+                        composedLutBytes = bytes
+                        uploadLutBytes(bytes)
+                        cameraLookHasEffect = true
+                    } catch (error: Throwable) {
+                        cameraLookHasEffect = false
+                        composedLutBytes = null
+                        fail("Unable to activate composed CameraLook LUT", error)
+                    }
+                }
+            } catch (error: Throwable) {
+                if (generation == lookGeneration.get()) {
+                    fail("Unable to compose CameraLook LUT", error)
+                }
             }
         }
     }
@@ -316,10 +362,12 @@ internal class AndroidGpuCameraOesRenderer(
         if (released) return
         released = true
         paused = true
+        lookGeneration.incrementAndGet()
         cameraHandler.post {
             closeCamera()
             cameraThread.quitSafely()
         }
+        lookHandler.post { lookThread.quitSafely() }
         glHandler.post {
             releaseGl()
             glThread.quitSafely()
@@ -476,7 +524,7 @@ internal class AndroidGpuCameraOesRenderer(
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "eglCreateWindowSurface failed" }
         makeCurrent()
         GLES20.glViewport(0, 0, outputWidth, outputHeight)
-        uploadPendingFilmLut()
+        uploadCurrentLutIfAvailable()
     }
 
     private fun initializeGlContext() {
@@ -515,7 +563,7 @@ internal class AndroidGpuCameraOesRenderer(
             setOnFrameAvailableListener({ renderFrame() }, glHandler)
         }
         inputSurface = Surface(inputSurfaceTexture)
-        lutUploadPending = profileId.isNotEmpty()
+        lutUploadPending = !cameraLookMode && profileId.isNotEmpty()
     }
 
     private fun renderFrame() {
@@ -564,13 +612,15 @@ internal class AndroidGpuCameraOesRenderer(
                 GLES20.glGetUniformLocation(program, "uMirrorX"),
                 if (lensFacing == CameraCharacteristics.LENS_FACING_FRONT) 1f else 0f,
             )
+            val useCameraLook = cameraLookMode && cameraLookHasEffect
+            val useLegacyFilm = !cameraLookMode && profileId.isNotEmpty()
             GLES20.glUniform1f(
                 GLES20.glGetUniformLocation(program, "uUseLut"),
-                if (enabled && profileId.isNotEmpty() && lutTexture != 0) 1f else 0f,
+                if (enabled && (useCameraLook || useLegacyFilm) && lutTexture != 0) 1f else 0f,
             )
             GLES20.glUniform1f(
                 GLES20.glGetUniformLocation(program, "uStrength"),
-                strength.coerceIn(0f, 1f),
+                if (cameraLookMode) 1f else strength.coerceIn(0f, 1f),
             )
 
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -581,8 +631,18 @@ internal class AndroidGpuCameraOesRenderer(
         }
     }
 
+    private fun uploadCurrentLutIfAvailable() {
+        if (cameraLookMode) {
+            val bytes = composedLutBytes ?: return
+            uploadLutBytes(bytes)
+            cameraLookHasEffect = true
+            return
+        }
+        uploadPendingFilmLut()
+    }
+
     private fun uploadPendingFilmLut() {
-        if (!lutUploadPending) return
+        if (!lutUploadPending || cameraLookMode) return
         val id = profileId
         if (id.isEmpty() || eglDisplay == EGL14.EGL_NO_DISPLAY || eglSurface == EGL14.EGL_NO_SURFACE) {
             return
@@ -593,12 +653,20 @@ internal class AndroidGpuCameraOesRenderer(
 
     private fun uploadFilmLut(id: String) {
         if (id.isEmpty() || eglDisplay == EGL14.EGL_NO_DISPLAY) return
-        makeCurrentIfPossible()
-        if (eglSurface == EGL14.EGL_NO_SURFACE) return
         val bytes = appContext.assets.open("gpu_luts/$id.rgba8").use { it.readBytes() }
         check(bytes.size == LUT_ATLAS_SIZE * LUT_ATLAS_SIZE * 4) {
             "Unexpected LUT atlas size for $id: ${bytes.size}"
         }
+        uploadLutBytes(bytes)
+    }
+
+    private fun uploadLutBytes(bytes: ByteArray) {
+        check(bytes.size == LUT_ATLAS_SIZE * LUT_ATLAS_SIZE * 4) {
+            "Unexpected composed LUT atlas size: ${bytes.size}"
+        }
+        if (eglDisplay == EGL14.EGL_NO_DISPLAY || eglSurface == EGL14.EGL_NO_SURFACE) return
+        makeCurrentIfPossible()
+        if (eglSurface == EGL14.EGL_NO_SURFACE) return
         if (lutTexture == 0) {
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
@@ -795,6 +863,7 @@ internal class AndroidGpuCameraOesRenderer(
         oesTexture = 0
         lutTexture = 0
         lutUploadPending = false
+        cameraLookHasEffect = false
     }
 
     private fun fail(message: String, error: Throwable) {
