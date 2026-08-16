@@ -135,13 +135,7 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     fun setCameraLook(id: String, look: NativeGpuCameraLook) {
         session(id).apply {
             cameraLook = look
-            if (look.isNeutral) {
-                renderer.setEnabled(false)
-                return
-            }
-            throw IllegalStateException(
-                "PF2 composed camera look is not activated on Android renderer yet",
-            )
+            renderer.setCameraLook(look)
         }
     }
 
