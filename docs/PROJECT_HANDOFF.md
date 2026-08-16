@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. UX-01 and UX-02 are merged and verified on main through PR #39 and main CI #345. No persistent multi-item workspace/catalog model exists yet. G7B and Dart 3.13 native tree-shaking remain deferred.**
+Last refresh: **2026-08-16. UX-01 and UX-02 are merged and verified. W1 catalog contract/storage foundation from PR #41 is merged and verified on main CI #352. PR #42 integrates real gallery/system-camera acquisitions with the catalog and renders real persisted workspace items on Home; final PR head CI #361 is green, with merge/main verification still pending. G7B and Dart 3.13 native tree-shaking remain deferred.**
 
 ---
 
@@ -67,6 +67,8 @@ Hard contracts:
 10. New effects are Rust-first; GPU support is enabled only when faithful.
 11. AI segmentation/restoration is optional capability and never committed-image authority.
 12. Do not casually replace mobile Metal/OpenGL ES runtime with wgpu.
+13. Workspace/catalog state is metadata/navigation state only and must never become authoritative edit/recipe/pixel state.
+14. Recovery generations remain crash/session recovery and are not catalog identity.
 
 ---
 
@@ -89,7 +91,9 @@ G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY / NOT SCHED
 Post-G7A Product / Editor UX                    ACTIVE
 UX-01 Modern import/add-photo entry flow        CLOSED / VERIFIED
 UX-02 Home / Workspace modernization            CLOSED / VERIFIED
-W1 Real workspace/catalog foundation           NEXT / DESIGN + CONTRACT FIRST
+W1A/W1B catalog contract + storage foundation  CLOSED / VERIFIED
+W1C acquisition/catalog/Home integration       ACTIVE / PR #42 GREEN, MERGE PENDING
+W1D multi-item workspace refinement            NEXT AFTER #42 MAIN CI
 O1 Dart 3.13 native tree-shaking / RecordUse   FUTURE / DEFERRED / DO NOT START NOW
 ```
 
@@ -115,6 +119,8 @@ PR #36  replace broken Home PNG golden with structural regression gate
 PR #37  direct primary Import acquisition path
 PR #38  Home workspace modernization; remove demo/sample hierarchy
 PR #39  real persisted recent-edit card with bounded thumbnail decode
+PR #40  UX-02 closeout / W1 handoff definition
+PR #41  real workspace catalog storage foundation
 ```
 
 Verification evidence:
@@ -131,6 +137,17 @@ PR #39 final head: 9f55fd4b1f21bd8c74283134473e860d19782b68
 PR #39 final head CI: #344 / 31919129394 / success
 PR #39 merge: 4afb8a38f045abb00c9e6dccf9b75f3b19ad4dd7
 main CI after #39: #345 / 31919832339 / success
+
+PR #40 merge: 29af1b17fa3f0066aa9428190b79fe4e26d8a1b3
+main CI after #40: #347 / 31921037298 / success
+
+PR #41 final head: 677f104ab1601f9f8c913818a334e8d18110f15f
+PR #41 final head CI: #351 / 31922407181 / success
+PR #41 merge: 7f3ae0eaaa6fe40711eca251ac746b3a24e1b69a
+main CI after #41: #352 / 31922895364 / success
+
+PR #42 head before handoff sync: 61a36e9e9c8068b5f7c47db4420688c2b9ac1576
+PR #42 head CI: #361 / 31929407911 / success
 ```
 
 PR hygiene/history:
@@ -196,13 +213,23 @@ PR #39:
 
 Verified through PR #39 final head CI #344 and resulting main CI #345.
 
-### Workspace data boundary discovered during UX-02
+### Workspace data boundary
 
-At the end of UX-02, the repository has one real persisted workspace datum suitable for Home: the latest recoverable editor generation from `EditorSessionStore`.
+`EditorSessionStore` and `WorkspaceCatalogStore` intentionally solve different problems:
 
-There is **no persistent multi-item workspace/catalog/history model** that can truthfully power a Lightroom-style list/grid of imported or edited images. Do not fabricate such rows from bundled assets, temporary picker results, or recovery generations.
+```text
+EditorSessionStore
+= recover latest coherent editing session after interruption/crash
+= bytes + authoritative Rust recipe envelope linkage
+= generation-based recovery
 
-Any multi-item workspace UI must therefore begin with W1 below.
+WorkspaceCatalogStore
+= stable multi-item navigation/metadata identity
+= source provenance / path retention / availability / timestamps
+= no recipe/history/pixels authority
+```
+
+Never repurpose recovery generations as catalog rows.
 
 ### Design direction
 
@@ -217,51 +244,95 @@ Any multi-item workspace UI must therefore begin with W1 below.
 
 ---
 
-# 6. W1 — Real workspace/catalog foundation — NEXT
+# 6. W1 — Real workspace/catalog foundation — ACTIVE
 
-Purpose: establish a truthful multi-item workspace data model before adding a multi-image Recent/Library UI.
+Purpose: establish a truthful multi-item workspace data model and real Home navigation without introducing a second edit authority.
 
-Do **not** start by drawing a grid. Define and validate the data contract first.
+## W1A/W1B — contract + storage — CLOSED / VERIFIED
 
-Initial contract questions:
+Implemented in PR #41 and verified on resulting main CI #352.
+
+Catalog item contract:
 
 ```text
-W1.0 ownership
-- decide which layer owns workspace/catalog metadata
-- Rust remains authoritative for edit semantics; catalog metadata must not become a second image-edit authority
-
-W1.1 item identity
-- stable item id independent of display name/path
-- source origin: import / camera / film camera
-- original source reference/path where platform policy permits
-- created/imported/last-edited timestamps
-
-W1.2 edit linkage
-- link item to authoritative recipe/checkpoint/session identity without duplicating Rust edit semantics
-- recovery session remains crash recovery, not the catalog itself
-
-W1.3 storage policy
-- define app-owned copy vs external-reference behavior per platform
-- define missing/moved source behavior
-- no silent destructive migration of existing recovery data
-
-W1.4 thumbnail policy
-- persist or generate bounded thumbnails; never decode full-resolution originals merely to populate Home
-- define invalidation when orientation/source changes
-
-W1.5 lifecycle
-- import -> catalog item
-- open/edit -> recipe/checkpoint linkage
-- discard recovery must not accidentally delete catalog identity
-- delete/remove semantics must be explicit
-
-W1.6 tests/migration
-- deterministic repository tests
-- legacy/no-catalog startup remains valid
-- recovery store compatibility retained
+stable id
+sourceKind: gallery / systemCamera / filmCamera
+retention: externalReference / managedCopy
+sourcePath
+availability: unknown / available / missing
+importedAt
+updatedAt
+lastOpenedAt?
 ```
 
-Implementation should remain focused and may be split into contract/storage/UI PRs. Do not add fake data to make the UI look complete.
+No recipe/history/checkpoint/pixels/edit settings are stored in catalog items.
+
+Storage properties:
+
+- app-local `pixelcraft-workspace/catalog.json` manifest;
+- versioned schema;
+- strict mutation semantics: malformed/newer manifests are not silently overwritten;
+- crash-safe publish with `.tmp` and `.bak`;
+- backup recovery for interrupted replacement;
+- shared per-directory serialization across store instances in the Dart isolate;
+- stable unique id allocation under the same write lock;
+- deterministic newest-`updatedAt` ordering;
+- focused persistence/concurrency/corruption/new-schema tests.
+
+## W1C — acquisition/catalog/Home integration — ACTIVE
+
+Implemented in PR #42; final merge/main verification still required.
+
+Current behavior:
+
+```text
+Import (gallery)
+ -> picker result
+ -> catalog item sourceKind=gallery
+ -> externalReference path
+ -> open ProductEditorScreen
+
+Take Photo (system camera)
+ -> picker result
+ -> catalog item sourceKind=systemCamera
+ -> externalReference path
+ -> open ProductEditorScreen
+
+Home
+ -> WorkspaceCatalogStore.load()
+ -> render persisted real items only
+ -> open existing source in ProductEditorScreen
+ -> missing source => mark availability=missing, preserve stable identity
+```
+
+Additional hardening:
+
+- lost picker recovery does **not** guess gallery-vs-camera provenance because `image_picker.retrieveLostData()` does not provide enough provenance; recovered files open without fabricated catalog metadata;
+- workspace item opening uses an in-flight guard before filesystem/catalog awaits, preventing double-tap duplicate editor routes;
+- Home thumbnails use bounded decode dimensions;
+- catalog mutation failure does not prevent the editor from opening, while catalog storage itself remains fail-closed;
+- Home widget tests use an in-memory catalog test double, while real disk/atomic/corruption semantics remain covered by `workspace_catalog_store_test.dart`;
+- `docs/CODE_WALKTHROUGH.md` is updated for acquisition → catalog → Home behavior.
+
+Not yet done in W1C:
+
+- Film Camera capture catalog handoff;
+- durable managed-copy policy for picker/camera sources;
+- durable pending-acquisition provenance for Android lost-data recovery;
+- duplicate asset reconciliation beyond stable catalog identity rules.
+
+## W1D — next UI/data refinement
+
+Start only after PR #42 merge and resulting main CI succeed.
+
+Targets:
+
+- refine real multi-item Home list/grid hierarchy using catalog data only;
+- deterministic sorting and item actions;
+- clearer Resume/Edit/missing-source affordances;
+- preserve Import as primary action;
+- no fake/demo/sample rows;
+- do not move recipe/pixel authority into Flutter catalog state.
 
 ---
 
@@ -408,19 +479,18 @@ flutter test
 
 # 13. Current next action
 
-**Start W1 real workspace/catalog foundation. Contract and storage semantics come before multi-item Home UI.**
+**Finish PR #42 cleanly, then continue W1D from verified main.**
 
 Required sequence:
 
 ```text
-1. inspect existing editor/recovery/session persistence and platform source-path assumptions
-2. write the W1 catalog item/repository contract and ownership decision
-3. define import/camera source lifecycle and missing-source behavior
-4. define bounded thumbnail storage/generation policy
-5. implement the smallest persistent repository with deterministic tests
-6. integrate Import with catalog creation without changing Rust edit authority
-7. only then expose real multi-item workspace content on Home
-8. keep recovery generation separate from catalog identity
+1. verify CI for the final PR #42 head after this handoff sync
+2. verify no actionable review threads remain
+3. merge PR #42 only when exact-head CI is green
+4. verify resulting main push CI for the exact merge SHA
+5. after main is green, begin W1D in a fresh branch
+6. keep Film Camera catalog handoff and managed-copy policy explicit follow-up decisions; do not guess platform durability
+7. continue updating docs/CODE_WALKTHROUGH.md and this handoff as implementation changes
 ```
 
 Do not start O1, G7B, MobileSAM, restoration, or fake catalog UI during this sequence.
