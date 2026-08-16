@@ -31,13 +31,12 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /**
- * G1 Android renderer.
+ * Camera2 -> external OES -> OpenGL ES camera renderer.
  *
- * Camera2 writes preview frames directly into an external OES texture. A GL
- * thread samples that texture, applies the active 33^3 LUT atlas, and renders
- * into the PlatformView Surface. PF2 composes Film + Creative + Adjust only
- * when CameraLook changes, then swaps that atlas into this proven single-LUT
- * hot path. Still capture remains clean and no preview pixels cross Dart.
+ * PF2 keeps the authoritative semantic order in the shader itself:
+ * Adjust -> Film -> Creative. Film and Creative LUTs remain independent
+ * textures so there is no extra 33^3 pre-composition quantization layer.
+ * Camera frames and still pixels never cross Dart.
  */
 internal class AndroidGpuCameraOesRenderer(
     context: Context,
@@ -48,6 +47,11 @@ internal class AndroidGpuCameraOesRenderer(
         private const val LUT_TILES = 6
         private const val LUT_ATLAS_SIZE = LUT_SIZE * LUT_TILES
         private const val MAX_PREVIEW_AREA = 1920 * 1080
+
+        private const val CREATIVE_NONE = 0
+        private const val CREATIVE_GRAYSCALE = 1
+        private const val CREATIVE_INVERT = 2
+        private const val CREATIVE_LUT = 3
 
         private const val VERTEX_SHADER = """
             attribute vec2 aPosition;
@@ -63,17 +67,25 @@ internal class AndroidGpuCameraOesRenderer(
             precision highp float;
             varying vec2 vTexCoord;
             uniform samplerExternalOES uCamera;
-            uniform sampler2D uLut;
+            uniform sampler2D uFilmLut;
+            uniform sampler2D uCreativeLut;
             uniform mat4 uSurfaceTextureMatrix;
             uniform vec2 uCropScale;
             uniform int uRotationSteps;
             uniform float uMirrorX;
-            uniform float uUseLut;
-            uniform float uStrength;
+            uniform float uEnabled;
+            uniform float uBrightness;
+            uniform float uContrast;
+            uniform float uSaturation;
+            uniform float uUseFilm;
+            uniform float uFilmStrength;
+            uniform int uCreativeMode;
+            uniform float uCreativeStrength;
 
             const float LUT_SIZE_F = 33.0;
             const float TILES = 6.0;
             const float ATLAS_SIZE = 198.0;
+            const float MIDPOINT = 128.0 / 255.0;
 
             vec2 orientUv(vec2 uv) {
               vec2 p = (uv - vec2(0.5)) * uCropScale;
@@ -88,48 +100,102 @@ internal class AndroidGpuCameraOesRenderer(
               return p + vec2(0.5);
             }
 
-            vec3 atlasTexel(float r, float g, float b) {
+            vec3 filmAtlasTexel(float r, float g, float b) {
               float tileX = mod(b, TILES);
               float tileY = floor(b / TILES);
-              float x = tileX * LUT_SIZE_F + r;
-              float y = tileY * LUT_SIZE_F + g;
-              vec2 uv = (vec2(x, y) + vec2(0.5)) / ATLAS_SIZE;
-              return texture2D(uLut, uv).rgb;
+              vec2 uv = (vec2(tileX * LUT_SIZE_F + r, tileY * LUT_SIZE_F + g) + vec2(0.5)) / ATLAS_SIZE;
+              return texture2D(uFilmLut, uv).rgb;
             }
 
-            vec3 sampleSlice(float b, float r, float g) {
+            vec3 creativeAtlasTexel(float r, float g, float b) {
+              float tileX = mod(b, TILES);
+              float tileY = floor(b / TILES);
+              vec2 uv = (vec2(tileX * LUT_SIZE_F + r, tileY * LUT_SIZE_F + g) + vec2(0.5)) / ATLAS_SIZE;
+              return texture2D(uCreativeLut, uv).rgb;
+            }
+
+            vec3 filmSlice(float b, float r, float g) {
               float r0 = floor(r);
               float g0 = floor(g);
               float r1 = min(r0 + 1.0, LUT_SIZE_F - 1.0);
               float g1 = min(g0 + 1.0, LUT_SIZE_F - 1.0);
               float rf = r - r0;
               float gf = g - g0;
-              vec3 c00 = atlasTexel(r0, g0, b);
-              vec3 c10 = atlasTexel(r1, g0, b);
-              vec3 c01 = atlasTexel(r0, g1, b);
-              vec3 c11 = atlasTexel(r1, g1, b);
+              vec3 c00 = filmAtlasTexel(r0, g0, b);
+              vec3 c10 = filmAtlasTexel(r1, g0, b);
+              vec3 c01 = filmAtlasTexel(r0, g1, b);
+              vec3 c11 = filmAtlasTexel(r1, g1, b);
               return mix(mix(c00, c10, rf), mix(c01, c11, rf), gf);
             }
 
-            vec3 sampleLut(vec3 color) {
+            vec3 creativeSlice(float b, float r, float g) {
+              float r0 = floor(r);
+              float g0 = floor(g);
+              float r1 = min(r0 + 1.0, LUT_SIZE_F - 1.0);
+              float g1 = min(g0 + 1.0, LUT_SIZE_F - 1.0);
+              float rf = r - r0;
+              float gf = g - g0;
+              vec3 c00 = creativeAtlasTexel(r0, g0, b);
+              vec3 c10 = creativeAtlasTexel(r1, g0, b);
+              vec3 c01 = creativeAtlasTexel(r0, g1, b);
+              vec3 c11 = creativeAtlasTexel(r1, g1, b);
+              return mix(mix(c00, c10, rf), mix(c01, c11, rf), gf);
+            }
+
+            vec3 sampleFilmLut(vec3 color) {
               vec3 scaled = clamp(color, 0.0, 1.0) * (LUT_SIZE_F - 1.0);
               float b0 = floor(scaled.b);
               float b1 = min(b0 + 1.0, LUT_SIZE_F - 1.0);
               float bf = scaled.b - b0;
-              return mix(
-                sampleSlice(b0, scaled.r, scaled.g),
-                sampleSlice(b1, scaled.r, scaled.g),
-                bf
-              );
+              return mix(filmSlice(b0, scaled.r, scaled.g), filmSlice(b1, scaled.r, scaled.g), bf);
+            }
+
+            vec3 sampleCreativeLut(vec3 color) {
+              vec3 scaled = clamp(color, 0.0, 1.0) * (LUT_SIZE_F - 1.0);
+              float b0 = floor(scaled.b);
+              float b1 = min(b0 + 1.0, LUT_SIZE_F - 1.0);
+              float bf = scaled.b - b0;
+              return mix(creativeSlice(b0, scaled.r, scaled.g), creativeSlice(b1, scaled.r, scaled.g), bf);
+            }
+
+            vec3 applyExactCreative(vec3 color, int mode, float strength) {
+              vec3 source8 = floor(clamp(color, 0.0, 1.0) * 255.0 + 0.5);
+              vec3 effected8 = source8;
+              if (mode == 1) {
+                float average = floor((source8.r + source8.g + source8.b) / 3.0);
+                effected8 = vec3(average);
+              } else if (mode == 2) {
+                effected8 = vec3(255.0) - source8;
+              }
+              vec3 blended8 = floor(source8 + (effected8 - source8) * clamp(strength, 0.0, 1.0) + 0.5);
+              return clamp(blended8, 0.0, 255.0) / 255.0;
             }
 
             void main() {
               vec2 uv = orientUv(vTexCoord);
               uv = (uSurfaceTextureMatrix * vec4(uv, 0.0, 1.0)).xy;
               vec3 source = texture2D(uCamera, uv).rgb;
-              vec3 film = sampleLut(source);
-              float amount = clamp(uUseLut * uStrength, 0.0, 1.0);
-              gl_FragColor = vec4(mix(source, film, amount), 1.0);
+              if (uEnabled < 0.5) {
+                gl_FragColor = vec4(source, 1.0);
+                return;
+              }
+
+              vec3 color = clamp(source + (uBrightness - 1.0), 0.0, 1.0);
+              color = clamp((color - vec3(MIDPOINT)) * uContrast + vec3(MIDPOINT), 0.0, 1.0);
+              float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+              color = clamp(vec3(luminance) + (color - vec3(luminance)) * uSaturation, 0.0, 1.0);
+
+              if (uUseFilm > 0.5) {
+                color = mix(color, sampleFilmLut(color), clamp(uFilmStrength, 0.0, 1.0));
+              }
+
+              if (uCreativeMode == 1 || uCreativeMode == 2) {
+                color = applyExactCreative(color, uCreativeMode, uCreativeStrength);
+              } else if (uCreativeMode == 3) {
+                color = mix(color, sampleCreativeLut(color), clamp(uCreativeStrength, 0.0, 1.0));
+              }
+
+              gl_FragColor = vec4(color, 1.0);
             }
         """
     }
@@ -137,7 +203,6 @@ internal class AndroidGpuCameraOesRenderer(
     private val appContext = context.applicationContext
     private val cameraManager =
         appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-    private val cameraLookComposer = CameraLookLutComposer(appContext)
     private val lookGeneration = AtomicLong(0)
 
     private val glThread = HandlerThread("PixelCraft-GpuCamera-GL").apply { start() }
@@ -163,9 +228,11 @@ internal class AndroidGpuCameraOesRenderer(
     @Volatile private var strength = 0f
     @Volatile private var lensFacing = CameraCharacteristics.LENS_FACING_BACK
     @Volatile private var lutUploadPending = false
-    @Volatile private var cameraLookMode = false
-    @Volatile private var cameraLookHasEffect = false
-    @Volatile private var composedLutBytes: ByteArray? = null
+
+    private var activeLook = NativeGpuCameraLook()
+    private var creativeMode = CREATIVE_NONE
+    private var filmLutBytes: ByteArray? = null
+    private var creativeLutBytes: ByteArray? = null
 
     private var outputSurface: Surface? = null
     private var outputWidth = 0
@@ -178,7 +245,8 @@ internal class AndroidGpuCameraOesRenderer(
     private var eglConfig: EGLConfig? = null
     private var program = 0
     private var oesTexture = 0
-    private var lutTexture = 0
+    private var filmLutTexture = 0
+    private var creativeLutTexture = 0
     private var inputSurfaceTexture: SurfaceTexture? = null
     private var inputSurface: Surface? = null
     private val surfaceTextureMatrix = FloatArray(16)
@@ -225,59 +293,67 @@ internal class AndroidGpuCameraOesRenderer(
     }
 
     override fun setFilm(profileId: String, strength: Float) {
-        lookGeneration.incrementAndGet()
-        cameraLookMode = false
-        cameraLookHasEffect = false
-        composedLutBytes = null
-        val changed = this.profileId != profileId
+        val legacyLook = NativeGpuCameraLook(
+            filmProfileId = profileId,
+            filmStrength = strength.coerceIn(0f, 1f),
+        )
         this.profileId = profileId
-        this.strength = strength.coerceIn(0f, 1f)
-        if (!changed) return
-        lutUploadPending = profileId.isNotEmpty()
-        glHandler.post {
-            try {
-                uploadPendingFilmLut()
-            } catch (error: Throwable) {
-                fail("Unable to load Film LUT: $profileId", error)
-            }
-        }
+        this.strength = legacyLook.filmStrength
+        setCameraLook(legacyLook)
     }
 
     fun setCameraLook(look: NativeGpuCameraLook) {
         val generation = lookGeneration.incrementAndGet()
-        cameraLookMode = true
-        cameraLookHasEffect = false
-        composedLutBytes = null
-        lutUploadPending = false
-        if (look.isNeutral) return
-
-        lookHandler.post {
-            if (released || generation != lookGeneration.get()) return@post
+        lookHandler.post lookTask@{
+            if (released || generation != lookGeneration.get()) return@lookTask
             try {
-                val bytes = cameraLookComposer.compose(look)
-                if (released || generation != lookGeneration.get()) return@post
-                glHandler.post {
-                    if (released || generation != lookGeneration.get()) return@post
+                val filmBytes = if (look.hasFilm) loadLutBytes(look.filmProfileId) else null
+                val creativeAsset = NativeGpuCameraLook.creativeLutAssetId(look.creativeFilterId)
+                val creativeBytes = if (look.hasCreative && creativeAsset != null) {
+                    loadLutBytes(creativeAsset)
+                } else {
+                    null
+                }
+                val mode = when {
+                    !look.hasCreative -> CREATIVE_NONE
+                    look.creativeFilterId == "grayscale" -> CREATIVE_GRAYSCALE
+                    look.creativeFilterId == "invert" -> CREATIVE_INVERT
+                    creativeBytes != null -> CREATIVE_LUT
+                    else -> throw IllegalStateException(
+                        "Unsupported CameraLook creative stage: ${look.creativeFilterId}",
+                    )
+                }
+                if (released || generation != lookGeneration.get()) return@lookTask
+                glHandler.post glTask@{
+                    if (released || generation != lookGeneration.get()) return@glTask
                     try {
-                        composedLutBytes = bytes
-                        uploadLutBytes(bytes)
-                        cameraLookHasEffect = true
+                        filmLutBytes = filmBytes
+                        creativeLutBytes = creativeBytes
+                        if (eglDisplay != EGL14.EGL_NO_DISPLAY && eglSurface != EGL14.EGL_NO_SURFACE) {
+                            filmBytes?.let { filmLutTexture = uploadLutTexture(filmLutTexture, it) }
+                            creativeBytes?.let {
+                                creativeLutTexture = uploadLutTexture(creativeLutTexture, it)
+                            }
+                        }
+                        activeLook = look
+                        creativeMode = mode
+                        profileId = look.filmProfileId
+                        strength = look.filmStrength
+                        lutUploadPending = false
                     } catch (error: Throwable) {
-                        cameraLookHasEffect = false
-                        composedLutBytes = null
-                        fail("Unable to activate composed CameraLook LUT", error)
+                        fail("Unable to activate CameraLook resources", error)
                     }
                 }
             } catch (error: Throwable) {
                 if (generation == lookGeneration.get()) {
-                    fail("Unable to compose CameraLook LUT", error)
+                    fail("Unable to prepare CameraLook resources", error)
                 }
             }
         }
     }
 
     override fun setStrength(strength: Float) {
-        this.strength = strength.coerceIn(0f, 1f)
+        setFilm(profileId, strength)
     }
 
     override fun setEnabled(enabled: Boolean) {
@@ -524,7 +600,14 @@ internal class AndroidGpuCameraOesRenderer(
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "eglCreateWindowSurface failed" }
         makeCurrent()
         GLES20.glViewport(0, 0, outputWidth, outputHeight)
-        uploadCurrentLutIfAvailable()
+        filmLutBytes?.let { filmLutTexture = uploadLutTexture(filmLutTexture, it) }
+        creativeLutBytes?.let { creativeLutTexture = uploadLutTexture(creativeLutTexture, it) }
+        if (lutUploadPending && profileId.isNotEmpty()) {
+            val bytes = loadLutBytes(profileId)
+            filmLutBytes = bytes
+            filmLutTexture = uploadLutTexture(filmLutTexture, bytes)
+            lutUploadPending = false
+        }
     }
 
     private fun initializeGlContext() {
@@ -563,7 +646,7 @@ internal class AndroidGpuCameraOesRenderer(
             setOnFrameAvailableListener({ renderFrame() }, glHandler)
         }
         inputSurface = Surface(inputSurfaceTexture)
-        lutUploadPending = !cameraLookMode && profileId.isNotEmpty()
+        lutUploadPending = profileId.isNotEmpty() && filmLutBytes == null
     }
 
     private fun renderFrame() {
@@ -588,8 +671,12 @@ internal class AndroidGpuCameraOesRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCamera"), 0)
 
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTexture)
-            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uLut"), 1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, filmLutTexture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uFilmLut"), 1)
+
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, creativeLutTexture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCreativeLut"), 2)
 
             GLES20.glUniformMatrix4fv(
                 GLES20.glGetUniformLocation(program, "uSurfaceTextureMatrix"),
@@ -599,11 +686,7 @@ internal class AndroidGpuCameraOesRenderer(
                 0,
             )
             val crop = cropScale()
-            GLES20.glUniform2f(
-                GLES20.glGetUniformLocation(program, "uCropScale"),
-                crop.first,
-                crop.second,
-            )
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uCropScale"), crop.first, crop.second)
             GLES20.glUniform1i(
                 GLES20.glGetUniformLocation(program, "uRotationSteps"),
                 relativeRotationDegrees() / 90,
@@ -612,15 +695,25 @@ internal class AndroidGpuCameraOesRenderer(
                 GLES20.glGetUniformLocation(program, "uMirrorX"),
                 if (lensFacing == CameraCharacteristics.LENS_FACING_FRONT) 1f else 0f,
             )
-            val useCameraLook = cameraLookMode && cameraLookHasEffect
-            val useLegacyFilm = !cameraLookMode && profileId.isNotEmpty()
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uEnabled"), if (enabled) 1f else 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uBrightness"), activeLook.brightness)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uContrast"), activeLook.contrast)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uSaturation"), activeLook.saturation)
             GLES20.glUniform1f(
-                GLES20.glGetUniformLocation(program, "uUseLut"),
-                if (enabled && (useCameraLook || useLegacyFilm) && lutTexture != 0) 1f else 0f,
+                GLES20.glGetUniformLocation(program, "uUseFilm"),
+                if (activeLook.hasFilm && filmLutTexture != 0) 1f else 0f,
             )
             GLES20.glUniform1f(
-                GLES20.glGetUniformLocation(program, "uStrength"),
-                if (cameraLookMode) 1f else strength.coerceIn(0f, 1f),
+                GLES20.glGetUniformLocation(program, "uFilmStrength"),
+                activeLook.filmStrength,
+            )
+            GLES20.glUniform1i(
+                GLES20.glGetUniformLocation(program, "uCreativeMode"),
+                if (creativeMode == CREATIVE_LUT && creativeLutTexture == 0) CREATIVE_NONE else creativeMode,
+            )
+            GLES20.glUniform1f(
+                GLES20.glGetUniformLocation(program, "uCreativeStrength"),
+                activeLook.creativeFilterStrength,
             )
 
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -631,48 +724,28 @@ internal class AndroidGpuCameraOesRenderer(
         }
     }
 
-    private fun uploadCurrentLutIfAvailable() {
-        if (cameraLookMode) {
-            val bytes = composedLutBytes ?: return
-            uploadLutBytes(bytes)
-            cameraLookHasEffect = true
-            return
-        }
-        uploadPendingFilmLut()
-    }
-
-    private fun uploadPendingFilmLut() {
-        if (!lutUploadPending || cameraLookMode) return
-        val id = profileId
-        if (id.isEmpty() || eglDisplay == EGL14.EGL_NO_DISPLAY || eglSurface == EGL14.EGL_NO_SURFACE) {
-            return
-        }
-        uploadFilmLut(id)
-        lutUploadPending = false
-    }
-
-    private fun uploadFilmLut(id: String) {
-        if (id.isEmpty() || eglDisplay == EGL14.EGL_NO_DISPLAY) return
+    private fun loadLutBytes(id: String): ByteArray {
         val bytes = appContext.assets.open("gpu_luts/$id.rgba8").use { it.readBytes() }
         check(bytes.size == LUT_ATLAS_SIZE * LUT_ATLAS_SIZE * 4) {
             "Unexpected LUT atlas size for $id: ${bytes.size}"
         }
-        uploadLutBytes(bytes)
+        return bytes
     }
 
-    private fun uploadLutBytes(bytes: ByteArray) {
+    private fun uploadLutTexture(existing: Int, bytes: ByteArray): Int {
         check(bytes.size == LUT_ATLAS_SIZE * LUT_ATLAS_SIZE * 4) {
-            "Unexpected composed LUT atlas size: ${bytes.size}"
+            "Unexpected LUT atlas byte count: ${bytes.size}"
         }
-        if (eglDisplay == EGL14.EGL_NO_DISPLAY || eglSurface == EGL14.EGL_NO_SURFACE) return
         makeCurrentIfPossible()
-        if (eglSurface == EGL14.EGL_NO_SURFACE) return
-        if (lutTexture == 0) {
+        if (eglSurface == EGL14.EGL_NO_SURFACE) return existing
+        val id = if (existing != 0) {
+            existing
+        } else {
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
-            lutTexture = ids[0]
+            ids[0]
         }
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTexture)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
@@ -692,6 +765,7 @@ internal class AndroidGpuCameraOesRenderer(
             GLES20.GL_UNSIGNED_BYTE,
             buffer,
         )
+        return id
     }
 
     private fun cropScale(): Pair<Float, Float> {
@@ -843,7 +917,8 @@ internal class AndroidGpuCameraOesRenderer(
     private fun releaseGl() {
         if (eglSurface != EGL14.EGL_NO_SURFACE) {
             makeCurrent()
-            if (lutTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(lutTexture), 0)
+            if (filmLutTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(filmLutTexture), 0)
+            if (creativeLutTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(creativeLutTexture), 0)
             if (oesTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(oesTexture), 0)
             if (program != 0) GLES20.glDeleteProgram(program)
         }
@@ -861,9 +936,9 @@ internal class AndroidGpuCameraOesRenderer(
         eglConfig = null
         program = 0
         oesTexture = 0
-        lutTexture = 0
+        filmLutTexture = 0
+        creativeLutTexture = 0
         lutUploadPending = false
-        cameraLookHasEffect = false
     }
 
     private fun fail(message: String, error: Throwable) {
