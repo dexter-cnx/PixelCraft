@@ -49,6 +49,7 @@ internal class GpuPreviewChannel(
             "configureSurface" -> handleConfigureSurface(call, result)
             "setFilm" -> handleSetFilm(call, result)
             "setStrength" -> handleSetStrength(call, result)
+            "setCameraLook" -> handleSetCameraLook(call, result)
             "setViewport" -> handleSetViewport(call, result)
             "setEnabled" -> handleSetEnabled(call, result)
             "capturePhoto" -> handleCapturePhoto(call, result)
@@ -172,6 +173,12 @@ internal class GpuPreviewChannel(
     private fun handleSetStrength(call: MethodCall, result: MethodChannel.Result) =
         handleRendererControl(call, result) { rendererId ->
             sessions.setStrength(rendererId, number(call, "strength").toDouble())
+        }
+
+    private fun handleSetCameraLook(call: MethodCall, result: MethodChannel.Result) =
+        handleRendererControl(call, result) { rendererId ->
+            val arguments = call.arguments as? Map<*, *> ?: emptyMap<Any?, Any?>()
+            sessions.setCameraLook(rendererId, NativeGpuCameraLook.fromChannel(arguments))
         }
 
     private fun handleSetViewport(call: MethodCall, result: MethodChannel.Result) =
