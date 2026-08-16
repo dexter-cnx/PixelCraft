@@ -23,6 +23,14 @@
     "brightness": "ความสว่าง",
     "contrast": "คอนทราสต์",
     "saturation": "ความอิ่มสี",
+    "grayscale": "ขาวดำ",
+    "invert": "กลับสี",
+    "vintage": "วินเทจ",
+    "oceanic": "โอเชียนิก",
+    "lofi": "โลไฟ",
+    "dramatic": "ดรามาติก",
+    "golden": "โกลเดน",
+    "pastel_pink": "พาสเทลพิงก์",
     "native_look_required": "ฟิลเตอร์และการปรับแต่งต้องใช้พรีวิวกล้อง GPU แบบ Native"
   },
   "errors": {
