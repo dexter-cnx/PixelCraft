@@ -4,10 +4,11 @@ import 'package:camera/camera.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../app/app_routes.dart';
 import '../../app/platform_flow_foundation.dart';
 import '../../app/platform_media_services.dart';
-import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
 import '../../gpu/android_gpu_camera_preview.dart';
 import '../../gpu/gpu_preview_capability.dart';
@@ -353,16 +354,16 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     String imagePath, {
     required String profileId,
     required double strength,
-  }) =>
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => CameraFilmEditorHandoff(
-            imagePath: imagePath,
-            profileId: profileId,
-            strength: strength,
-          ),
-        ),
-      );
+  }) async {
+    await context.pushNamed(
+      AppRouteNames.editor,
+      extra: EditorRouteData(
+        imagePath: imagePath,
+        initialFilmProfileId: profileId.isEmpty ? null : profileId,
+        initialFilmStrength: strength,
+      ),
+    );
+  }
 
   void _selectPreset(CameraFilmPreset preset) {
     final strength = preset.isOriginal ? 0.0 : 1.0;
