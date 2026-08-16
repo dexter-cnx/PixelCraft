@@ -128,6 +128,10 @@ final class GpuPreviewPlugin {
         let strength = (args["strength"] as? NSNumber)?.doubleValue ?? 0
         renderer.setFilm(profileId: profileId, strength: strength)
       }
+    case "setCameraLook":
+      withRenderer(call: call, result: result) { renderer, args in
+        renderer.setCameraLook(try NativeGpuCameraLook(arguments: args))
+      }
     case "setStrength":
       withRenderer(call: call, result: result) { renderer, args in
         renderer.setStrength((args["strength"] as? NSNumber)?.doubleValue ?? 0)
