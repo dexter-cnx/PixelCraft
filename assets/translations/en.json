@@ -23,6 +23,14 @@
     "brightness": "Brightness",
     "contrast": "Contrast",
     "saturation": "Saturation",
+    "grayscale": "Grayscale",
+    "invert": "Invert",
+    "vintage": "Vintage",
+    "oceanic": "Oceanic",
+    "lofi": "Lo-Fi",
+    "dramatic": "Dramatic",
+    "golden": "Golden",
+    "pastel_pink": "Pastel Pink",
     "native_look_required": "Filter and Adjust require the native GPU camera preview."
   },
   "errors": {
