@@ -319,7 +319,27 @@ After changing Rust APIs:
 make codegen
 ```
 
-Validation:
+## CI and local validation
+
+The hosted workflow uses affected-change routing with a mandatory fast gate before expensive platform jobs. Full validation is forced for `main`, merge queue, explicit full mode, and CI/tooling changes.
+
+Recommended local entrypoint before opening/updating a PR:
+
+```bash
+make preflight
+```
+
+Focused commands:
+
+```bash
+make format-check
+make analyze
+make test-fast
+make gpu-check
+make ci-fast
+```
+
+Additional validation remains available when needed:
 
 ```bash
 bash tool/check_package_boundaries.sh
@@ -329,12 +349,26 @@ flutter analyze
 flutter test
 ```
 
+Branch protection should require the stable always-present contexts:
+
+```text
+Fast CI
+CI Gate
+```
+
+Conditional platform jobs should not be individually required because unaffected jobs are intentionally skipped.
+
+PR #49 established the validated CI baseline with full run #432 (`31951272254`) passing Android, iOS, macOS, Windows, Linux, Golden Tests, Native/GPU Core, Reliability Tier 2, Reliability Tier 3, Fast CI, and CI Gate.
+
+See `docs/CI_ARCHITECTURE.md` for the classifier, DAG, full-mode policy, FRB artifact reuse, reliability tiers, branch-protection guidance, and device-safety contract.
+
 A green PR head alone does not close a milestone; resulting `main` CI must also be verified.
 
 ## Documentation
 
 - `docs/PROJECT_HANDOFF.md` — canonical continuation status and execution order
 - `docs/CODE_WALKTHROUGH.md` — runtime, state, localization, service, and package architecture
+- `docs/CI_ARCHITECTURE.md` — affected CI DAG, fast/full policy, reliability tiers, artifact reuse, and branch-protection contexts
 - `docs/FILM_PROFILES_AND_RELIABILITY.md` — Film profile/reliability details
 - `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md` — deferred Dart 3.13 plan
 - release/device evidence documents under `docs/`

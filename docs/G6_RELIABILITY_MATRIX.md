@@ -15,6 +15,25 @@ G6 does not change image semantics. Rust remains authoritative for committed edi
 - Physical-device automation must not uninstall or overwrite the developer's installed PixelCraft main app (`dev.cnxdev.pixelcraft`). G6 uses an isolated verifier app id (`dev.cnxdev.pixelcraft.g6verify`).
 - Physical-device automation must not mutate the checkout/Xcode project that the developer has open. Verifier bundle/application-id changes are applied only inside a temporary detached git worktree and that worktree is removed when the run exits.
 
+## CI reliability tiers after CI optimization
+
+The recorded G6 closure evidence below is unchanged. CI optimization only changes when hosted checks run; it does not weaken or rewrite past evidence.
+
+- **Tier 1 — Fast correctness:** cheap deterministic host checks on relevant commits. No long soak and no physical-device claim.
+- **Tier 2 — Automated reliability:** GPU/native/reliability-sensitive changes run deterministic G6 failure injection, 12 MP image characterization and the verifier isolation contract guard.
+- **Tier 3 — Full/release hosted reliability:** full validation invokes `G6_MAX_MP=48 bash tool/g6_complete_remaining.sh` with no hosted `DEVICE` value. The existing 12/24/48 MP host matrix and G6 host baseline therefore run, while physical `device_smoke` remains explicitly skipped unless a real device is supplied.
+
+Hosted CI, emulator/simulator validation and physical-device/manual evidence are separate states. A hosted Tier 3 PASS is never permission to mark `docs/G6_DEVICE_MANUAL_CHECKLIST.md` complete for a new device/session.
+
+The main-app safety contract remains unchanged:
+
+```text
+main app: dev.cnxdev.pixelcraft
+verifier: dev.cnxdev.pixelcraft.g6verify
+```
+
+`tool/ci_device_safety_guard.sh` now enforces this contract statically in Fast CI and reliability jobs.
+
 ---
 
 ## G6.0 Clean baseline — PASS
