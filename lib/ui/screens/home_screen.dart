@@ -52,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final EditorSessionStore _sessionStore = EditorSessionStore();
   late final WorkspaceCatalogStore _catalogStore;
   bool _isRecovering = false;
+  bool _isOpeningWorkspaceItem = false;
   bool _isRecoveringLostPickerData = false;
   bool _lostPickerRecoveryStarted = false;
   StoredEditorSession? _recoverableSession;
@@ -94,23 +95,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final files = response.files;
       if (files != null && files.isNotEmpty) {
-        await _openPickedFile(
-          files.first,
-          sourceKind: WorkspaceSourceKind.systemCamera,
-        );
+        // image_picker does not report whether restored lost data originated
+        // from gallery or camera. Open it without inventing catalog metadata.
+        await _openPickedFile(files.first);
         return;
       }
 
       final exception = response.exception;
       if (exception != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera recovery failed: $exception')),
+          SnackBar(content: Text('Picker recovery failed: $exception')),
         );
       }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Camera recovery failed: $error')),
+        SnackBar(content: Text('Picker recovery failed: $error')),
       );
     } finally {
       if (mounted) {
@@ -158,54 +158,61 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openWorkspaceItem(WorkspaceCatalogItem item) async {
-    if (_isRecovering || !mounted) return;
-
-    final source = File(item.sourcePath);
-    if (!await source.exists()) {
-      try {
-        await _catalogStore.markAvailability(
-          item.id,
-          WorkspaceSourceAvailability.missing,
-        );
-      } catch (_) {
-        // The catalog store owns preservation semantics; Home only reports the
-        // unavailable source and never deletes identity as a fallback.
-      }
-      await _refreshWorkspace();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This source file is no longer available.')),
-      );
-      return;
-    }
+    if (_isRecovering || _isOpeningWorkspaceItem || !mounted) return;
+    setState(() => _isOpeningWorkspaceItem = true);
 
     try {
-      if (item.availability != WorkspaceSourceAvailability.available) {
-        await _catalogStore.markAvailability(
-          item.id,
-          WorkspaceSourceAvailability.available,
-        );
-      }
-      await _catalogStore.markOpened(item.id);
-    } catch (error) {
-      if (mounted) {
+      final source = File(item.sourcePath);
+      if (!await source.exists()) {
+        try {
+          await _catalogStore.markAvailability(
+            item.id,
+            WorkspaceSourceAvailability.missing,
+          );
+        } catch (_) {
+          // The catalog store owns preservation semantics; Home only reports the
+          // unavailable source and never deletes identity as a fallback.
+        }
+        await _refreshWorkspace();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Workspace catalog update failed: $error')),
+          const SnackBar(content: Text('This source file is no longer available.')),
         );
+        return;
+      }
+
+      try {
+        if (item.availability != WorkspaceSourceAvailability.available) {
+          await _catalogStore.markAvailability(
+            item.id,
+            WorkspaceSourceAvailability.available,
+          );
+        }
+        await _catalogStore.markOpened(item.id);
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Workspace catalog update failed: $error')),
+          );
+        }
+      }
+      if (!mounted) return;
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ProductEditorScreen(imagePath: item.sourcePath),
+        ),
+      );
+      await Future.wait([_refreshRecovery(), _refreshWorkspace()]);
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningWorkspaceItem = false);
       }
     }
-    if (!mounted) return;
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProductEditorScreen(imagePath: item.sourcePath),
-      ),
-    );
-    await Future.wait([_refreshRecovery(), _refreshWorkspace()]);
   }
 
   Future<void> _openFilmCamera() async {
-    if (_isRecovering || !mounted) return;
+    if (_isRecovering || _isOpeningWorkspaceItem || !mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CameraFilmPreviewScreen()),
     );
@@ -213,21 +220,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openFilmProfiles() async {
-    if (_isRecovering || !mounted) return;
+    if (_isRecovering || _isOpeningWorkspaceItem || !mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const FilmProfilesScreen()),
     );
   }
 
   Future<void> _openGpuDiagnostics() async {
-    if (!widget.showGpuDiagnostics || !mounted) return;
+    if (!widget.showGpuDiagnostics || _isOpeningWorkspaceItem || !mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const GpuDiagnosticsScreen()),
     );
   }
 
   Future<void> _resumeLastSession() async {
-    if (_isRecovering || _recoverableSession == null) return;
+    if (_isRecovering || _isOpeningWorkspaceItem || _recoverableSession == null) return;
     setState(() => _isRecovering = true);
     final session = await _sessionStore.load();
     if (!mounted) return;
@@ -258,7 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    if (_isRecovering) return;
+    if (_isRecovering || _isOpeningWorkspaceItem) return;
 
     final isCamera = source == ImageSource.camera;
     try {
@@ -543,7 +550,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2.5),
                 ),
                 SizedBox(height: 16),
-                Text('Opening captured photo…'),
+                Text('Opening recovered photo…'),
               ],
             ),
           ),
@@ -551,7 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final blocked = _isRecovering;
+    final blocked = _isRecovering || _isOpeningWorkspaceItem;
 
     return Scaffold(
       appBar: AppBar(
@@ -604,22 +611,26 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _buildWorkspaceBody(context, blocked: blocked),
           ),
           if (blocked)
-            const Positioned.fill(
+            Positioned.fill(
               child: ColoredBox(
-                color: Color(0x33000000),
+                color: const Color(0x33000000),
                 child: Center(
                   child: Card(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox.square(
+                          const SizedBox.square(
                             dimension: 22,
                             child: CircularProgressIndicator(strokeWidth: 2.5),
                           ),
-                          SizedBox(width: 12),
-                          Text('Recovering session…'),
+                          const SizedBox(width: 12),
+                          Text(
+                            _isOpeningWorkspaceItem
+                                ? 'Opening photo…'
+                                : 'Recovering session…',
+                          ),
                         ],
                       ),
                     ),
