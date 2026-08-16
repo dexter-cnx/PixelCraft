@@ -57,13 +57,15 @@ void main() {
 
   testWidgets('renders persisted catalog items as real workspace content',
       (tester) async {
-    await catalogStore.add(
-      sourceKind: WorkspaceSourceKind.gallery,
-      retention: WorkspaceSourceRetention.externalReference,
-      sourcePath: '${root.path}/persisted.png',
-      availability: WorkspaceSourceAvailability.missing,
-      now: DateTime.utc(2026, 8, 16, 3),
-    );
+    await tester.runAsync(() async {
+      await catalogStore.add(
+        sourceKind: WorkspaceSourceKind.gallery,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: '${root.path}/persisted.png',
+        availability: WorkspaceSourceAvailability.missing,
+        now: DateTime.utc(2026, 8, 16, 3),
+      );
+    });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -84,13 +86,16 @@ void main() {
 
   testWidgets('preserves missing source catalog identity when open fails',
       (tester) async {
-    final item = await catalogStore.add(
-      sourceKind: WorkspaceSourceKind.gallery,
-      retention: WorkspaceSourceRetention.externalReference,
-      sourcePath: '${root.path}/missing.png',
-      availability: WorkspaceSourceAvailability.missing,
-      now: DateTime.utc(2026, 8, 16, 3),
-    );
+    late WorkspaceCatalogItem item;
+    await tester.runAsync(() async {
+      item = await catalogStore.add(
+        sourceKind: WorkspaceSourceKind.gallery,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: '${root.path}/missing.png',
+        availability: WorkspaceSourceAvailability.missing,
+        now: DateTime.utc(2026, 8, 16, 3),
+      );
+    });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -109,7 +114,10 @@ void main() {
       find.text('This source file is no longer available.'),
     );
 
-    final saved = (await catalogStore.load()).single;
+    late WorkspaceCatalogItem saved;
+    await tester.runAsync(() async {
+      saved = (await catalogStore.load()).single;
+    });
     expect(saved.id, item.id);
     expect(saved.availability, WorkspaceSourceAvailability.missing);
     expect(find.text('Source missing'), findsOneWidget);
