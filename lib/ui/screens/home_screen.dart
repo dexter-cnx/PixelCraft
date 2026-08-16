@@ -40,6 +40,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static const double _cameraMaxDimension = 2560;
+  static const double _recentThumbnailExtent = 88;
 
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
@@ -206,7 +207,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  String _formatSavedAt(DateTime savedAt) {
+  String? _formatSavedAt(DateTime savedAt) {
+    if (savedAt.millisecondsSinceEpoch <= 0) return null;
+
     final local = savedAt.toLocal();
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)} '
@@ -216,6 +219,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildWorkspaceBody(BuildContext context, {required bool blocked}) {
     final session = _recoverableSession;
     if (session != null) {
+      final savedAtLabel = _formatSavedAt(session.savedAt);
+      final thumbnailCacheSize =
+          (_recentThumbnailExtent * MediaQuery.devicePixelRatioOf(context)).ceil();
+
       return ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 112),
         children: [
@@ -232,13 +239,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(12),
                     child: Image.memory(
                       session.originalBytes,
-                      width: 88,
-                      height: 88,
+                      width: _recentThumbnailExtent,
+                      height: _recentThumbnailExtent,
+                      cacheWidth: thumbnailCacheSize,
+                      cacheHeight: thumbnailCacheSize,
                       fit: BoxFit.cover,
                       gaplessPlayback: true,
                       errorBuilder: (context, error, stackTrace) => Container(
-                        width: 88,
-                        height: 88,
+                        width: _recentThumbnailExtent,
+                        height: _recentThumbnailExtent,
                         alignment: Alignment.center,
                         color: Theme.of(context).colorScheme.surfaceContainerHighest,
                         child: const Icon(Icons.image_not_supported_outlined),
@@ -254,13 +263,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           'Last edit',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Saved ${_formatSavedAt(session.savedAt)}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
+                        if (savedAtLabel != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Saved $savedAtLabel',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 8,
