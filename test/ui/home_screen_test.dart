@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/core/workspace_catalog_store.dart';
@@ -17,22 +15,60 @@ Future<void> _pumpUntilFound(
   fail('Timed out waiting for ${finder.describeMatch(Plurality.one)}');
 }
 
+class _MemoryWorkspaceCatalogStore extends WorkspaceCatalogStore {
+  _MemoryWorkspaceCatalogStore([List<WorkspaceCatalogItem> items = const []])
+      : _items = List<WorkspaceCatalogItem>.from(items);
+
+  final List<WorkspaceCatalogItem> _items;
+
+  @override
+  Future<List<WorkspaceCatalogItem>> load() async => List.unmodifiable(_items);
+
+  @override
+  Future<void> markAvailability(
+    String id,
+    WorkspaceSourceAvailability availability, {
+    DateTime? now,
+  }) async {
+    final index = _items.indexWhere((item) => item.id == id);
+    if (index == -1) return;
+    _items[index] = _items[index].copyWith(
+      availability: availability,
+      updatedAt: (now ?? DateTime.now()).toUtc(),
+    );
+  }
+
+  @override
+  Future<void> markOpened(String id, {DateTime? now}) async {
+    final index = _items.indexWhere((item) => item.id == id);
+    if (index == -1) return;
+    final timestamp = (now ?? DateTime.now()).toUtc();
+    _items[index] = _items[index].copyWith(
+      updatedAt: timestamp,
+      lastOpenedAt: timestamp,
+    );
+  }
+}
+
+WorkspaceCatalogItem _item(
+  String name, {
+  WorkspaceSourceAvailability availability = WorkspaceSourceAvailability.missing,
+}) {
+  final timestamp = DateTime.utc(2026, 8, 16, 3);
+  return WorkspaceCatalogItem(
+    id: 'workspace-$name',
+    sourceKind: WorkspaceSourceKind.gallery,
+    retention: WorkspaceSourceRetention.externalReference,
+    sourcePath: '/does-not-exist/$name',
+    availability: availability,
+    importedAt: timestamp,
+    updatedAt: timestamp,
+  );
+}
+
 void main() {
-  late Directory root;
-  late WorkspaceCatalogStore catalogStore;
-
-  setUp(() async {
-    root = await Directory.systemTemp.createTemp('pixelcraft-home-workspace-');
-    catalogStore = WorkspaceCatalogStore(rootDirectory: root);
-  });
-
-  tearDown(() async {
-    if (await root.exists()) {
-      await root.delete(recursive: true);
-    }
-  });
-
   testWidgets('shows workspace-first home and import action', (tester) async {
+    final catalogStore = _MemoryWorkspaceCatalogStore();
     await tester.pumpWidget(
       MaterialApp(
         home: HomeScreen(
@@ -55,17 +91,9 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  testWidgets('renders persisted catalog items as real workspace content',
+  testWidgets('renders loaded catalog items as real workspace content',
       (tester) async {
-    await tester.runAsync(() async {
-      await catalogStore.add(
-        sourceKind: WorkspaceSourceKind.gallery,
-        retention: WorkspaceSourceRetention.externalReference,
-        sourcePath: '${root.path}/persisted.png',
-        availability: WorkspaceSourceAvailability.missing,
-        now: DateTime.utc(2026, 8, 16, 3),
-      );
-    });
+    final catalogStore = _MemoryWorkspaceCatalogStore([_item('persisted.png')]);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -86,16 +114,8 @@ void main() {
 
   testWidgets('preserves missing source catalog identity when open fails',
       (tester) async {
-    late WorkspaceCatalogItem item;
-    await tester.runAsync(() async {
-      item = await catalogStore.add(
-        sourceKind: WorkspaceSourceKind.gallery,
-        retention: WorkspaceSourceRetention.externalReference,
-        sourcePath: '${root.path}/missing.png',
-        availability: WorkspaceSourceAvailability.missing,
-        now: DateTime.utc(2026, 8, 16, 3),
-      );
-    });
+    final item = _item('missing.png');
+    final catalogStore = _MemoryWorkspaceCatalogStore([item]);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -103,6 +123,7 @@ void main() {
           recoverLostPickerData: false,
           showGpuDiagnostics: false,
           catalogStoreForTesting: catalogStore,
+          sourceExistsForTesting: (_) async => false,
         ),
       ),
     );
@@ -114,10 +135,7 @@ void main() {
       find.text('This source file is no longer available.'),
     );
 
-    late WorkspaceCatalogItem saved;
-    await tester.runAsync(() async {
-      saved = (await catalogStore.load()).single;
-    });
+    final saved = (await catalogStore.load()).single;
     expect(saved.id, item.id);
     expect(saved.availability, WorkspaceSourceAvailability.missing);
     expect(find.text('Source missing'), findsOneWidget);
