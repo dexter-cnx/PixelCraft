@@ -16,7 +16,7 @@ Future<void> _pumpUntilFound(
     await tester.pump(const Duration(milliseconds: 16));
     if (finder.evaluate().isNotEmpty) return;
   }
-  fail('Timed out waiting for ${finder.description}');
+  fail('Timed out waiting for ${finder.describeMatch(Plurality.one)}');
 }
 
 void main() {
