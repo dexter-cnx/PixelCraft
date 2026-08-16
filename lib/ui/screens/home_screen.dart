@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/editor_session_store.dart';
+import '../../core/workspace_catalog_store.dart';
 import 'camera_film_preview_screen.dart';
 import 'film_profiles_screen.dart';
 import 'gpu_diagnostics_screen.dart';
@@ -28,11 +31,13 @@ class HomeScreen extends StatefulWidget {
     this.recoverLostPickerData = true,
     this.showGpuDiagnostics = kDebugMode,
     this.pickImageForTesting,
+    this.catalogStoreForTesting,
   });
 
   final bool recoverLostPickerData;
   final bool showGpuDiagnostics;
   final HomePickImage? pickImageForTesting;
+  final WorkspaceCatalogStore? catalogStoreForTesting;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -41,18 +46,23 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   static const double _cameraMaxDimension = 2560;
   static const double _recentThumbnailExtent = 88;
+  static const double _workspaceThumbnailExtent = 72;
 
   final ImagePicker _picker = ImagePicker();
   final EditorSessionStore _sessionStore = EditorSessionStore();
+  late final WorkspaceCatalogStore _catalogStore;
   bool _isRecovering = false;
   bool _isRecoveringLostPickerData = false;
   bool _lostPickerRecoveryStarted = false;
   StoredEditorSession? _recoverableSession;
+  List<WorkspaceCatalogItem> _workspaceItems = const [];
 
   @override
   void initState() {
     super.initState();
+    _catalogStore = widget.catalogStoreForTesting ?? WorkspaceCatalogStore();
     _refreshRecovery();
+    _refreshWorkspace();
 
     if (widget.recoverLostPickerData) {
       _isRecoveringLostPickerData = true;
@@ -68,6 +78,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _recoverableSession = session);
   }
 
+  Future<void> _refreshWorkspace() async {
+    final items = await _catalogStore.load();
+    if (!mounted) return;
+    setState(() => _workspaceItems = items);
+  }
+
   Future<void> _recoverLostPickerData() async {
     if (_lostPickerRecoveryStarted) return;
     _lostPickerRecoveryStarted = true;
@@ -78,7 +94,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final files = response.files;
       if (files != null && files.isNotEmpty) {
-        await _openPickedFile(files.first);
+        await _openPickedFile(
+          files.first,
+          sourceKind: WorkspaceSourceKind.systemCamera,
+        );
         return;
       }
 
@@ -100,14 +119,89 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _openPickedFile(XFile picked) async {
+  Future<void> _registerPickedFile(
+    XFile picked,
+    WorkspaceSourceKind sourceKind,
+  ) async {
+    try {
+      await _catalogStore.add(
+        sourceKind: sourceKind,
+        retention: WorkspaceSourceRetention.externalReference,
+        sourcePath: picked.path,
+        availability: WorkspaceSourceAvailability.available,
+      );
+      await _refreshWorkspace();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Workspace catalog update failed: $error')),
+      );
+    }
+  }
+
+  Future<void> _openPickedFile(
+    XFile picked, {
+    WorkspaceSourceKind? sourceKind,
+  }) async {
     if (!mounted) return;
+    if (sourceKind != null) {
+      await _registerPickedFile(picked, sourceKind);
+    }
+    if (!mounted) return;
+
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ProductEditorScreen(imagePath: picked.path),
       ),
     );
-    await _refreshRecovery();
+    await Future.wait([_refreshRecovery(), _refreshWorkspace()]);
+  }
+
+  Future<void> _openWorkspaceItem(WorkspaceCatalogItem item) async {
+    if (_isRecovering || !mounted) return;
+
+    final source = File(item.sourcePath);
+    if (!await source.exists()) {
+      try {
+        await _catalogStore.markAvailability(
+          item.id,
+          WorkspaceSourceAvailability.missing,
+        );
+      } catch (_) {
+        // The catalog store owns preservation semantics; Home only reports the
+        // unavailable source and never deletes identity as a fallback.
+      }
+      await _refreshWorkspace();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This source file is no longer available.')),
+      );
+      return;
+    }
+
+    try {
+      if (item.availability != WorkspaceSourceAvailability.available) {
+        await _catalogStore.markAvailability(
+          item.id,
+          WorkspaceSourceAvailability.available,
+        );
+      }
+      await _catalogStore.markOpened(item.id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Workspace catalog update failed: $error')),
+        );
+      }
+    }
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProductEditorScreen(imagePath: item.sourcePath),
+      ),
+    );
+    await Future.wait([_refreshRecovery(), _refreshWorkspace()]);
   }
 
   Future<void> _openFilmCamera() async {
@@ -154,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    await _refreshRecovery();
+    await Future.wait([_refreshRecovery(), _refreshWorkspace()]);
   }
 
   Future<void> _discardRecovery() async {
@@ -188,7 +282,12 @@ class _HomeScreenState extends State<HomeScreen> {
             );
       if (picked == null || !mounted) return;
 
-      await _openPickedFile(picked);
+      await _openPickedFile(
+        picked,
+        sourceKind: isCamera
+            ? WorkspaceSourceKind.systemCamera
+            : WorkspaceSourceKind.gallery,
+      );
     } catch (error) {
       if (!mounted) return;
       final action = isCamera ? 'Camera capture' : 'Import';
@@ -216,119 +315,217 @@ class _HomeScreenState extends State<HomeScreen> {
         '${two(local.hour)}:${two(local.minute)}';
   }
 
-  Widget _buildWorkspaceBody(BuildContext context, {required bool blocked}) {
-    final session = _recoverableSession;
-    if (session != null) {
-      final savedAtLabel = _formatSavedAt(session.savedAt);
-      final thumbnailCacheSize =
-          (_recentThumbnailExtent * MediaQuery.devicePixelRatioOf(context)).ceil();
+  String _workspaceItemName(WorkspaceCatalogItem item) {
+    final segments = item.sourcePath.split(Platform.pathSeparator);
+    return segments.isEmpty || segments.last.isEmpty ? 'Photo' : segments.last;
+  }
 
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 112),
-        children: [
-          Text('Recent edit', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Card.filled(
-            clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+  Widget _buildRecentEditCard(BuildContext context, {required bool blocked}) {
+    final session = _recoverableSession!;
+    final savedAtLabel = _formatSavedAt(session.savedAt);
+    final thumbnailCacheSize =
+        (_recentThumbnailExtent * MediaQuery.devicePixelRatioOf(context)).ceil();
+
+    return Card.filled(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                session.originalBytes,
+                width: _recentThumbnailExtent,
+                height: _recentThumbnailExtent,
+                cacheWidth: thumbnailCacheSize,
+                cacheHeight: thumbnailCacheSize,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: _recentThumbnailExtent,
+                  height: _recentThumbnailExtent,
+                  alignment: Alignment.center,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: const Icon(Icons.image_not_supported_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.memory(
-                      session.originalBytes,
-                      width: _recentThumbnailExtent,
-                      height: _recentThumbnailExtent,
-                      cacheWidth: thumbnailCacheSize,
-                      cacheHeight: thumbnailCacheSize,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        width: _recentThumbnailExtent,
-                        height: _recentThumbnailExtent,
-                        alignment: Alignment.center,
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        child: const Icon(Icons.image_not_supported_outlined),
-                      ),
-                    ),
+                  const Text(
+                    'Last edit',
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Last edit',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        if (savedAtLabel != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Saved $savedAtLabel',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
+                  if (savedAtLabel != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Saved $savedAtLabel',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
-                        ],
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton.tonal(
-                              onPressed: blocked ? null : _resumeLastSession,
-                              child: const Text('Resume'),
-                            ),
-                            TextButton(
-                              onPressed: blocked ? null : _discardRecovery,
-                              child: const Text('Discard'),
-                            ),
-                          ],
-                        ),
-                      ],
                     ),
+                  ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonal(
+                        onPressed: blocked ? null : _resumeLastSession,
+                        child: const Text('Resume'),
+                      ),
+                      TextButton(
+                        onPressed: blocked ? null : _discardRecovery,
+                        child: const Text('Discard'),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-          ),
-        ],
-      );
-    }
+          ],
+        ),
+      ),
+    );
+  }
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 32, 32, 112),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+  Widget _buildWorkspaceItemCard(
+    BuildContext context,
+    WorkspaceCatalogItem item, {
+    required bool blocked,
+  }) {
+    final missing = item.availability == WorkspaceSourceAvailability.missing;
+    final thumbnailCacheSize =
+        (_workspaceThumbnailExtent * MediaQuery.devicePixelRatioOf(context)).ceil();
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: blocked ? null : () => _openWorkspaceItem(item),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
             children: [
-              Icon(
-                Icons.photo_library_outlined,
-                size: 44,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: missing
+                    ? Container(
+                        width: _workspaceThumbnailExtent,
+                        height: _workspaceThumbnailExtent,
+                        alignment: Alignment.center,
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        child: const Icon(Icons.link_off_rounded),
+                      )
+                    : Image.file(
+                        File(item.sourcePath),
+                        width: _workspaceThumbnailExtent,
+                        height: _workspaceThumbnailExtent,
+                        cacheWidth: thumbnailCacheSize,
+                        cacheHeight: thumbnailCacheSize,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: _workspaceThumbnailExtent,
+                          height: _workspaceThumbnailExtent,
+                          alignment: Alignment.center,
+                          color:
+                              Theme.of(context).colorScheme.surfaceContainerHighest,
+                          child: const Icon(Icons.image_not_supported_outlined),
+                        ),
+                      ),
               ),
-              const SizedBox(height: 18),
-              Text(
-                'Your workspace is empty',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Import a photo to start editing.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _workspaceItemName(item),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      missing ? 'Source missing' : item.sourceKind.name,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: missing
+                                ? Theme.of(context).colorScheme.error
+                                : Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
               ),
+              const Icon(Icons.chevron_right_rounded),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildWorkspaceBody(BuildContext context, {required bool blocked}) {
+    final hasRecovery = _recoverableSession != null;
+    final hasWorkspaceItems = _workspaceItems.isNotEmpty;
+
+    if (!hasRecovery && !hasWorkspaceItems) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(32, 32, 32, 112),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.photo_library_outlined,
+                  size: 44,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Your workspace is empty',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Import a photo to start editing.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 112),
+      children: [
+        if (hasRecovery) ...[
+          Text('Recent edit', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          _buildRecentEditCard(context, blocked: blocked),
+          const SizedBox(height: 24),
+        ],
+        if (hasWorkspaceItems) ...[
+          Text('Workspace', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          for (final item in _workspaceItems) ...[
+            _buildWorkspaceItemCard(context, item, blocked: blocked),
+            const SizedBox(height: 8),
+          ],
+        ],
+      ],
     );
   }
 
