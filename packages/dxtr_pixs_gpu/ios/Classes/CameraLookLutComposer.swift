@@ -145,7 +145,13 @@ final class CameraLookLutComposer {
       let average = (source8.x + source8.y + source8.z) / 3
       effected8 = SIMD3<Int>(repeating: average)
     case "invert":
-      effected8 = SIMD3<Int>(repeating: 255) - source8
+      // Swift 6/Xcode 26 disallows checked arithmetic on integer SIMD vectors.
+      // Keep the canonical exact u8 semantics explicitly per channel.
+      effected8 = SIMD3<Int>(
+        255 - source8.x,
+        255 - source8.y,
+        255 - source8.z
+      )
     default:
       return source
     }
