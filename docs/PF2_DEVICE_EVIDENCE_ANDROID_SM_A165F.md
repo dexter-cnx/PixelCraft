@@ -1,6 +1,6 @@
 # PF2 Android Device Evidence — Samsung SM A165F
 
-Status: **ACTIVE INVESTIGATION / PF2 ANDROID GATE NOT YET PASSED**
+Status: **PASS — PF2 ANDROID PHYSICAL GATE COMPLETE**
 
 Date: 2026-08-17
 
@@ -10,51 +10,90 @@ Date: 2026-08-17
 platform: Android
 device: Samsung SM A165F
 adb serial: RF8Y909V0LV
-build mode observed: debug
-exact tested commit: NOT RECORDED — record on the next validation run
+build mode: debug/profile physical-device validation
+branch: feature/pf2-unified-camera-look
 ```
 
-## Observed Camera behavior
+The final user-reported Android validation was performed after the PF2 camera-control and expanded Adjust work landed on the active branch. The exact installed device SHA was not independently captured from the device, so repository history remains the source of truth for the branch head used to reproduce the run.
 
-The application launches and the Flutter camera fallback can open the rear Camera2 device successfully.
-
-Observed device log evidence includes:
+## Final physical result
 
 ```text
-CameraService::connect ... camera ID 0 ... API version 2
-CameraCaptureSession onConfigured
-preview stream: 1280 x 720 IMPLEMENTATION_DEFINED
-JPEG stream: 1280 x 720
-repeating request starts successfully
+Camera2 framework/HAL:               PASS
+Native Camera2/OES activation:       PASS
+Native OpenGL/LUT harness:           PASS
+Film Profile Pack v2 parity:         PASS
+Preview orientation:                 PASS
+Rear camera preview:                 PASS
+Front camera preview:                PASS
+Front/rear switching:                PASS
+Film:                                PASS
+Creative Filter:                     PASS
+Adjust:                              PASS
+Film + Filter + Adjust together:     PASS
+Expanded Adjust controls:            PASS
+Flash controls:                      PASS
+Torch controls:                      PASS
+Mirror control/default behavior:     PASS
+Controls bottom sheet readability:   PASS
+Rapid interaction / stale state:     PASS
+Lens/session switching:              PASS
+Lifecycle handling:                  PASS
+Sustained physical use:              PASS
+Capture/editor handoff:              PASS
+Gallery neutrality/regression smoke: PASS
+Overall PF2 Android gate:            PASS
 ```
 
-Result:
+Expanded Camera Adjust scope validated on device:
 
 ```text
-Android Camera2 framework / HAL: PASS
-Flutter camera fallback: PASS
-PF2 native Camera2/OES activation: FAIL / root cause under investigation
+Exposure
+Temperature
+Tint
+Brightness
+Contrast
+Saturation
+Vignette
 ```
 
-The PF2 UI therefore reports that Filter and Adjust require the native GPU camera preview. This is expected fail-closed behavior once the application has fallen back, but the fallback itself is not the intended PF2 success path.
+## Android native-camera activation root cause and fix
 
-## Native GPU LUT harness
-
-Command:
-
-```bash
-make gpu-native-test DEVICE=RF8Y909V0LV
-```
-
-Result:
+The original PF2 Android physical failure was not a Camera2 or LUT compatibility failure. Diagnostics showed:
 
 ```text
-native GPU identity LUT reference harness: PASS
-native GPU Film Profile Pack v2 LUT harness: PASS
-All tests passed
+probe                  PASS
+camera permission      PASS
+available lenses       PASS
+createRenderer         PASS
+setEnabled             PASS
+configure GPU surface  FAIL: shader compile
 ```
 
-Measured parity evidence:
+The Camera2/OES renderer created GLES shader/program objects before an EGL window surface existed and before the EGL context was current.
+
+The corrected lifecycle is:
+
+```text
+eglGetDisplay
+ -> eglInitialize
+ -> eglChooseConfig
+ -> eglCreateContext
+ -> eglCreateWindowSurface
+ -> eglMakeCurrent
+ -> initialize GL program/OES texture
+ -> Camera2 session
+```
+
+After that fix the physical native GPU camera path activated and Film / Filter / Adjust became available and usable.
+
+## Preview-orientation fix
+
+A separate physical-device issue rotated the GPU preview by 90 degrees. The final preview path separates display-preview orientation from JPEG capture orientation so the Camera2/OES preview is not rotated a second time while JPEG orientation remains independently correct.
+
+## GPU/LUT parity evidence
+
+Earlier physical harness run on the same device passed:
 
 ```text
 androidOpenGl identity  maxError=0.0019607843137254832
@@ -66,96 +105,17 @@ ektar_inspired          maxError=0.003337962745098011
 chrome64_inspired       maxError=0.0026495893291921813
 ```
 
-Interpretation:
-
-- physical-device OpenGL/LUT execution is working;
-- canonical Film LUT parity is working on this device;
-- the current PF2 failure is narrower than generic Android GPU/LUT incompatibility;
-- investigation should focus on native camera activation/session/surface/OES setup and its control-plane handoff.
-
-## Film control interaction finding
-
-During fallback testing, Film preset interaction was reported as not selectable/usable.
-
-Inspection found a UI hit-test overlap:
+Result:
 
 ```text
-PF2 look panel bottom offset: 156
-CameraPrimaryControls previous top padding: 42
+native GPU identity LUT reference harness: PASS
+native GPU Film Profile Pack v2 LUT harness: PASS
 ```
 
-The primary controls widget was tall enough to overlap the Film/Filter/Adjust ChoiceChip region and was later in the Stack, allowing it to intercept pointer events.
+## Remaining non-PF2 tooling note
 
-Fix applied after this finding:
+Flutter reported the Built-in Kotlin migration warning for plugins including `dxtr_pixs_gpu` and `share_plus`. This did not block PF2 physical validation and remains separate tooling/compatibility debt.
 
-```text
-CameraPrimaryControls top padding: 42 -> 0
-```
+## Closure
 
-This keeps the primary control strip below the look-panel controls while preserving the Film-only fallback behavior.
-
-The next physical run must revalidate Film selection before marking this item PASS.
-
-## Added diagnostics for the next run
-
-Debug-only bridge diagnostics now emit these prefixes:
-
-```text
-[PF2][NativeGpu]
-[PF2][NativeCamera]
-```
-
-The next run should identify the failing activation stage among:
-
-```text
-probe
-requestCameraPermission
-availableLenses
-createRenderer
-setEnabled
-configureSurface / native camera runtime
-runtimeFailure
-```
-
-Recommended log command:
-
-```bash
-adb -s RF8Y909V0LV logcat -c
-flutter run -d RF8Y909V0LV
-```
-
-In another terminal:
-
-```bash
-adb -s RF8Y909V0LV logcat | grep -E "PF2|NativeGpu|NativeCamera|runtimeFailure|EGL|GLES|Camera2|Camera"
-```
-
-## Kotlin Gradle Plugin warning
-
-The device test build also reported Flutter's migration warning for plugins that still apply the Kotlin Gradle Plugin explicitly:
-
-```text
-dxtr_pixs_gpu
-share_plus
-```
-
-This warning did not block the current build or GPU harness and is not treated as the PF2 native-camera root cause. `dxtr_pixs_gpu` should migrate to Flutter Built-in Kotlin in a separate compatibility/tooling task rather than mixing that migration into this physical-device bug fix unless evidence proves otherwise.
-
-## Current PF2 Android status
-
-```text
-Camera2 framework/HAL:               PASS
-Flutter camera fallback:             PASS
-Native OpenGL/LUT harness:           PASS
-Film Profile Pack v2 parity:         PASS
-Native Camera2/OES activation:       FAIL / INVESTIGATING
-Fallback Film interaction:           FIX APPLIED / RETEST REQUIRED
-Filter:                              BLOCKED while native GPU inactive
-Adjust:                              BLOCKED while native GPU inactive
-Sustained PF2 native preview:         NOT RUN
-Lens/lifecycle native PF2 checks:     NOT RUN
-Capture/editor combined look:         NOT RUN
-Overall PF2 Android gate:             FAIL / NOT READY
-```
-
-PR #48 must remain Draft until the native camera path activates successfully and the full physical-device checklist passes.
+Android physical-device validation no longer blocks PF2. PR #48 may use this document as the Android device evidence record. Exact-head automated CI remains a separate merge gate.
