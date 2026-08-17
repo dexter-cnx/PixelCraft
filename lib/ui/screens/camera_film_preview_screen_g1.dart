@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/platform_flow_foundation.dart';
 import '../../app/platform_media_services.dart';
+import '../../camera/camera_capture_save_handoff.dart';
 import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
 import '../../camera/camera_look_preview_coordinator.dart';
@@ -533,7 +534,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (!mounted) return;
     await _gpuBridge.pause(rendererId);
     if (!mounted) return;
-    await _openEditor(path, look: look);
+    await _saveCapture(path, look: look);
     if (!mounted || rendererId != _gpuRendererId) return;
     await _gpuBridge.resume(rendererId);
   }
@@ -551,7 +552,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final look = _cameraLook;
     await _detachAndDisposeController(showLoading: true);
     if (!mounted) return;
-    await _openEditor(capture.path, look: look);
+    await _saveCapture(capture.path, look: look);
     if (!mounted) return;
     if (camera != null) await _initializeCamera(camera);
   }
@@ -569,6 +570,18 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
     await _openEditor(source.uri.toFilePath(), look: CameraLookState());
   }
+
+  Future<void> _saveCapture(
+    String imagePath, {
+    required CameraLookState look,
+  }) => Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => CameraCaptureSaveHandoff(
+        imagePath: imagePath,
+        look: look,
+      ),
+    ),
+  );
 
   Future<void> _openEditor(String imagePath, {required CameraLookState look}) =>
       Navigator.of(context).push(

@@ -16,6 +16,7 @@
     "switch_camera": "สลับกล้อง",
     "back": "ย้อนกลับ",
     "try_again": "ลองอีกครั้ง",
+    "cancel": "ยกเลิก",
     "film_preview": "พรีวิวฟิล์ม",
     "gpu_film_preview": "พรีวิวฟิล์มด้วย GPU",
     "gpu_look_preview": "พรีวิวลุคด้วย GPU",
@@ -42,6 +43,10 @@
     "flash_on": "เปิด",
     "torch": "ไฟส่องต่อเนื่อง",
     "mirror": "กลับซ้ายขวากล้องหน้า",
+    "processing_photo": "กำลังประมวลผลรูป…",
+    "saving_photo": "กำลังบันทึกลงแกลเลอรี…",
+    "capture_saved": "บันทึกลงแกลเลอรีแล้ว",
+    "capture_failed": "ไม่สามารถประมวลผลหรือบันทึกรูปนี้ได้",
     "native_look_required": "ฟิลเตอร์และการปรับแต่งต้องใช้พรีวิวกล้อง GPU แบบ Native"
   },
   "errors": {

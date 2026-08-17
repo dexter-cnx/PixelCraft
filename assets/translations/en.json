@@ -16,6 +16,7 @@
     "switch_camera": "Switch camera",
     "back": "Back",
     "try_again": "Try again",
+    "cancel": "Cancel",
     "film_preview": "Film preview",
     "gpu_film_preview": "GPU film preview",
     "gpu_look_preview": "GPU look preview",
@@ -42,6 +43,10 @@
     "flash_on": "On",
     "torch": "Torch",
     "mirror": "Mirror front camera",
+    "processing_photo": "Processing photo…",
+    "saving_photo": "Saving to Gallery…",
+    "capture_saved": "Saved to Gallery",
+    "capture_failed": "Could not process or save this photo.",
     "native_look_required": "Filter and Adjust require the native GPU camera preview."
   },
   "errors": {
