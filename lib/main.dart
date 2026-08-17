@@ -70,7 +70,14 @@ class PixelCraftApp extends StatelessWidget {
           useMaterial3: true,
           colorSchemeSeed: const Color(0xFF9D8CFF),
           brightness: Brightness.dark,
+          scaffoldBackgroundColor: Colors.black,
         ),
+        // Phone/tablet launches directly into the camera and its chrome is
+        // intentionally dark. Force the matching Material color scheme there
+        // so sheets, segmented controls, switches and disabled states keep
+        // sufficient contrast instead of inheriting light-theme foregrounds
+        // on black camera surfaces. Desktop continues to follow the system.
+        themeMode: _isMobilePlatform ? ThemeMode.dark : ThemeMode.system,
         home: kDebugMode && _launchGpuEditorLab
             ? const GpuEditorPreviewLabScreen()
             : const RustBootstrapScreen(),
