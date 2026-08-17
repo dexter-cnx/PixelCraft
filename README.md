@@ -320,6 +320,14 @@ After changing Rust APIs:
 make codegen
 ```
 
+### Install repository Git hooks once per clone
+
+```bash
+make hooks-install
+```
+
+After that, normal `git push` runs the repository pre-push formatting guard automatically. If Dart or Rust formatting changes tracked files, the push is stopped and the changed filenames are shown so the formatting can be reviewed and committed first. The hook path supports stock macOS Bash 3.2, Linux, WSL, and Git Bash; direct Windows PowerShell setup is documented in `docs/LOCAL_DEVELOPMENT.md`.
+
 ## CI and local validation
 
 The hosted workflow uses affected-change routing with a mandatory fast gate before expensive platform jobs. Full validation is forced for `main`, merge queue, explicit full mode, and CI/tooling changes.
@@ -333,12 +341,16 @@ make preflight
 Focused commands:
 
 ```bash
+make format
 make format-check
+make pre-push
 make analyze
 make test-fast
 make gpu-check
 make ci-fast
 ```
+
+The local hook is an iteration-speed guard only. CI keeps `make format-check` as an independent authoritative safety net because hooks can be bypassed with `git push --no-verify`.
 
 Additional validation remains available when needed:
 
@@ -370,6 +382,7 @@ A green PR head alone does not close a milestone; resulting `main` CI must also 
 - `docs/PROJECT_HANDOFF.md` — canonical continuation status and execution order
 - `docs/CODE_WALKTHROUGH.md` — runtime, state, localization, service, and package architecture
 - `docs/CI_ARCHITECTURE.md` — affected CI DAG, fast/full policy, reliability tiers, artifact reuse, and branch-protection contexts
+- `docs/LOCAL_DEVELOPMENT.md` — repository hook installation and local formatting/pre-push workflow
 - `docs/FILM_PROFILES_AND_RELIABILITY.md` — Film profile/reliability details
 - `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md` — deferred Dart 3.13 plan
 - release/device evidence documents under `docs/`

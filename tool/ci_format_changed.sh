@@ -4,15 +4,37 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-declare -A seen=()
+mode="check"
+if [[ "${1:-}" == "--write" ]]; then
+  mode="write"
+  shift
+elif [[ "${1:-}" == "--check" ]]; then
+  shift
+fi
+
+if ! command -v dart >/dev/null 2>&1; then
+  echo "[Pixel Craft] Dart formatter is unavailable; install/activate the repository Flutter/Dart toolchain." >&2
+  exit 1
+fi
+
+# Keep this script compatible with the stock Bash 3.2 shipped by macOS.
+# Do not use associative arrays here; de-duplicate with a small linear scan.
 files=()
+
+contains_file() {
+  local candidate="$1"
+  local existing
+  for existing in "${files[@]}"; do
+    [[ "$existing" == "$candidate" ]] && return 0
+  done
+  return 1
+}
 
 add_file() {
   local file="$1"
   [[ "$file" == *.dart ]] || return 0
   [[ -f "$file" ]] || return 0
-  [[ -n "${seen[$file]:-}" ]] && return 0
-  seen[$file]=1
+  contains_file "$file" && return 0
   files+=("$file")
 }
 
@@ -46,17 +68,22 @@ else
     add_from_command < <(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.dart')
   fi
 
-  # Local preflight also covers worktree, staged and new untracked Dart files.
+  # Local formatting/preflight also covers worktree, staged and new untracked Dart files.
   add_from_command < <(git diff --name-only --diff-filter=ACMR -- '*.dart')
   add_from_command < <(git diff --cached --name-only --diff-filter=ACMR -- '*.dart')
   add_from_command < <(git ls-files --others --exclude-standard -- '*.dart')
 fi
 
 if (( ${#files[@]} == 0 )); then
-  echo "[PixelCraft CI] format-check: no changed Dart files"
+  echo "[Pixel Craft] Dart format-${mode}: no changed Dart files"
   exit 0
 fi
 
-printf '[PixelCraft CI] format-check: %d changed Dart file(s)\n' "${#files[@]}"
+printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s)\n' "$mode" "${#files[@]}"
 printf '  %s\n' "${files[@]}"
-dart format --output=none --set-exit-if-changed "${files[@]}"
+
+if [[ "$mode" == "write" ]]; then
+  dart format "${files[@]}"
+else
+  dart format --output=none --set-exit-if-changed "${files[@]}"
+fi

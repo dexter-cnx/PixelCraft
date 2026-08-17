@@ -12,12 +12,13 @@ RUST_CRATE_DIR ?= rust
 RUST_BUILDER_DIR ?= packages/dxtr_pixs_engine
 GPU_CRATE_DIR ?= packages/dxtr_pixs_gpu/rust
 GPU_LUT_DIR ?= build/gpu_luts
+RUST_FORMAT_MANIFESTS := $(RUST_CRATE_DIR)/Cargo.toml $(GPU_CRATE_DIR)/Cargo.toml
 
 DEVICE_FLAG := $(if $(strip $(DEVICE)),-d $(DEVICE),)
 
 .PHONY: help doctor frb-info install-frb platforms pub-get ensure-rust-plugin integrate codegen codegen-watch \
         setup repair patch-cargokit app-icon film-luts creative-luts gpu-luts gpu-lut-verify gpu-native-test g3-device-verify run run-release clean clean-all \
-        format-check analyze test test-unit test-gpu test-widget test-fast package-check gpu-check device-safety-check package-boundaries ci-fast preflight \
+        format dart-format rust-format format-check dart-format-check rust-format-check pre-push hooks-install analyze test test-unit test-gpu test-widget test-fast package-check gpu-check device-safety-check package-boundaries ci-fast preflight \
         golden-test golden-update native-test profile-native test-full rust-fmt rust-clippy rust-test check build-apk build-apk-release verify-native adb-abi
 
 help: ## Show available commands
@@ -121,8 +122,31 @@ clean: ## Flutter clean
 clean-all: clean ## Remove Flutter, Gradle and Rust outputs
 	rm -rf build android/.gradle $(RUST_CRATE_DIR)/target
 
-format-check: ## Fail if changed Dart files require formatting
-	@bash tool/ci_format_changed.sh
+dart-format: ## Format changed Dart files using the same file selection as CI
+	@bash tool/ci_format_changed.sh --write
+
+rust-format: ## Format all repository Rust crates checked by CI
+	@for manifest in $(RUST_FORMAT_MANIFESTS); do \
+		$(CARGO) fmt --manifest-path "$$manifest" --all; \
+	done
+
+format: dart-format rust-format ## Apply canonical Dart and Rust formatting
+
+dart-format-check: ## Read-only Dart formatting check used by CI
+	@bash tool/ci_format_changed.sh --check
+
+rust-format-check: ## Read-only Rust formatting check for all repository Rust crates
+	@for manifest in $(RUST_FORMAT_MANIFESTS); do \
+		$(CARGO) fmt --manifest-path "$$manifest" --all -- --check; \
+	done
+
+format-check: dart-format-check rust-format-check ## CI-safe canonical formatting check
+
+pre-push: ## Run the cheap local formatting guard used by .githooks/pre-push
+	@bash tool/pre_push.sh
+
+hooks-install: ## Activate repository-managed Git hooks for this clone
+	@bash tool/install_git_hooks.sh
 
 analyze: ## Run Flutter analyzer
 	$(FLUTTER) analyze
@@ -203,8 +227,7 @@ profile-native: ensure-rust-plugin ## Print device timing and RSS metrics; DEVIC
 	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
 	$(FLUTTER) test integration_test/performance_profile_test.dart -d $(DEVICE)
 
-rust-fmt: ## Check Rust formatting
-	$(CARGO) fmt --manifest-path $(RUST_CRATE_DIR)/Cargo.toml --all -- --check
+rust-fmt: rust-format-check ## Backward-compatible Rust formatting check target
 
 rust-clippy: ## Run strict Rust lints
 	$(CARGO) clippy --manifest-path $(RUST_CRATE_DIR)/Cargo.toml --all-targets -- -D warnings
