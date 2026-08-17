@@ -381,8 +381,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   Future<void> _setFlashMode(NativeCameraFlashMode mode) async {
-    if (_isCapturing || _cameraControls.torchEnabled || !_flashAvailable)
+    if (_isCapturing || _cameraControls.torchEnabled || !_flashAvailable) {
       return;
+    }
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       if (!_supportsNativeDeviceControls) return;
