@@ -1,11 +1,7 @@
 # PixelCraft Code Walkthrough
 
 Repository: **PixelCraft**  
-Product: **Dextryx Pixels**
-
-Last refresh: **2026-08-17 — PF0/PF1 merged; PF2 implementation is complete on PR #48 and physical-device validation is the remaining close gate.**
-
----
+Product: **Dextryx Pixels** (`Dxtr Pixs`)
 
 ## 1. Product scope
 
@@ -14,198 +10,467 @@ PixelCraft is the **camera + photo editor + image-processing product**.
 It owns:
 
 - phone/tablet camera UX;
-- editor UX/session lifecycle;
-- Rust-authoritative recipe/history/checkpoint/recovery semantics;
-- Film / Creative Filter / Adjust / transforms / masks;
+- editor UX and session lifecycle;
+- Rust-authoritative recipe/history/checkpoint semantics;
+- Film, Creative Filter, Adjust, transforms, and masks;
 - realtime GPU preview where faithful;
 - full-resolution render/export;
-- bounded editor recovery/source reopening continuity.
+- editor recovery and bounded source reopening continuity.
 
-Nixin / Dextryx Images remains the separate image-management/Workplaces product.
+**Nixin / Dextryx Images** is the separate image-management product. It owns Workplaces, asset identity, import/catalog organization, browsing, collections, and large-library UX.
+
+PixelCraft must not evolve into a second DAM by default.
 
 ---
 
-## 2. Current platform shell
+## 2. Platform shell policy
 
-### Phone/tablet
+### Phone and tablet
 
-PF1 is merged and the runtime is camera-first after Rust bootstrap.
+Phone and tablet are **camera-first**.
+
+Target launch:
 
 ```text
 launch
- -> bootstrap Rust
- -> Camera
-    ├── Film / Filter / Adjust
-    └── Gallery / Shutter / Controls
+  ↓
+Camera
+  ├── Film / Filter / Adjust
+  └── Gallery / Shutter / Controls
 ```
 
-PF2 now provides real Film / Filter / Adjust controls on the verified native GPU path. Filter/Adjust are not exposed on a fallback path that cannot preview them faithfully.
+Tablet may adapt spacing/layout but keeps the same mental model.
 
 ### Desktop
 
-Desktop remains editor/open/drop-first and does not use the mobile camera-first root.
-
----
-
-## 3. PF0/PF1 foundation
-
-Merged PRs:
+Desktop is **editor/open/drop-first**.
 
 ```text
-#45 PF0/PF1 platform foundation
-#46 PF1 camera shell controls/adapters
-#47 PF1 runtime camera wiring
+launch
+  ↓
+Open / Drop surface
+  ↓
+Product Editor
 ```
 
-PF0/PF1 established:
-
-- `easy_localization` EN/TH foundation + English fallback;
-- Riverpod as application/UI orchestration;
-- format-aware source descriptor;
-- typed processing job/failure model;
-- `AppPreferencesStore` abstraction;
-- media picker/save, permission and capability boundaries;
-- route intent boundary;
-- camera-first mobile/tablet routing;
-- desktop/editor-first routing policy.
-
-Do not move canonical edit semantics into Riverpod or screen state.
+Primary inputs are Open Image and Drag & Drop. Secondary/future inputs may include Open Recent, Paste Image, Capture from Camera, Open With, and Nixin external-edit requests.
 
 ---
 
-## 4. Current camera shell files
+## 3. Current implementation vs target
 
-Primary runtime camera implementation remains based on the existing verified camera stack.
+Current `lib/main.dart` uses `MaterialApp.router` with a persistent `GoRouter`. Platform entry is now explicit: phone/tablet start at `/camera`, while desktop starts at `/desktop`. Both workspaces are wrapped by the shared Rust bootstrap.
 
-Key application files include:
+The navigation foundation lives in:
+
+```text
+lib/app/app_routes.dart
+docs/NAVIGATION_ARCHITECTURE.md
+```
+
+Current route graph:
+
+```text
+/                       -> platform-aware initial workspace
+/camera                 -> CameraFilmPreviewScreen
+/desktop                -> HomeScreen / desktop open-drop shell
+/editor                 -> ProductEditorScreen or CameraFilmEditorHandoff
+/films                  -> FilmProfilesScreen
+/debug/gpu-editor-lab   -> debug GPU editor lab
+```
+
+Routing policy is intentionally narrow:
+
+```text
+workspace change = route
+workspace tool change = state
+```
+
+Camera -> Editor uses `context.pushNamed(...)` with typed `EditorRouteData`. The payload travels through `GoRouterState.extra`, avoiding arbitrary local file paths in URLs and leaving room for a future stable external asset identity from Nixin. Film/Filter/Adjust selection, modal sheets, and local dismissals remain local state/local Navigator interactions.
+
+The app holds one router instance for its lifetime. `RustBootstrapScreen` uses a shared initialization future, so switching between routed workspaces does not rerun native initialization.
+
+Current camera implementation is exposed through:
 
 ```text
 lib/ui/screens/camera_film_preview_screen.dart
-lib/ui/screens/camera_film_preview_screen_g1.dart
-lib/ui/camera/camera_primary_controls.dart
-lib/camera/camera_film_editor_handoff.dart
-lib/camera/camera_look_state.dart
-lib/camera/camera_look_preview_coordinator.dart
+ -> camera_film_preview_screen_g1.dart
 ```
 
-`CameraPrimaryTool` models:
+The existing camera foundation already contains:
 
-```text
-film
-filter
-adjust
-```
+- iOS native GPU camera preview;
+- Android native GPU camera preview;
+- Flutter `camera` fallback;
+- camera permission/lifecycle handling;
+- camera switching;
+- Film realtime preview + strength;
+- clean capture;
+- capture -> editor handoff.
 
-PF2 replaces the old PF1 Filter/Adjust placeholders with real controls only when the native GPU path can apply them faithfully.
+PF1 should reuse this stack and change the product shell rather than creating another camera implementation.
 
 ---
 
-## 5. Camera authority model
+## 4. Target mobile/tablet camera hierarchy
 
 ```text
-Flutter Camera UI
-      ↓ transient control state
-CameraLookState / coordinator
-      ↓ configuration only
-native GPU preview
-      ↓ preview pixels only
-screen
+┌─────────────────────────────┐
+│                             │
+│       live preview          │
+│                             │
+│   Film  Filter  Adjust      │
+│                             │
+├─────────────────────────────┤
+│ Gallery   SHUTTER   Controls│
+└─────────────────────────────┘
+```
 
-clean capture
-      ↓
+Bottom hierarchy:
+
+- **left:** Gallery/recent-source entry;
+- **center:** Shutter, primary action;
+- **right:** camera controls/settings.
+
+Film, Filter, and Adjust are camera-context tools rather than separate top-level destinations.
+
+---
+
+## 5. Camera processing semantics
+
+Live Camera preview is transient.
+
+```text
+Camera frames
+  ↓
+GPU preview state
+  ↓
+Film / Filter / Adjust appearance
+```
+
+The live framebuffer is never final output authority.
+
+Target shutter flow:
+
+```text
+clean camera capture
++ selected look configuration
+        ↓
 Rust authoritative processing
-      ↓
-full-resolution output
+        ↓
+JPEG
+        ↓
+MediaSaveService
+        ↓
+system Gallery
+        ↓
+remain in Camera
 ```
 
-Rules:
-
-- live camera frames stay native;
-- no live pixel buffers cross MethodChannel;
-- GPU state is not recipe/history authority;
-- camera capture remains clean internally;
-- Rust remains authoritative for final saved pixels.
+The user is not forced into the editor after every shutter press.
 
 ---
 
-## 6. PF2 `CameraLookState`
-
-File:
+## 6. Gallery/editor source flow
 
 ```text
-lib/camera/camera_look_state.dart
-```
-
-`CameraLookState` is transient camera interaction state.
-
-It contains independent layers:
-
-```text
-filmProfileId
-filmStrength
-creativeFilterId
-creativeFilterStrength
-adjustments:
-  brightness
-  contrast
-  saturation
-```
-
-Important behavior:
-
-- changing Film preserves Creative + Adjust;
-- changing Creative preserves Film + Adjust;
-- changing Adjust preserves Film + Creative;
-- Film/Creative strength clamps to `0.0 ... 1.0`;
-- adjustment ranges/defaults come from `dxtr_pixs_editing`;
-- state is not persisted as authoritative edit history.
-
-Canonical Creative ids:
-
-```text
-grayscale
-invert
-vintage
-oceanic
-lofi
-dramatic
-golden
-pastel_pink
-```
-
----
-
-## 7. Camera preview coordinator
-
-PF2 introduces a coordinator between UI state and native camera preview.
-
-Conceptually:
-
-```text
-CameraLookState
+Gallery picker
   ↓
-CameraLookPreviewCoordinator
-  ↓ coalesce / latest-value-wins
-GpuCameraLookState
+format-aware source descriptor
   ↓
-CameraLookPreviewBridge.setCameraLook
+Product Editor
+  ↓
+Rust session
+  ↓
+Film / Filter / Adjust / transforms / masks
+  ↓
+full-resolution render
+  ↓
+MediaSaveService
+  ↓
+system Gallery / explicit export destination
 ```
 
-Responsibilities:
+The source is immutable input. Output is separate.
 
-- coalesce rapid slider events;
-- latest-value-wins dispatch;
-- generation invalidation on detach;
-- reject stale completion/state resurrection;
-- fail closed on native preview errors;
-- send full complete state rather than independent single-effect messages;
-- `flush()` before shutter capture so handoff observes the final interaction state.
-
-Native renderers also use generation guards around asynchronous Film/Creative LUT preparation.
+```text
+JPEG source -> remains JPEG source
+PNG source  -> remains PNG source
+WebP source -> remains WebP source
+future RAW  -> remains RAW source
+```
 
 ---
 
-## 8. Flutter/native camera-look bridge
+## 7. Flutter state management
+
+PixelCraft standardizes on **Riverpod** for application/UI orchestration.
+
+`ProviderScope` already exists at the app root.
+
+Recommended boundaries:
+
+```text
+AppPreferencesState
+CameraState
+LiveLookState
+EditorUiState
+ProcessingJobState
+ExternalEditState    # future
+```
+
+Riverpod may own transient UI/application state such as camera initialization, selected lens, Film/Filter/Adjust preview values, progress, errors, selected editor tool, and export/save state.
+
+Riverpod must not become authority for:
+
+```text
+canonical edit recipe
+operation ordering semantics
+undo/redo history
+checkpoints
+full-resolution export semantics
+```
+
+Those remain Rust-owned.
+
+---
+
+## 8. LiveLookState vs committed edit state
+
+Camera interaction needs a deliberate split:
+
+```text
+LiveLookState
+  Film
+  Film strength
+  Filter
+  Filter strength
+  temporary Adjust values
+```
+
+These values drive low-latency preview and capture configuration. They are not automatically committed editor history.
+
+On capture/export, selected configuration is converted into the existing Rust-authoritative processing path.
+
+---
+
+## 9. Localization
+
+Use **easy_localization** for new user-facing Flutter UI.
+
+Initial locales:
+
+```text
+en
+th
+```
+
+Policy:
+
+```text
+device th_* -> th
+device en_* -> en
+unsupported -> en
+fallback -> en
+```
+
+Initial asset layout:
+
+```text
+assets/translations/en.json
+assets/translations/th.json
+```
+
+---
+
+## 10. Preferences persistence
+
+Use an `AppPreferencesStore` abstraction rather than adding a general database prematurely.
+
+Candidate preferences:
+
+```text
+lastLens
+gridEnabled
+flash preference
+lastFilmId / strength
+lastFilterId / strength
+theme
+optional locale override
+last editor UI tool
+```
+
+Responsibilities stay separate:
+
+```text
+EditorSessionStore
+ = coherent edit-session recovery
+
+WorkspaceCatalogStore
+ = bounded editor-local source/reopen metadata
+
+AppPreferencesStore
+ = user/UI preferences
+
+Rust recipe/history
+ = authoritative edit semantics
+```
+
+Do not add Hive without a concrete persistence requirement.
+
+---
+
+## 11. App/service boundaries
+
+Target application boundaries:
+
+```text
+AppPreferencesStore
+MediaPickerService
+MediaSaveService
+PermissionService
+CapabilityRegistry
+ProcessingJob coordinator/state
+AppRouter / route abstraction
+```
+
+`MediaPickerService` returns source information without inventing edit semantics or DAM identity.
+
+`MediaSaveService` is the common output boundary for camera JPEG results and editor Gallery exports.
+
+`PermissionService` centralizes Camera/Gallery/save permission state and presentation mapping.
+
+`CapabilityRegistry` exposes runtime capabilities rather than forcing UI to infer behavior from platform names alone.
+
+---
+
+## 12. Processing job model
+
+Longer work uses explicit state:
+
+```text
+idle
+processing
+saving
+completed
+failed
+```
+
+Shutter/export should prevent duplicate submission while the relevant operation is active.
+
+Typed failures should cover at least:
+
+```text
+cameraUnavailable
+permissionDenied
+permissionRestricted
+decodeFailed
+unsupportedSource
+renderFailed
+saveFailed
+```
+
+Presentation maps technical failures to localized user messages.
+
+---
+
+## 13. Navigation boundary
+
+Target intent flows:
+
+```text
+Mobile/tablet
+Launch -> Camera -> Gallery Picker -> Editor -> Export -> Camera
+
+Desktop
+Launch -> Open/Drop -> Editor -> Export
+
+Future external edit
+Nixin request -> Editor -> PixelCraftEditResult -> caller
+```
+
+The router models product intent and must not encode Nixin DAM business logic into PixelCraft screens.
+
+---
+
+## 14. Source descriptor and future external edit
+
+Use a format-aware source contract.
+
+Future request shape may contain:
+
+```text
+version
+sourceUri / sourcePath
+sourceId?           # caller-owned external identity
+sourceMimeType
+requestedMode
+returnPolicy
+metadata?
+```
+
+Future result may contain:
+
+```text
+version
+outputUri / outputPath
+outputMimeType
+sourceId?
+recipeReference?    # only if explicitly designed
+metadata?
+```
+
+Nixin remains authoritative for Workplaces/catalog identity. PixelCraft remains authoritative for edit session and processing semantics.
+
+---
+
+## 15. Editor-local catalog and recovery
+
+Current bounded persistence:
+
+```text
+lib/core/editor_session_store.dart
+lib/core/workspace_catalog_store.dart
+```
+
+`WorkspaceCatalogStore` is retained only for continuity/reopen behavior. It is not a product library database.
+
+Do not extend it by default into Workplaces, bulk ingestion, ratings/flags/keywords, archive management, or a Lightroom-style DAM.
+
+---
+
+## 16. Rust authority / engine
+
+```text
+Flutter app
+   ↓
+dxtr_pixs_engine
+   ↓ FRB / CargoKit
+rust/
+```
+
+Rust owns:
+
+- untouched source;
+- reduced preview;
+- semantic operations;
+- undo/redo cursor;
+- checkpoint cursor;
+- recovery recipe;
+- full-resolution replay/export.
+
+Useful commands:
+
+```bash
+make codegen
+make integrate
+make repair
+make verify-native
+```
+
+---
+
+## 17. GPU preview
 
 Package:
 
@@ -213,300 +478,252 @@ Package:
 packages/dxtr_pixs_gpu/
 ```
 
-Dart bridge:
+Mobile policy:
 
 ```text
-packages/dxtr_pixs_gpu/lib/camera_look_preview_bridge.dart
+Android -> Camera2/OpenGL ES camera preview
+iOS     -> AVFoundation/Metal camera preview + Metal editor preview
 ```
 
-Channel:
+Do not casually replace this runtime with wgpu.
 
-```text
-dev.pixelcraft/gpu_preview_v1
-```
-
-Method:
-
-```text
-setCameraLook
-```
-
-Payload:
-
-```text
-protocolVersion
-rendererId
-filmProfileId
-filmStrength
-creativeFilterId
-creativeFilterStrength
-brightness
-contrast
-saturation
-```
-
-Only control-plane data crosses the channel.
+Unsupported native/GPU capability must fall back to a valid Rust/product path rather than changing semantics.
 
 ---
 
-## 9. Native ordered preview architecture
+## 18. Film and Creative Filter
 
-PF2 deliberately does **not** pre-compose the whole look into one 33³ LUT.
+Film Profiles are first-class Rust operations using canonical 33x33x33 LUT data.
 
-The native preview executes semantic stages directly:
+Current inspired Film pack includes Provia, Velvia, Astia, E100, Ektar, and Chrome 64.
 
-```text
-clean camera sample
- -> Adjust
- -> Film
- -> Creative Filter
- -> display
-```
+Creative Filter foundation includes grayscale/invert and canonical LUT-backed presets such as vintage, oceanic, lofi, dramatic, golden, and pastel pink.
 
-Reason: whole-look precomposition would introduce an additional interpolation/quantization layer and cannot claim strict sequential parity with Rust, especially for exact grayscale/invert behavior.
-
-### Android / OpenGL ES
-
-```text
-setCameraLook
- -> GpuPreviewRendererSessionRegistry
- -> AndroidGpuCameraOesRenderer
- -> async Film/Creative LUT atlas preparation
- -> native generation guard
- -> GL upload to independent Film + Creative texture slots
- -> OES fragment shader: Adjust -> Film -> Creative
-```
-
-Texture roles:
-
-```text
-texture0 = camera OES frame
-texture1 = Film LUT atlas
-texture2 = Creative LUT atlas
-```
-
-### iOS / Metal
-
-```text
-setCameraLook
- -> GpuPreviewChannel
- -> MetalCameraPreviewRenderer
- -> async Film/Creative 3D LUT preparation
- -> native generation guard
- -> atomic render-state/resource swap
- -> Metal fragment shader: Adjust -> Film -> Creative
-```
-
-Texture roles:
-
-```text
-texture0 = camera BGRA frame
-texture1 = Film 3D LUT
-texture2 = Creative 3D LUT
-```
-
-Resource preparation is off the per-frame path. Per-frame rendering executes the actual semantic stages.
+PF2 integrates these capabilities into one camera tool surface rather than duplicating processing semantics.
 
 ---
 
-## 10. PF2 Adjust formulas
-
-PF2 realtime scope is deliberately bounded to:
+## 19. Package graph
 
 ```text
-brightness
-contrast
-saturation
+PixelCraft App
+ ├── dxtr_pixs_film
+ ├── dxtr_pixs_gpu
+ ├── dxtr_pixs_editing
+ └── dxtr_pixs_engine
+
+dxtr_pixs_film    -> dxtr_pixs_editing
+dxtr_pixs_gpu     -> dxtr_pixs_editing
+dxtr_pixs_editing -> Dart SDK only
+dxtr_pixs_engine  -> repository rust/ crate
 ```
 
-Brightness:
+Package policy:
+
+- consolidate ownership into existing packages before adding new ones;
+- keep app services/navigation/preferences in the app unless reuse proves a stable package boundary;
+- audit remaining `lib/core` ownership after PF0/PF1;
+- defer `dxtr_pixs_camera` extraction until PF3 stabilizes capture and processing-handoff contracts.
+
+Future package family only when activated:
 
 ```text
-color = clamp(color + (brightness - 1.0), 0.0, 1.0)
+dxtr_pixs_segment
+dxtr_pixs_restore
+dxtr_pixs_raw
 ```
-
-Contrast:
-
-```text
-midpoint = 128.0 / 255.0
-color = clamp((color - midpoint) * contrast + midpoint, 0.0, 1.0)
-```
-
-Saturation:
-
-```text
-luminance = dot(color, [0.2126, 0.7152, 0.0722])
-color = clamp(luminance + (color - luminance) * saturation, 0.0, 1.0)
-```
-
-Grayscale and invert retain the existing rounded-u8 editor GPU semantics rather than substituting approximate floating-point variants.
 
 ---
 
-## 11. Camera UI behavior
+## 20. Future MobileSAM / ONNX
 
-PF2 Camera surfaces:
+Future segmentation belongs behind a replaceable `MaskProvider` boundary.
 
 ```text
-Film
-  canonical Film selector
-  strength
-
-Filter
-  Original
-  grayscale / invert
-  vintage / oceanic / lofi / dramatic / golden / pastel_pink
-  intensity
-
-Adjust
-  brightness / contrast / saturation
+source / reduced analysis image
+  ↓
+MaskProvider
+  ↓
+local MobileSAM/ONNX
+  ↓
+mask result
+  ↓
+PixelCraft edit semantics
 ```
 
-State behavior:
+Segmentation generates masks and never becomes image-processing authority.
 
-- Film/Filter/Adjust are independent layers;
-- switching tabs preserves accumulated state;
-- rapid controls send complete look state through the coordinator;
-- fallback Camera remains Film-only;
-- a native runtime failure reduces the visible active state to Film-only so hidden Filter/Adjust cannot affect capture.
+Do not activate this in PF0-PF5.
 
 ---
 
-## 12. Temporary PF2 capture -> editor handoff
+## 21. Future real RAW
 
-PF3 is not implemented yet.
-
-PF2 capture currently does:
+Future package direction:
 
 ```text
-CameraLookPreviewCoordinator.flush()
- -> snapshot final CameraLookState
- -> clean native JPEG capture
- -> CameraFilmEditorHandoff
- -> Rust-backed editor replay
+dxtr_pixs_raw
 ```
 
-Replay order is deterministic:
+A real RAW milestone must explicitly define decode/demosaic, Bayer/X-Trans handling, black/white normalization, camera WB/color matrices, highlight recovery, working color space, memory/performance policy, and authoritative full-resolution replay/export.
 
-```text
-brightness
-contrast
-saturation
-Film
-Creative
-```
-
-The handoff waits for the editor preview queue between operations so latest-value-wins coalescing cannot drop an intermediate adjustment.
-
-Gallery-picked sources remain neutral and do not inherit the current Camera look.
+PF source contracts must stay RAW-aware without implementing RAW development now.
 
 ---
 
-## 13. Failure / fallback behavior
+## 22. CI workflow
 
-Expected native failure path:
+The repository uses an affected-validation DAG defined in `.github/workflows/ci.yml` and documented in `docs/CI_ARCHITECTURE.md`.
 
 ```text
-runtimeFailure
- -> detach CameraLookPreviewCoordinator
- -> destroy failed renderer
- -> Flutter camera fallback
- -> visible active look reduced to Film-only
- -> Filter/Adjust unavailable
+Change Detection
+      ↓
+Fast CI
+      ↓
+selected affected/full validation
+      ↓
+CI Gate
 ```
 
-This is intentionally fail-closed. Do not keep hidden unsupported look layers active after the UI can no longer preview them faithfully.
+Change domains include docs, Flutter app/packages, native/GPU, Android, iOS, macOS, Windows/Linux, package API, reliability, and CI/tooling.
+
+Iterative PRs run only relevant expensive jobs. Full validation is forced for:
+
+```text
+push to main
+merge_group
+explicit full workflow dispatch
+PR label ci:full
+CI/tooling changes
+```
+
+Stable branch-protection contexts:
+
+```text
+Fast CI
+CI Gate
+```
+
+Do not require every conditional platform job individually because unaffected jobs are intentionally skipped.
+
+### Local preflight
+
+Recommended entrypoint:
+
+```bash
+make preflight
+```
+
+Focused targets:
+
+```bash
+make format-check
+make analyze
+make test-fast
+make gpu-check
+make ci-fast
+```
+
+### FRB artifact reuse
+
+Fast CI generates and verifies the complete FRB bridge, including companion Dart outputs under `lib/src/rust/**`, plus `rust/src/frb_generated.rs` and `ios/Runner/frb_generated.h`.
+
+The generated bridge is uploaded as a run-scoped artifact and restored by platform jobs. `Native/GPU Core` still independently regenerates with pinned FRB codegen when selected to validate deterministic API/native drift.
+
+### Reliability tiers
+
+```text
+Tier 1 = fast deterministic correctness
+Tier 2 = sensitive-path automation, G6 failure injection, 12 MP characterization, device-safety guard
+Tier 3 = complete hosted G6 automation up to 48 MP; physical device remains explicit/manual evidence
+```
+
+Hard device safety:
+
+```text
+main app: dev.cnxdev.pixelcraft
+verifier: dev.cnxdev.pixelcraft.g6verify
+```
+
+Hosted CI must never uninstall/overwrite the main app or fabricate physical-device PASS evidence.
+
+### Validated CI baseline
+
+PR #49 full run #432 (`31951272254`) passed:
+
+```text
+Change Detection
+Fast CI
+Native/GPU Core
+Golden Tests
+Android Build
+iOS Build
+macOS Build
+Windows Build
+Linux Build
+Reliability Tier 2
+Reliability Tier 3
+CI Gate
+```
+
+After PR merge, verify the resulting `main` push CI before declaring the CI slice closed.
 
 ---
 
-## 14. PF2 verification state
-
-Verified implementation baseline:
+## 23. Current milestone sequence
 
 ```text
-implementation head: b4451dce62bd877435cdab4ddd69c3f69cc037cd
-CI: #420 / run 31946914217
-result: SUCCESS
+PF0 platform-flow foundations
+ -> PF1 Camera-first mobile/tablet shell + desktop editor-first root
+ -> PF2 Unified Camera Film/Filter/Adjust UX
+ -> PF3 Capture + Rust render + JPEG Gallery save + stay in Camera
+ -> PKG-03 evaluate camera package extraction
+ -> PF4 Gallery source -> editor -> Gallery export
+ -> PF5 Versioned external-edit request/result foundation
 ```
 
-The exact implementation baseline passed:
-
-- Flutter analyze/tests;
-- Rust fmt/clippy/tests + G6 image characterization;
-- GPU LUT parity;
-- editing/film/GPU package analyze/tests;
-- Golden tests;
-- Android release artifact + Rust native packaging;
-- iOS Rust plugin packaging smoke;
-- iOS release no-codesign;
-- wgpu core Windows/Linux/macOS.
-
-Documentation-only descendants may move the branch head. Record the actual installed commit in device evidence.
-
-Physical-device validation is the remaining PF2 close gate.
-
-Canonical checklist:
+Not part of PF0-PF5 unless separately activated:
 
 ```text
-docs/PF2_DEVICE_VALIDATION_CHECKLIST.md
+Hive migration
+second global state-management framework
+Workplaces/DAM expansion
+MobileSAM implementation
+real RAW implementation
+Dart 3.13 RecordUse work
+G7B store account work
 ```
-
-Required device areas include:
-
-- neutral bypass;
-- Film and strength;
-- every Creative Filter class;
-- brightness/contrast/saturation continuous drag;
-- Film + Filter + Adjust coexistence;
-- rapid switching and stale-state stress;
-- sustained preview/frame pacing;
-- thermal observation;
-- lens switching;
-- lifecycle pause/resume;
-- shutter/capture -> editor handoff;
-- Gallery source neutrality;
-- runtime fallback where safely inducible;
-- EN/TH control integrity;
-- regression smoke.
-
-PR #48 must remain Draft until this gate passes and device/performance evidence is recorded.
 
 ---
 
-## 15. PF3 boundary
+## 24. Verification gates
 
-PF3 will replace the temporary editor handoff with:
+Primary local gate:
 
-```text
-clean capture
-+ selected CameraLookState
- -> Rust authoritative full-resolution processing
- -> JPEG
- -> MediaSaveService
- -> system Gallery
- -> remain in Camera
+```bash
+make preflight
 ```
 
-PF2 preview pixels never become saved-output authority.
+Additional targeted validation:
+
+```bash
+bash tool/check_package_boundaries.sh
+make gpu-lut-verify
+make verify-native
+flutter analyze
+flutter test
+```
+
+PF implementation should add targeted tests for platform-adaptive routing, mobile/tablet camera launch, desktop open/drop launch, locale fallback, preferences boundaries, duplicate processing prevention, source preservation, capture -> JPEG save -> remain in Camera, Gallery -> editor -> export, and future external-edit serialization/versioning.
+
+A green PR head is not enough to close a slice; verify resulting `main` push CI.
 
 ---
 
-## 16. Current continuation point
+## 25. Current continuation point
 
-Current state:
+PR #50 is merged. Platform routing is established: phone/tablet start at `/camera`, desktop starts at `/desktop`, and Camera -> Editor uses typed go_router handoff with shared Rust bootstrap.
 
-```text
-PF2 implementation: DONE
-exact implementation CI: GREEN
-physical-device validation: PENDING
-PR #48: OPEN / DRAFT
-```
+Continue with **PF1 + PF2**: finish the camera-first mobile/tablet shell around the existing camera stack, integrate Film / Filter / Adjust as camera-context tools, and complete the remaining localization/preferences/service-state foundations needed by that flow. Do not create a second camera implementation or move canonical processing authority out of Rust.
 
-Next action:
-
-1. run `docs/PF2_DEVICE_VALIDATION_CHECKLIST.md` on physical hardware;
-2. record exact device/build/commit and performance observations;
-3. fix only real device findings if any;
-4. refresh `PROJECT_HANDOFF.md`, this walkthrough, `PF2_CAMERA_LOOK_CONTRACT.md`, and `README.md` with final device evidence;
-5. mark PR #48 Ready only after the physical-device gate passes;
-6. after merge, verify resulting `main` CI before starting PF3.
+See `docs/PROJECT_HANDOFF.md` for the canonical execution order and current status.
