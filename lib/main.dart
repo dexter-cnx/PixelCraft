@@ -6,16 +6,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import 'app/app_routes.dart';
 import 'app/platform_flow_foundation.dart';
+import 'camera/camera_film_editor_handoff.dart';
 import 'core/bridge.dart';
 import 'ui/screens/camera_film_preview_screen.dart';
+import 'ui/screens/film_profiles_screen.dart';
 import 'ui/screens/gpu_editor_preview_lab_screen.dart';
 import 'ui/screens/home_screen.dart';
+import 'ui/screens/product_editor_screen.dart';
 
 const _launchGpuEditorLab = bool.fromEnvironment('GPU_EDITOR_LAB');
 
-bool get _isMobilePlatform => !kIsWeb &&
+bool get _isMobilePlatform =>
+    !kIsWeb &&
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
@@ -50,35 +56,113 @@ Future<void> main() async {
   );
 }
 
-class PixelCraftApp extends StatelessWidget {
+class PixelCraftApp extends ConsumerStatefulWidget {
   const PixelCraftApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Dextryx Pixels',
-        locale: context.locale,
-        supportedLocales: context.supportedLocales,
-        localizationsDelegates: context.localizationDelegates,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: const Color(0xFF7259E7),
-          brightness: Brightness.light,
-          scaffoldBackgroundColor: const Color(0xFFF8F7FC),
+  ConsumerState<PixelCraftApp> createState() => _PixelCraftAppState();
+}
+
+class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    final platformInitialLocation = AppRoutePaths.initialLocationForIntent(
+      ref.read(appRouterProvider).initialIntent(),
+    );
+    _router = GoRouter(
+      initialLocation: kDebugMode && _launchGpuEditorLab
+          ? AppRoutePaths.gpuEditorLab
+          : platformInitialLocation,
+      routes: [
+        GoRoute(
+          path: AppRoutePaths.root,
+          redirect: (_, __) => platformInitialLocation,
         ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: const Color(0xFF9D8CFF),
-          brightness: Brightness.dark,
+        GoRoute(
+          path: AppRoutePaths.camera,
+          name: AppRouteNames.camera,
+          builder: (_, __) =>
+              const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
         ),
-        home: kDebugMode && _launchGpuEditorLab
-            ? const GpuEditorPreviewLabScreen()
-            : const RustBootstrapScreen(),
-      );
+        GoRoute(
+          path: AppRoutePaths.desktop,
+          name: AppRouteNames.desktop,
+          builder: (_, __) => const RustBootstrapScreen(child: HomeScreen()),
+        ),
+        GoRoute(
+          path: AppRoutePaths.films,
+          name: AppRouteNames.films,
+          builder: (_, __) =>
+              const RustBootstrapScreen(child: FilmProfilesScreen()),
+        ),
+        GoRoute(
+          path: AppRoutePaths.editor,
+          name: AppRouteNames.editor,
+          builder: (_, state) {
+            final data = state.extra;
+            if (data is! EditorRouteData) {
+              return const _InvalidEditorRouteScreen();
+            }
+            final editor = data.hasInitialFilm
+                ? CameraFilmEditorHandoff(
+                    imagePath: data.imagePath!,
+                    profileId: data.initialFilmProfileId!,
+                    strength: data.initialFilmStrength,
+                  )
+                : ProductEditorScreen(
+                    imagePath: data.imagePath,
+                    imageBytes: data.imageBytes,
+                    recoveryRecipe: data.recoveryRecipe,
+                  );
+            return RustBootstrapScreen(child: editor);
+          },
+        ),
+        GoRoute(
+          path: AppRoutePaths.gpuEditorLab,
+          name: AppRouteNames.gpuEditorLab,
+          builder: (_, __) => const GpuEditorPreviewLabScreen(),
+        ),
+      ],
+      errorBuilder: (_, state) =>
+          Scaffold(body: Center(child: Text('Route not found: ${state.uri}'))),
+    );
+  }
+
+  @override
+  void dispose() {
+    _router.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp.router(
+    debugShowCheckedModeBanner: false,
+    title: 'Dextryx Pixels',
+    locale: context.locale,
+    supportedLocales: context.supportedLocales,
+    localizationsDelegates: context.localizationDelegates,
+    theme: ThemeData(
+      useMaterial3: true,
+      colorSchemeSeed: const Color(0xFF7259E7),
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF8F7FC),
+    ),
+    darkTheme: ThemeData(
+      useMaterial3: true,
+      colorSchemeSeed: const Color(0xFF9D8CFF),
+      brightness: Brightness.dark,
+    ),
+    routerConfig: _router,
+  );
 }
 
 class RustBootstrapScreen extends StatefulWidget {
-  const RustBootstrapScreen({super.key});
+  const RustBootstrapScreen({super.key, required this.child});
+
+  final Widget child;
 
   @override
   State<RustBootstrapScreen> createState() => _RustBootstrapScreenState();
@@ -86,13 +170,14 @@ class RustBootstrapScreen extends StatefulWidget {
 
 class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
   static const _timeout = Duration(seconds: 15);
+  static Future<void>? _sharedInitialization;
 
   late Future<void> _initialization;
 
   @override
   void initState() {
     super.initState();
-    _initialization = _initialize();
+    _initialization = _sharedInitialization ??= _initialize();
   }
 
   Future<void> _initialize() async {
@@ -114,6 +199,7 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
     } catch (error, stackTrace) {
       debugPrint('[Dextryx Pixels] Rust bridge initialization failed: $error');
       debugPrintStack(stackTrace: stackTrace);
+      _sharedInitialization = null;
       rethrow;
     } finally {
       stopwatch.stop();
@@ -122,7 +208,8 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
 
   void _retry() {
     setState(() {
-      _initialization = _initialize();
+      _sharedInitialization = null;
+      _initialization = _sharedInitialization ??= _initialize();
     });
   }
 
@@ -133,7 +220,7 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done &&
             !snapshot.hasError) {
-          return const _PlatformEntryScreen();
+          return widget.child;
         }
 
         if (snapshot.hasError) {
@@ -202,17 +289,16 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
   }
 }
 
-class _PlatformEntryScreen extends ConsumerWidget {
-  const _PlatformEntryScreen();
+class _InvalidEditorRouteScreen extends StatelessWidget {
+  const _InvalidEditorRouteScreen();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    switch (ref.watch(appRouterProvider).initialIntent()) {
-      case AppRouteIntent.camera:
-        return const CameraFilmPreviewScreen();
-      case AppRouteIntent.desktopHome:
-      case AppRouteIntent.editor:
-        return const HomeScreen();
-    }
-  }
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text('The editor route requires a valid source.'),
+      ),
+    ),
+  );
 }
