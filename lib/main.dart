@@ -154,7 +154,12 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
       useMaterial3: true,
       colorSchemeSeed: const Color(0xFF9D8CFF),
       brightness: Brightness.dark,
+      scaffoldBackgroundColor: Colors.black,
     ),
+    // Mobile/tablet Camera is intentionally dark. Keep Material component
+    // foreground/disabled colors aligned with the black camera chrome while
+    // desktop continues to follow the system theme.
+    themeMode: _isMobilePlatform ? ThemeMode.dark : ThemeMode.system,
     routerConfig: _router,
   );
 }
