@@ -77,11 +77,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
-  // PF2 advanced device controls are wired through Camera2 now. iOS keeps its
-  // existing native preview behavior until the matching AVFoundation control
-  // bridge lands; controls fail closed there instead of silently diverging.
-  bool get _supportsNativeDeviceControls =>
-      defaultTargetPlatform == TargetPlatform.android;
+  bool get _supportsNativeDeviceControls => _supportsNativeGpuCamera;
 
   CameraLookState get _fallbackFilmLook => _preset.isOriginal
       ? CameraLookState()
