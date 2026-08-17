@@ -40,6 +40,16 @@ class CameraFilmEditorHandoff extends ConsumerStatefulWidget {
 
 class _CameraFilmEditorHandoffState
     extends ConsumerState<CameraFilmEditorHandoff> {
+  static const _adjustmentOrder = <String>[
+    'exposure',
+    'temperature',
+    'tint',
+    'brightness',
+    'contrast',
+    'saturation',
+    'vignette',
+  ];
+
   bool _sawSourceLoad = false;
   bool _lookScheduled = false;
 
@@ -53,9 +63,10 @@ class _CameraFilmEditorHandoffState
     final look = _initialLook;
     return look.hasFilm ||
         look.hasCreative ||
-        look.adjustmentValue('brightness') != 1 ||
-        look.adjustmentValue('contrast') != 1 ||
-        look.adjustmentValue('saturation') != 1;
+        _adjustmentOrder.any((id) {
+          final neutral = cameraAdjustmentSpec(id).neutral;
+          return (look.adjustmentValue(id) - neutral).abs() > 0.000001;
+        });
   }
 
   @override
@@ -92,9 +103,10 @@ class _CameraFilmEditorHandoffState
     final controller = ref.read(editorProvider.notifier);
     final look = _initialLook;
 
-    for (final id in const ['brightness', 'contrast', 'saturation']) {
+    for (final id in _adjustmentOrder) {
       final value = look.adjustmentValue(id);
-      if ((value - 1).abs() <= 0.000001) continue;
+      final neutral = cameraAdjustmentSpec(id).neutral;
+      if ((value - neutral).abs() <= 0.000001) continue;
       controller.selectFilter(id);
       await controller.commitFilterValue(value);
       await _waitForPreviewIdle();
