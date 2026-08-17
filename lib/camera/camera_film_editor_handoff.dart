@@ -84,6 +84,7 @@ class _CameraFilmEditorHandoffState
         !_lookScheduled &&
         !editor.isBusy &&
         !editor.isGeneratingFilmPreviews &&
+        !editor.isGeneratingFilterPreviews &&
         editor.previewBytes != null;
 
     if (canApplyInitialLook) {
