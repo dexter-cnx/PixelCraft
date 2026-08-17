@@ -52,6 +52,10 @@ internal class GpuPreviewChannel(
             "setCameraLook" -> handleSetCameraLook(call, result)
             "setViewport" -> handleSetViewport(call, result)
             "setEnabled" -> handleSetEnabled(call, result)
+            "cameraControlState" -> handleCameraControlState(call, result)
+            "setFlashMode" -> handleSetFlashMode(call, result)
+            "setTorchEnabled" -> handleSetTorchEnabled(call, result)
+            "setMirrorEnabled" -> handleSetMirrorEnabled(call, result)
             "capturePhoto" -> handleCapturePhoto(call, result)
             "switchCamera" -> handleSwitchCamera(call, result)
             "pause" -> handlePause(call, result)
@@ -66,9 +70,7 @@ internal class GpuPreviewChannel(
         val forceSelfTest = call.argument<Boolean>("forceSelfTest") ?: false
         gpuExecutor.execute {
             val probe = capabilityProbe.probe(forceSelfTest)
-            mainHandler.post {
-                result.success(probe.toChannelMap(PROTOCOL_VERSION, MAX_LUT_SIZE))
-            }
+            mainHandler.post { result.success(probe.toChannelMap(PROTOCOL_VERSION, MAX_LUT_SIZE)) }
         }
     }
 
@@ -79,18 +81,13 @@ internal class GpuPreviewChannel(
 
     private fun handleRequestCameraPermission(call: MethodCall, result: MethodChannel.Result) {
         if (!validateProtocol(call, result)) return
-        requestCameraPermission { granted ->
-            mainHandler.post { result.success(granted) }
-        }
+        requestCameraPermission { granted -> mainHandler.post { result.success(granted) } }
     }
 
     private fun handleAvailableCameraLenses(call: MethodCall, result: MethodChannel.Result) {
         if (!validateProtocol(call, result)) return
-        try {
-            result.success(sessions.availableLenses())
-        } catch (error: Throwable) {
-            result.error("gpu_camera_info_failed", error.message ?: error.javaClass.simpleName, null)
-        }
+        try { result.success(sessions.availableLenses()) }
+        catch (error: Throwable) { result.error("gpu_camera_info_failed", error.message ?: error.javaClass.simpleName, null) }
     }
 
     private fun handleReferenceHarness(call: MethodCall, result: MethodChannel.Result) {
@@ -100,9 +97,7 @@ internal class GpuPreviewChannel(
                 val harness = GpuLutShaderHarness.run().toChannelMap()
                 mainHandler.post { result.success(harness) }
             } catch (error: Throwable) {
-                mainHandler.post {
-                    result.error("gpu_harness_failed", error.message ?: error.javaClass.simpleName, null)
-                }
+                mainHandler.post { result.error("gpu_harness_failed", error.message ?: error.javaClass.simpleName, null) }
             }
         }
     }
@@ -119,13 +114,9 @@ internal class GpuPreviewChannel(
                 val harness = GpuLutShaderHarness.runFilmProfile(appContext, profileId).toChannelMap()
                 mainHandler.post { result.success(harness) }
             } catch (error: IllegalArgumentException) {
-                mainHandler.post {
-                    result.error("gpu_invalid_profile", error.message ?: "Invalid Film Profile", null)
-                }
+                mainHandler.post { result.error("gpu_invalid_profile", error.message ?: "Invalid Film Profile", null) }
             } catch (error: Throwable) {
-                mainHandler.post {
-                    result.error("gpu_film_harness_failed", error.message ?: error.javaClass.simpleName, null)
-                }
+                mainHandler.post { result.error("gpu_film_harness_failed", error.message ?: error.javaClass.simpleName, null) }
             }
         }
     }
@@ -134,13 +125,7 @@ internal class GpuPreviewChannel(
         if (!validateProtocol(call, result)) return
         try {
             val session = sessions.create()
-            result.success(
-                mapOf(
-                    "protocolVersion" to PROTOCOL_VERSION,
-                    "rendererId" to session.id,
-                    "state" to session.state.name.lowercase(),
-                ),
-            )
+            result.success(mapOf("protocolVersion" to PROTOCOL_VERSION, "rendererId" to session.id, "state" to session.state.name.lowercase()))
         } catch (error: Throwable) {
             capabilityProbe.invalidate()
             result.error("gpu_renderer_init_failed", error.message ?: error.javaClass.simpleName, null)
@@ -149,31 +134,22 @@ internal class GpuPreviewChannel(
 
     private fun handleConfigureSurface(call: MethodCall, result: MethodChannel.Result) =
         handleRendererControl(call, result) { rendererId ->
-            sessions.configureSurface(
-                rendererId,
-                NativeGpuSurfaceConfig(
-                    kind = call.argument<String>("kind").orEmpty(),
-                    width = number(call, "width").toInt(),
-                    height = number(call, "height").toInt(),
-                    devicePixelRatio = number(call, "devicePixelRatio").toDouble(),
-                    surfaceId = call.argument<String>("surfaceId"),
-                ),
-            )
+            sessions.configureSurface(rendererId, NativeGpuSurfaceConfig(
+                kind = call.argument<String>("kind").orEmpty(),
+                width = number(call, "width").toInt(),
+                height = number(call, "height").toInt(),
+                devicePixelRatio = number(call, "devicePixelRatio").toDouble(),
+                surfaceId = call.argument<String>("surfaceId"),
+            ))
         }
 
     private fun handleSetFilm(call: MethodCall, result: MethodChannel.Result) =
         handleRendererControl(call, result) { rendererId ->
-            sessions.setFilm(
-                rendererId,
-                call.argument<String>("profileId").orEmpty(),
-                number(call, "strength").toDouble(),
-            )
+            sessions.setFilm(rendererId, call.argument<String>("profileId").orEmpty(), number(call, "strength").toDouble())
         }
 
     private fun handleSetStrength(call: MethodCall, result: MethodChannel.Result) =
-        handleRendererControl(call, result) { rendererId ->
-            sessions.setStrength(rendererId, number(call, "strength").toDouble())
-        }
+        handleRendererControl(call, result) { rendererId -> sessions.setStrength(rendererId, number(call, "strength").toDouble()) }
 
     private fun handleSetCameraLook(call: MethodCall, result: MethodChannel.Result) =
         handleRendererControl(call, result) { rendererId ->
@@ -183,19 +159,32 @@ internal class GpuPreviewChannel(
 
     private fun handleSetViewport(call: MethodCall, result: MethodChannel.Result) =
         handleRendererControl(call, result) { rendererId ->
-            sessions.setViewport(
-                rendererId,
-                NativeGpuViewport(
-                    width = number(call, "width").toDouble(),
-                    height = number(call, "height").toDouble(),
-                    devicePixelRatio = number(call, "devicePixelRatio").toDouble(),
-                ),
-            )
+            sessions.setViewport(rendererId, NativeGpuViewport(
+                width = number(call, "width").toDouble(),
+                height = number(call, "height").toDouble(),
+                devicePixelRatio = number(call, "devicePixelRatio").toDouble(),
+            ))
         }
 
     private fun handleSetEnabled(call: MethodCall, result: MethodChannel.Result) =
-        handleRendererControl(call, result) { rendererId ->
-            sessions.setEnabled(rendererId, call.argument<Boolean>("enabled") ?: false)
+        handleRendererControl(call, result) { rendererId -> sessions.setEnabled(rendererId, call.argument<Boolean>("enabled") ?: false) }
+
+    private fun handleCameraControlState(call: MethodCall, result: MethodChannel.Result) =
+        handleRendererResult(call, result) { rendererId -> sessions.cameraControlState(rendererId) }
+
+    private fun handleSetFlashMode(call: MethodCall, result: MethodChannel.Result) =
+        handleRendererResult(call, result) { rendererId ->
+            sessions.setFlashMode(rendererId, call.argument<String>("flashMode").orEmpty())
+        }
+
+    private fun handleSetTorchEnabled(call: MethodCall, result: MethodChannel.Result) =
+        handleRendererResult(call, result) { rendererId ->
+            sessions.setTorchEnabled(rendererId, call.argument<Boolean>("enabled") ?: false)
+        }
+
+    private fun handleSetMirrorEnabled(call: MethodCall, result: MethodChannel.Result) =
+        handleRendererResult(call, result) { rendererId ->
+            sessions.setMirrorEnabled(rendererId, call.argument<Boolean>("enabled") ?: true)
         }
 
     private fun handleCapturePhoto(call: MethodCall, result: MethodChannel.Result) {
@@ -206,9 +195,7 @@ internal class GpuPreviewChannel(
                 mainHandler.post {
                     capture.fold(
                         onSuccess = { path -> result.success(mapOf("path" to path)) },
-                        onFailure = { error ->
-                            result.error("gpu_camera_capture_failed", error.message ?: error.javaClass.simpleName, null)
-                        },
+                        onFailure = { error -> result.error("gpu_camera_capture_failed", error.message ?: error.javaClass.simpleName, null) },
                     )
                 }
             }
@@ -225,9 +212,7 @@ internal class GpuPreviewChannel(
                 mainHandler.post {
                     switched.fold(
                         onSuccess = { lens -> result.success(mapOf("lensDirection" to lens)) },
-                        onFailure = { error ->
-                            result.error("gpu_camera_switch_failed", error.message ?: error.javaClass.simpleName, null)
-                        },
+                        onFailure = { error -> result.error("gpu_camera_switch_failed", error.message ?: error.javaClass.simpleName, null) },
                     )
                 }
             }
@@ -236,14 +221,22 @@ internal class GpuPreviewChannel(
         }
     }
 
-    private fun handlePause(call: MethodCall, result: MethodChannel.Result) =
-        handleRendererControl(call, result, sessions::pause)
+    private fun handlePause(call: MethodCall, result: MethodChannel.Result) = handleRendererControl(call, result, sessions::pause)
+    private fun handleResume(call: MethodCall, result: MethodChannel.Result) = handleRendererControl(call, result, sessions::resume)
+    private fun handleDestroyRenderer(call: MethodCall, result: MethodChannel.Result) = handleRendererControl(call, result, sessions::destroy)
 
-    private fun handleResume(call: MethodCall, result: MethodChannel.Result) =
-        handleRendererControl(call, result, sessions::resume)
-
-    private fun handleDestroyRenderer(call: MethodCall, result: MethodChannel.Result) =
-        handleRendererControl(call, result, sessions::destroy)
+    private fun handleRendererResult(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        action: (String) -> Map<String, Any>,
+    ) {
+        if (!validateProtocol(call, result)) return
+        val rendererId = rendererId(call, result) ?: return
+        try { result.success(action(rendererId)) }
+        catch (error: IllegalArgumentException) { result.error("gpu_renderer_invalid", error.message ?: error.javaClass.simpleName, null) }
+        catch (error: IllegalStateException) { result.error("gpu_renderer_state", error.message ?: error.javaClass.simpleName, null) }
+        catch (error: Throwable) { result.error("gpu_renderer_failed", error.message ?: error.javaClass.simpleName, null) }
+    }
 
     private fun handleRendererControl(
         call: MethodCall,
@@ -252,16 +245,10 @@ internal class GpuPreviewChannel(
     ) {
         if (!validateProtocol(call, result)) return
         val rendererId = rendererId(call, result) ?: return
-        try {
-            action(rendererId)
-            result.success(null)
-        } catch (error: IllegalArgumentException) {
-            result.error("gpu_renderer_invalid", error.message ?: error.javaClass.simpleName, null)
-        } catch (error: IllegalStateException) {
-            result.error("gpu_renderer_state", error.message ?: error.javaClass.simpleName, null)
-        } catch (error: Throwable) {
-            result.error("gpu_renderer_failed", error.message ?: error.javaClass.simpleName, null)
-        }
+        try { action(rendererId); result.success(null) }
+        catch (error: IllegalArgumentException) { result.error("gpu_renderer_invalid", error.message ?: error.javaClass.simpleName, null) }
+        catch (error: IllegalStateException) { result.error("gpu_renderer_state", error.message ?: error.javaClass.simpleName, null) }
+        catch (error: Throwable) { result.error("gpu_renderer_failed", error.message ?: error.javaClass.simpleName, null) }
     }
 
     private fun rendererId(call: MethodCall, result: MethodChannel.Result): String? {
@@ -274,11 +261,7 @@ internal class GpuPreviewChannel(
     private fun validateProtocol(call: MethodCall, result: MethodChannel.Result): Boolean {
         val requestedVersion = call.argument<Int>("protocolVersion") ?: 0
         if (requestedVersion == PROTOCOL_VERSION) return true
-        result.error(
-            "gpu_protocol_mismatch",
-            "Native GPU protocol is $PROTOCOL_VERSION, requested $requestedVersion",
-            null,
-        )
+        result.error("gpu_protocol_mismatch", "Native GPU protocol is $PROTOCOL_VERSION, requested $requestedVersion", null)
         return false
     }
 
@@ -288,14 +271,11 @@ internal class GpuPreviewChannel(
     private fun notifyRuntimeFailure(rendererId: String, message: String) {
         capabilityProbe.invalidate()
         mainHandler.post {
-            channel.invokeMethod(
-                "runtimeFailure",
-                mapOf(
-                    "protocolVersion" to PROTOCOL_VERSION,
-                    "rendererId" to rendererId,
-                    "message" to message,
-                ),
-            )
+            channel.invokeMethod("runtimeFailure", mapOf(
+                "protocolVersion" to PROTOCOL_VERSION,
+                "rendererId" to rendererId,
+                "message" to message,
+            ))
         }
     }
 
