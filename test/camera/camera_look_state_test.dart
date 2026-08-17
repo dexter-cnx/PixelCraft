@@ -39,7 +39,7 @@ void main() {
 
     test('rejects adjustments without a PF2 GPU parity contract', () {
       expect(
-        () => CameraLookState().withAdjustment('temperature', 0.2),
+        () => CameraLookState().withAdjustment('unsupported_adjustment', 0.2),
         throwsArgumentError,
       );
     });
