@@ -15,14 +15,17 @@ final class MetalCameraPreviewRenderer: NSObject {
     var cropScale: SIMD2<Float>
     var mirrorX: Float
     var enabled: Float
+    var exposure: Float
+    var temperature: Float
+    var tint: Float
     var brightness: Float
     var contrast: Float
     var saturation: Float
+    var vignette: Float
     var filmStrength: Float
     var useFilm: Float
     var creativeStrength: Float
     var creativeMode: Float
-    var padding: Float = 0
   }
 
   private static let creativeNone: Float = 0
@@ -43,14 +46,17 @@ final class MetalCameraPreviewRenderer: NSObject {
     float2 cropScale;
     float mirrorX;
     float enabled;
+    float exposure;
+    float temperature;
+    float tint;
     float brightness;
     float contrast;
     float saturation;
+    float vignette;
     float filmStrength;
     float useFilm;
     float creativeStrength;
     float creativeMode;
-    float padding;
   };
 
   vertex VertexOut pixelcraft_vertex(uint vertexId [[vertex_id]]) {
@@ -95,6 +101,16 @@ final class MetalCameraPreviewRenderer: NSObject {
     return clamp(blended8, 0.0, 255.0) / 255.0;
   }
 
+  inline float3 apply_vignette(float3 color, float2 uv, float amount) {
+    float2 normalized = (uv - float2(0.5)) * 2.0;
+    float radius = length(normalized) / sqrt(2.0);
+    float mask = smoothstep(0.35, 1.0, radius);
+    float scale = amount >= 0.0
+      ? 1.0 - amount * mask * 0.72
+      : 1.0 + (-amount) * mask * 0.45;
+    return clamp(color * scale, 0.0, 1.0);
+  }
+
   fragment float4 pixelcraft_fragment(
     VertexOut in [[stage_in]],
     texture2d<float> camera [[texture(0)]],
@@ -111,11 +127,15 @@ final class MetalCameraPreviewRenderer: NSObject {
       return float4(source, 1.0);
     }
 
-    float3 color = clamp(source + (uniforms.brightness - 1.0), 0.0, 1.0);
+    float3 color = clamp(source * exp2(clamp(uniforms.exposure, -2.0, 2.0)), 0.0, 1.0);
+    color = clamp(color + float3(34.0, 6.0, -34.0) / 255.0 * uniforms.temperature, 0.0, 1.0);
+    color = clamp(color + float3(16.0, -28.0, 16.0) / 255.0 * uniforms.tint, 0.0, 1.0);
+    color = clamp(color + (uniforms.brightness - 1.0), 0.0, 1.0);
     const float midpoint = 128.0 / 255.0;
     color = clamp((color - midpoint) * uniforms.contrast + midpoint, 0.0, 1.0);
     const float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
     color = clamp(luminance + (color - luminance) * uniforms.saturation, 0.0, 1.0);
+    color = apply_vignette(color, uv, clamp(uniforms.vignette, -1.0, 1.0));
 
     if (uniforms.useFilm > 0.5) {
       float3 film = sample_lut(filmLut, lutSampler, color);
@@ -164,16 +184,20 @@ final class MetalCameraPreviewRenderer: NSObject {
   private var strength: Float = 0
   private var enabled = false
   private var cameraLookMode = false
+  private var lookExposure: Float = 0
+  private var lookTemperature: Float = 0
+  private var lookTint: Float = 0
   private var lookBrightness: Float = 1
   private var lookContrast: Float = 1
   private var lookSaturation: Float = 1
+  private var lookVignette: Float = 0
   private var lookUseFilm: Float = 0
   private var lookFilmStrength: Float = 0
   private var lookCreativeStrength: Float = 0
   private var lookCreativeMode: Float = 0
   private var flashMode: AVCaptureDevice.FlashMode = .auto
   private var torchEnabled = false
-  private var mirrorFrontPreview = true
+  private var mirrorFrontPreview = false
   private var released = false
   private var configured = false
   private var captureHandler: CaptureHandler?
@@ -349,9 +373,13 @@ final class MetalCameraPreviewRenderer: NSObject {
           self.profileId = profileId
           self.strength = clamped
           self.currentFilmLut = texture
+          self.lookExposure = 0
+          self.lookTemperature = 0
+          self.lookTint = 0
           self.lookBrightness = 1
           self.lookContrast = 1
           self.lookSaturation = 1
+          self.lookVignette = 0
           self.lookUseFilm = profileId.isEmpty || clamped <= 0 ? 0 : 1
           self.lookFilmStrength = clamped
           self.lookCreativeStrength = 0
@@ -388,9 +416,13 @@ final class MetalCameraPreviewRenderer: NSObject {
           self.cameraLookMode = true
           self.profileId = look.filmProfileId
           self.strength = look.filmStrength
+          self.lookExposure = look.exposure
+          self.lookTemperature = look.temperature
+          self.lookTint = look.tint
           self.lookBrightness = look.brightness
           self.lookContrast = look.contrast
           self.lookSaturation = look.saturation
+          self.lookVignette = look.vignette
           self.lookUseFilm = look.hasFilm ? 1 : 0
           self.lookFilmStrength = look.filmStrength
           self.lookCreativeStrength = look.creativeFilterStrength
@@ -673,9 +705,13 @@ final class MetalCameraPreviewRenderer: NSObject {
       cropScale: crop,
       mirrorX: lensPosition == .front && mirrorFrontPreview ? 1 : 0,
       enabled: enabled ? 1 : 0,
+      exposure: lookExposure,
+      temperature: lookTemperature,
+      tint: lookTint,
       brightness: lookBrightness,
       contrast: lookContrast,
       saturation: lookSaturation,
+      vignette: lookVignette,
       filmStrength: lookFilmStrength,
       useFilm: lookUseFilm,
       creativeStrength: lookCreativeStrength,
