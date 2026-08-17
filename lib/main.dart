@@ -83,23 +83,20 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
         GoRoute(
           path: AppRoutePaths.camera,
           name: AppRouteNames.camera,
-          builder: (_, __) => const RustBootstrapScreen(
-            child: CameraFilmPreviewScreen(),
-          ),
+          builder: (_, __) =>
+              const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
         ),
         GoRoute(
           path: AppRoutePaths.desktop,
           name: AppRouteNames.desktop,
-          builder: (_, __) => const RustBootstrapScreen(
-            child: HomeScreen(),
-          ),
+          builder: (_, __) =>
+              const RustBootstrapScreen(child: HomeScreen()),
         ),
         GoRoute(
           path: AppRoutePaths.films,
           name: AppRouteNames.films,
-          builder: (_, __) => const RustBootstrapScreen(
-            child: FilmProfilesScreen(),
-          ),
+          builder: (_, __) =>
+              const RustBootstrapScreen(child: FilmProfilesScreen()),
         ),
         GoRoute(
           path: AppRoutePaths.editor,
@@ -143,24 +140,24 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp.router(
-        debugShowCheckedModeBanner: false,
-        title: 'Dextryx Pixels',
-        locale: context.locale,
-        supportedLocales: context.supportedLocales,
-        localizationsDelegates: context.localizationDelegates,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: const Color(0xFF7259E7),
-          brightness: Brightness.light,
-          scaffoldBackgroundColor: const Color(0xFFF8F7FC),
-        ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: const Color(0xFF9D8CFF),
-          brightness: Brightness.dark,
-        ),
-        routerConfig: _router,
-      );
+    debugShowCheckedModeBanner: false,
+    title: 'Dextryx Pixels',
+    locale: context.locale,
+    supportedLocales: context.supportedLocales,
+    localizationsDelegates: context.localizationDelegates,
+    theme: ThemeData(
+      useMaterial3: true,
+      colorSchemeSeed: const Color(0xFF7259E7),
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF8F7FC),
+    ),
+    darkTheme: ThemeData(
+      useMaterial3: true,
+      colorSchemeSeed: const Color(0xFF9D8CFF),
+      brightness: Brightness.dark,
+    ),
+    routerConfig: _router,
+  );
 }
 
 class RustBootstrapScreen extends StatefulWidget {
@@ -298,11 +295,11 @@ class _InvalidEditorRouteScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Scaffold(
-        body: Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text('The editor route requires a valid source.'),
-          ),
-        ),
-      );
+    body: Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text('The editor route requires a valid source.'),
+      ),
+    ),
+  );
 }
