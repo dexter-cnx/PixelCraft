@@ -2,7 +2,7 @@
 
 ## Status
 
-**PF2 IN PROGRESS — real Camera Film/Filter/Adjust controls and native ordered preview stages are implemented on PR #48. Exact-head CI and physical-device validation remain open.**
+**PF2 IMPLEMENTATION COMPLETE / DEVICE VALIDATION PENDING — real Camera Film/Filter/Adjust controls and native ordered preview stages are implemented on PR #48. The exact implementation head passed CI; physical-device validation is now the remaining close gate.**
 
 Active work:
 
@@ -11,15 +11,23 @@ PR #48
 feature/pf2-unified-camera-look
 ```
 
-Verified historical baseline:
+Verified implementation baseline:
 
-- CI #387: success
-- CI #390: success
-- CI #392: success
-- CI #394: success
-- CI #400 / run `31944473130`: success
+```text
+implementation head: b4451dce62bd877435cdab4ddd69c3f69cc037cd
+CI: #420 / run 31946914217
+result: SUCCESS
+```
 
-These older runs do not prove the current direct-stage renderer head. Verify the exact latest PR head before closing PF2.
+Documentation-only commits may move the branch head after this implementation baseline. Device evidence must record the exact commit actually installed on the device. A documentation-only descendant is acceptable when its executable tree is unchanged, but do not claim a different implementation head was validated without checking it.
+
+Physical-device checklist:
+
+```text
+docs/PF2_DEVICE_VALIDATION_CHECKLIST.md
+```
+
+PF2 remains **OPEN / DRAFT** until the required device gate passes.
 
 ## Goal
 
@@ -270,17 +278,31 @@ The Metal shader uses the same adjustment formulas and rounded-u8 grayscale/inve
 
 ## Performance policy
 
-Resource loading stays off the per-frame path and happens only when the selected Film/Creative resource changes. The shader now does the semantic order directly, so PF2 must revalidate frame pacing on physical devices rather than assuming the previous single-LUT 60 fps result carries over.
+Resource loading stays off the per-frame path and happens only when the selected Film/Creative resource changes. The shader now performs the semantic stages directly, so PF2 must validate frame pacing on physical devices rather than carrying forward the previous single-LUT performance assumption.
 
-Required device checks include:
+Required physical-device validation is defined in:
 
-- sustained live preview;
-- rapid Film/Filter/Adjust switching;
-- continuous sliders;
+```text
+docs/PF2_DEVICE_VALIDATION_CHECKLIST.md
+```
+
+The required gate includes at minimum:
+
+- launch/basic camera behavior;
+- neutral bypass;
+- Film selection/strength;
+- every exposed Creative Filter class;
+- continuous brightness/contrast/saturation sliders;
 - Film + Creative + Adjust simultaneously;
-- front/back lens switching;
+- rapid-switch/stale-state stress;
+- sustained preview/frame pacing and thermal observation;
+- front/back lens switching where supported;
 - lifecycle pause/resume;
-- runtime failure/fallback behavior.
+- shutter + temporary capture/editor handoff;
+- Gallery source neutrality;
+- runtime failure/fallback where safely inducible;
+- EN/TH control integrity;
+- regression smoke.
 
 ## Runtime failure / fallback behavior
 
@@ -349,14 +371,32 @@ Gallery-picked sources still open with a neutral Camera look.
 3. Add latest-value-wins coordinator and stale-state guards. **DONE**
 4. Add Android/iOS native parsing/contracts. **DONE**
 5. Reject whole-look pre-composed-LUT shortcut and remove composers. **DONE**
-6. Implement ordered Android GLES Adjust -> Film -> Creative stages. **DONE — exact-head CI pending**
-7. Implement ordered iOS Metal Adjust -> Film -> Creative stages. **DONE — exact-head CI pending**
-8. Wire native channel/session activation. **DONE — exact-head CI pending**
-9. Replace PF1 Filter/Adjust placeholders with real controls. **DONE — exact-head CI pending**
-10. Preserve full CameraLook through temporary capture -> editor handoff. **DONE — exact-head CI pending**
-11. Extend targeted parity/regression coverage where needed. **NEXT**
-12. Physical-device frame-pacing and interaction validation. **PENDING**
-13. Refresh PROJECT_HANDOFF / CODE_WALKTHROUGH / README and close PF2 only after exact-head CI and required device evidence. **IN PROGRESS**
+6. Implement ordered Android GLES Adjust -> Film -> Creative stages. **DONE**
+7. Implement ordered iOS Metal Adjust -> Film -> Creative stages. **DONE**
+8. Wire native channel/session activation. **DONE**
+9. Replace PF1 Filter/Adjust placeholders with real controls. **DONE**
+10. Preserve full CameraLook through temporary capture -> editor handoff. **DONE**
+11. Targeted state/coordinator/parity/regression coverage. **DONE — exact implementation head CI #420 GREEN**
+12. Physical-device frame-pacing, interaction, lifecycle, and handoff validation. **CURRENT GATE / PENDING**
+13. Record device/performance evidence. **PENDING**
+14. Refresh final status in PROJECT_HANDOFF / CODE_WALKTHROUGH / README after device result. **PENDING FINAL RESULT**
+15. Mark PR #48 ready only after physical-device gate passes. **PENDING**
+
+## PF2 close criteria
+
+PF2 is not closed merely because CI is green.
+
+Required before Ready for Review:
+
+```text
+exact implementation CI green
++ physical-device checklist pass
++ sustained-preview/frame-pacing acceptable
++ device/performance evidence recorded
++ final documentation refresh
+```
+
+Only then should PR #48 leave Draft state.
 
 ## PF3 boundary
 
