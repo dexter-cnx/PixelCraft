@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:saver_gallery/saver_gallery.dart';
@@ -30,7 +32,7 @@ class ImagePickerMediaService implements MediaPickerService {
 
 /// Concrete mobile Gallery adapter for processed JPEG output.
 ///
-/// PF3 will feed this service bytes produced by the authoritative Rust render;
+/// PF3 feeds this service bytes produced by the authoritative Rust render;
 /// this adapter deliberately owns only the platform save operation.
 class GalleryMediaSaveService implements MediaSaveService {
   const GalleryMediaSaveService();
@@ -65,10 +67,52 @@ class GalleryMediaSaveService implements MediaSaveService {
   }
 }
 
+/// Platform permission adapter for the PF camera flow.
+///
+/// Gallery-write permission is requested at Camera startup so the system
+/// permission sheet never interrupts a shutter -> process -> save transaction.
+/// Android 10+ reports granted immediately because adding a new MediaStore item
+/// with PF3's `skipIfExists: false` path does not require legacy storage access.
+class PlatformPermissionService implements PermissionService {
+  const PlatformPermissionService();
+
+  static const _channel = MethodChannel('dev.cnxdev.pixelcraft/permissions');
+
+  @override
+  Future<PermissionDecision> requestGalleryWrite() =>
+      _request('requestGalleryWrite');
+
+  @override
+  Future<PermissionDecision> requestCamera() async => PermissionDecision.denied;
+
+  @override
+  Future<PermissionDecision> requestGalleryRead() async =>
+      PermissionDecision.denied;
+
+  Future<PermissionDecision> _request(String method) async {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      return PermissionDecision.denied;
+    }
+
+    final value = await _channel.invokeMethod<String>(method);
+    return switch (value) {
+      'granted' => PermissionDecision.granted,
+      'restricted' => PermissionDecision.restricted,
+      _ => PermissionDecision.denied,
+    };
+  }
+}
+
 final mediaPickerServiceProvider = Provider<MediaPickerService>(
   (ref) => ImagePickerMediaService(),
 );
 
 final mediaSaveServiceProvider = Provider<MediaSaveService>(
   (ref) => const GalleryMediaSaveService(),
+);
+
+final permissionServiceProvider = Provider<PermissionService>(
+  (ref) => const PlatformPermissionService(),
 );
