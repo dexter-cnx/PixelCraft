@@ -157,6 +157,21 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     }
 
     @Synchronized
+    fun cameraControlState(id: String): Map<String, Any> = session(id).renderer.cameraControlState()
+
+    @Synchronized
+    fun setFlashMode(id: String, mode: String): Map<String, Any> =
+        session(id).renderer.setFlashMode(mode)
+
+    @Synchronized
+    fun setTorchEnabled(id: String, enabled: Boolean): Map<String, Any> =
+        session(id).renderer.setTorchEnabled(enabled)
+
+    @Synchronized
+    fun setMirrorEnabled(id: String, enabled: Boolean): Map<String, Any> =
+        session(id).renderer.setMirrorEnabled(enabled)
+
+    @Synchronized
     fun pause(id: String) {
         session(id).apply {
             renderer.pause()
