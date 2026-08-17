@@ -32,8 +32,6 @@ else
   if [[ -n "${CI_BASE_SHA:-}" ]] && git cat-file -e "${CI_BASE_SHA}^{commit}" 2>/dev/null; then
     base="$CI_BASE_SHA"
   elif [[ -n "${GITHUB_BASE_REF:-}" ]]; then
-    # pull_request checkout is intentionally shallow. Fetch only its base ref so
-    # formatting can be scoped to the PR delta without fetching repository history.
     git fetch --quiet --no-tags --depth=1 origin "$GITHUB_BASE_REF"
     base="FETCH_HEAD"
   elif git show-ref --verify --quiet refs/remotes/origin/main; then
@@ -46,7 +44,6 @@ else
     add_from_command < <(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.dart')
   fi
 
-  # Local preflight also covers worktree, staged and new untracked Dart files.
   add_from_command < <(git diff --name-only --diff-filter=ACMR -- '*.dart')
   add_from_command < <(git diff --cached --name-only --diff-filter=ACMR -- '*.dart')
   add_from_command < <(git ls-files --others --exclude-standard -- '*.dart')
@@ -59,4 +56,14 @@ fi
 
 printf '[PixelCraft CI] format-check: %d changed Dart file(s)\n' "${#files[@]}"
 printf '  %s\n' "${files[@]}"
-dart format --output=none --set-exit-if-changed "${files[@]}"
+
+# Temporary PF2 diagnostic: emit the exact formatter diff so the long-lived
+# branch can be normalized after syncing with main. Revert this diagnostic once
+# the formatter cleanup is committed.
+if ! dart format --output=none --set-exit-if-changed "${files[@]}"; then
+  dart format "${files[@]}" >/dev/null
+  echo '[PixelCraft CI] FORMAT_DIFF_BEGIN'
+  git diff -- "${files[@]}"
+  echo '[PixelCraft CI] FORMAT_DIFF_END'
+  exit 1
+fi
