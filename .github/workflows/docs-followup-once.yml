@@ -1,0 +1,89 @@
+name: Docs Followup Once
+
+on:
+  push:
+    branches:
+      - agent/docs-router-sync
+
+permissions:
+  contents: write
+
+jobs:
+  sync-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/docs-router-sync
+      - name: Sync continuation docs
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          handoff = Path('docs/PROJECT_HANDOFF.md')
+          text = handoff.read_text()
+          start = text.index('# 17. Current next action')
+          package_anchor = text.index('Package follow-up after PF0/PF1 stabilizes:', start)
+          replacement = '''# 17. Current next action
+
+## Next product slice: PF1 + PF2
+
+PR #50 is merged. The navigation/router foundation and platform-aware root entry are complete: phone/tablet launch at `/camera`, desktop launches at `/desktop`, Camera -> Editor uses typed `EditorRouteData`, and Rust bootstrap initialization is shared across routed workspaces.
+
+Continue with the remaining **PF1 + PF2** work without rebuilding routing or creating a second camera stack.
+
+Required next slice:
+
+1. finish the mobile/tablet camera shell hierarchy as Gallery / Shutter / Controls around the existing verified camera foundation;
+2. integrate Film / Filter / Adjust as camera-context tools and local state, not top-level routes;
+3. preserve native Metal/OpenGL ES realtime preview paths and Flutter camera fallback behavior;
+4. add/finish `easy_localization` foundation with `en` + `th`, device locale detection, and fallback `en`;
+5. continue Riverpod application-state boundaries without moving canonical edit semantics out of Rust;
+6. add/finish `AppPreferencesStore`, `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, typed `ProcessingJobState`, and format-aware source descriptor boundaries as needed by PF1/PF2;
+7. keep desktop editor/open/drop-first and do not route desktop into the mobile camera shell;
+8. keep capture semantics clean-source + Rust-authoritative processing; PF3 will change shutter completion to JPEG save + remain in Camera;
+9. preserve original imported Gallery source bytes/format; PF4 owns the complete Gallery -> editor -> processed output flow;
+10. do not start MobileSAM, real RAW, O1, G7B, Hive migration, or Nixin DAM work.
+
+'''
+          text = text[:start] + replacement + text[package_anchor:]
+          handoff.write_text(text)
+
+          walkthrough = Path('docs/CODE_WALKTHROUGH.md')
+          text = walkthrough.read_text()
+          old = '''## 25. Current continuation point
+
+First finish PR #49 closure on the latest documentation-synced head, mark it Ready only after `Fast CI` + `CI Gate` are green, merge, and verify resulting `main` CI.
+
+Then continue product work with **PF0 + PF1**. Establish platform root, localization/state/preferences/service foundations, then move the existing verified camera implementation into the primary phone/tablet experience without creating a second camera or processing authority.
+
+See `docs/PROJECT_HANDOFF.md` for the canonical execution order and current status.'''
+          new = '''## 25. Current continuation point
+
+PR #50 is merged. Platform routing is established: phone/tablet start at `/camera`, desktop starts at `/desktop`, and Camera -> Editor uses typed go_router handoff with shared Rust bootstrap.
+
+Continue with **PF1 + PF2**: finish the camera-first mobile/tablet shell around the existing camera stack, integrate Film / Filter / Adjust as camera-context tools, and complete the remaining localization/preferences/service-state foundations needed by that flow. Do not create a second camera implementation or move canonical processing authority out of Rust.
+
+See `docs/PROJECT_HANDOFF.md` for the canonical execution order and current status.'''
+          if old not in text:
+              raise SystemExit('walkthrough continuation anchor missing')
+          walkthrough.write_text(text.replace(old, new, 1))
+
+          readme = Path('README.md')
+          text = readme.read_text()
+          old = '''PF1 Camera-first mobile/tablet shell            NEXT / NOT IMPLEMENTED
+PF2 Unified Camera Film/Filter/Adjust UX        PLANNED'''
+          new = '''PF0 Platform-flow routing foundation           PARTIAL / ROUTING MERGED (#50)
+PF1 Camera-first mobile/tablet shell            IN PROGRESS / CAMERA-FIRST ENTRY MERGED (#50)
+PF2 Unified Camera Film/Filter/Adjust UX        NEXT'''
+          if old not in text:
+              raise SystemExit('README status anchor missing')
+          readme.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit documentation follow-up
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/PROJECT_HANDOFF.md docs/CODE_WALKTHROUGH.md README.md
+          git commit -m "docs: align continuation after router merge"
+          git push origin HEAD:agent/docs-router-sync
