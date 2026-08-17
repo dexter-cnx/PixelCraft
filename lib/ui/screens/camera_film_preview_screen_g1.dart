@@ -81,10 +81,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   bool get _supportsNativeDeviceControls => _supportsNativeGpuCamera;
 
-  CameraLookState get _fallbackFilmLook => _preset.isOriginal
-      ? CameraLookState()
-      : CameraLookState(filmProfileId: _preset.id, filmStrength: _strength);
-
   bool get _isFrontCamera => _useNativeGpu
       ? _cameraControls.isFront
       : _activeCamera?.lensDirection == CameraLensDirection.front;
