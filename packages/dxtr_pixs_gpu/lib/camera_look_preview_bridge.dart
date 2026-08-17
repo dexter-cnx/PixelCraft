@@ -26,9 +26,13 @@ class GpuCameraLookState {
         'creativeFilterId': creativeFilterId,
         'creativeFilterStrength':
             creativeFilterStrength.clamp(0.0, 1.0).toDouble(),
+        'exposure': adjustments.exposure,
+        'temperature': adjustments.temperature,
+        'tint': adjustments.tint,
         'brightness': adjustments.brightness,
         'contrast': adjustments.contrast,
         'saturation': adjustments.saturation,
+        'vignette': adjustments.vignette,
       };
 }
 
