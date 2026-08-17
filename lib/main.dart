@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import 'app/app_routes.dart';
 import 'app/platform_flow_foundation.dart';
+import 'app/platform_media_services.dart';
 import 'camera/camera_film_editor_handoff.dart';
 import 'core/bridge.dart';
 import 'ui/screens/camera_film_preview_screen.dart';
@@ -93,7 +94,9 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
           name: AppRouteNames.camera,
           builder: (_, __) => Theme(
             data: _cameraTheme(),
-            child: const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
+            child: const CameraStartupPermissionGate(
+              child: RustBootstrapScreen(child: CameraFilmPreviewScreen()),
+            ),
           ),
         ),
         GoRoute(
@@ -162,6 +165,46 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
     darkTheme: _cameraTheme(),
     themeMode: ThemeMode.system,
     routerConfig: _router,
+  );
+}
+
+/// Requests Gallery-write access before the mobile Camera initializes.
+///
+/// This keeps the system permission prompt out of the shutter transaction. The
+/// Camera still opens when access is denied/restricted; save failures remain
+/// recoverable and user-visible through the PF3 capture feedback path.
+class CameraStartupPermissionGate extends StatefulWidget {
+  const CameraStartupPermissionGate({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<CameraStartupPermissionGate> createState() =>
+      _CameraStartupPermissionGateState();
+}
+
+class _CameraStartupPermissionGateState
+    extends State<CameraStartupPermissionGate> {
+  late final Future<PermissionDecision> _permission;
+
+  @override
+  void initState() {
+    super.initState();
+    _permission = const PlatformPermissionService().requestGalleryWrite();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PermissionDecision>(
+    future: _permission,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.done) {
+        return widget.child;
+      }
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    },
   );
 }
 
