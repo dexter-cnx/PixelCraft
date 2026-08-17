@@ -842,36 +842,24 @@ flutter test
 
 # 17. Current next action
 
-## First: finish CI-01 PR #49 closure
+## Next product slice: PF1 + PF2
 
-PR #49 has a full green validation baseline on run #432. Documentation sync is being finalized on the PR head.
+PR #50 is merged. The navigation/router foundation and platform-aware root entry are complete: phone/tablet launch at `/camera`, desktop launches at `/desktop`, Camera -> Editor uses typed `EditorRouteData`, and Rust bootstrap initialization is shared across routed workspaces.
 
-Before calling CI-01 complete:
+Continue with the remaining **PF1 + PF2** work without rebuilding routing or creating a second camera stack.
 
-1. require latest PR head `Fast CI` + `CI Gate` to be green;
-2. mark PR #49 Ready for Review;
-3. merge only after required checks remain green;
-4. verify the resulting `main` push full CI;
-5. then delete the merged feature branch when safe.
+Required next slice:
 
-## Product work after CI-01
-
-Implement **PF0 + PF1 first**.
-
-Required first slice:
-
-1. add `easy_localization` foundation with `en` + `th`, device locale detection, fallback `en`;
-2. standardize Riverpod application-state boundaries without moving canonical edit semantics out of Rust;
-3. add `AppPreferencesStore` abstraction with a lightweight backend; do not add Hive yet;
-4. define `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, typed `ProcessingJobState`, and a lightweight route/navigation boundary;
-5. define a format-aware source descriptor that can later support RAW and external caller identity;
-6. introduce platform-adaptive root routing after Rust bootstrap;
-7. phone/tablet launch directly into the existing camera foundation;
-8. desktop launches an editor/open/drop-oriented surface rather than the mobile camera shell;
-9. mobile/tablet camera bottom hierarchy becomes Gallery / Shutter / Controls;
-10. preserve current verified GPU/Rust contracts and camera permission/lifecycle hardening;
-11. keep Home/Workspace code only as bounded continuity/recovery support while the new root stabilizes;
-12. do not start MobileSAM, real RAW, O1, G7B, Hive migration, or Nixin DAM work.
+1. finish the mobile/tablet camera shell hierarchy as Gallery / Shutter / Controls around the existing verified camera foundation;
+2. integrate Film / Filter / Adjust as camera-context tools and local state, not top-level routes;
+3. preserve native Metal/OpenGL ES realtime preview paths and Flutter camera fallback behavior;
+4. add/finish `easy_localization` foundation with `en` + `th`, device locale detection, and fallback `en`;
+5. continue Riverpod application-state boundaries without moving canonical edit semantics out of Rust;
+6. add/finish `AppPreferencesStore`, `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, typed `ProcessingJobState`, and format-aware source descriptor boundaries as needed by PF1/PF2;
+7. keep desktop editor/open/drop-first and do not route desktop into the mobile camera shell;
+8. keep capture semantics clean-source + Rust-authoritative processing; PF3 will change shutter completion to JPEG save + remain in Camera;
+9. preserve original imported Gallery source bytes/format; PF4 owns the complete Gallery -> editor -> processed output flow;
+10. do not start MobileSAM, real RAW, O1, G7B, Hive migration, or Nixin DAM work.
 
 Package follow-up after PF0/PF1 stabilizes:
 
