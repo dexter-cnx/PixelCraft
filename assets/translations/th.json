@@ -32,6 +32,12 @@
     "dramatic": "ดรามาติก",
     "golden": "โกลเดน",
     "pastel_pink": "พาสเทลพิงก์",
+    "flash": "แฟลช",
+    "flash_off": "ปิด",
+    "flash_auto": "อัตโนมัติ",
+    "flash_on": "เปิด",
+    "torch": "ไฟส่องต่อเนื่อง",
+    "mirror": "กลับซ้ายขวากล้องหน้า",
     "native_look_required": "ฟิลเตอร์และการปรับแต่งต้องใช้พรีวิวกล้อง GPU แบบ Native"
   },
   "errors": {
