@@ -148,6 +148,25 @@ final class GpuPreviewPlugin {
       withRenderer(call: call, result: result) { renderer, args in
         renderer.setEnabled(args["enabled"] as? Bool ?? false)
       }
+    case "cameraControlState":
+      withRendererResult(call: call, result: result) { renderer, _ in
+        renderer.cameraControlState()
+      }
+    case "setFlashMode":
+      withRendererResult(call: call, result: result) { renderer, args in
+        guard let mode = args["flashMode"] as? String else {
+          throw pluginError("flashMode is required")
+        }
+        return try renderer.setFlashMode(mode)
+      }
+    case "setTorchEnabled":
+      withRendererResult(call: call, result: result) { renderer, args in
+        try renderer.setTorchEnabled(args["enabled"] as? Bool ?? false)
+      }
+    case "setMirrorEnabled":
+      withRendererResult(call: call, result: result) { renderer, args in
+        renderer.setMirrorEnabled(args["enabled"] as? Bool ?? true)
+      }
     case "pause":
       withRenderer(call: call, result: result) { renderer, _ in renderer.pause() }
     case "resume":
@@ -201,6 +220,20 @@ final class GpuPreviewPlugin {
       let renderer = try registry.renderer(id: id)
       try action(renderer, arguments(call))
       result(nil)
+    } catch {
+      result(flutterError("gpu_renderer_failed", error))
+    }
+  }
+
+  private func withRendererResult(
+    call: FlutterMethodCall,
+    result: FlutterResult,
+    action: (MetalCameraPreviewRenderer, [String: Any]) throws -> [String: Any]
+  ) {
+    guard let id = rendererId(call: call, result: result) else { return }
+    do {
+      let renderer = try registry.renderer(id: id)
+      result(try action(renderer, arguments(call)))
     } catch {
       result(flutterError("gpu_renderer_failed", error))
     }
@@ -361,7 +394,6 @@ private final class MetalLutParityHarness {
     guard let function = library.makeFunction(name: "pixelcraft_lut_parity") else {
       throw Self.error("Metal LUT parity kernel is unavailable")
     }
-
     self.device = device
     self.commandQueue = commandQueue
     self.pipeline = try device.makeComputePipelineState(function: function)
@@ -370,59 +402,30 @@ private final class MetalLutParityHarness {
 
   func runReferenceHarness() throws -> MetalLutParityHarnessResult {
     let values: [SIMD3<Float>] = [
-      SIMD3(0, 0, 0),
-      SIMD3(1, 1, 1),
-      SIMD3(1, 0, 0),
-      SIMD3(0, 1, 0),
-      SIMD3(0, 0, 1),
-      SIMD3(0.5, 0.5, 0.5),
-      SIMD3(0.13, 0.47, 0.91),
-      SIMD3(0.82, 0.24, 0.36),
+      SIMD3(0, 0, 0), SIMD3(1, 1, 1), SIMD3(1, 0, 0), SIMD3(0, 1, 0),
+      SIMD3(0, 0, 1), SIMD3(0.5, 0.5, 0.5), SIMD3(0.13, 0.47, 0.91), SIMD3(0.82, 0.24, 0.36),
     ]
     let fixtures = values.map { value in
-      Fixture(
-        input: SIMD4(value.x, value.y, value.z, 1),
-        expected: SIMD3(Double(value.x), Double(value.y), Double(value.z))
-      )
+      Fixture(input: SIMD4(value.x, value.y, value.z, 1), expected: SIMD3(Double(value.x), Double(value.y), Double(value.z)))
     }
-    return try run(
-      profileId: "identity",
-      texture: lutLoader.makeIdentity(),
-      fixtures: fixtures,
-      tolerance: Self.defaultTolerance
-    )
+    return try run(profileId: "identity", texture: lutLoader.makeIdentity(), fixtures: fixtures, tolerance: Self.defaultTolerance)
   }
 
   func runFilmProfileHarness(profileId: String) throws -> MetalLutParityHarnessResult {
-    guard Self.supportedProfileIds.contains(profileId) else {
-      throw Self.error("Unknown Film Profile: \(profileId)")
-    }
-
+    guard Self.supportedProfileIds.contains(profileId) else { throw Self.error("Unknown Film Profile: \(profileId)") }
     let parity = try loadParityFixture()
     guard let inputs = parity["inputs"] as? [Any],
           let profiles = parity["profiles"] as? [String: Any],
           let expectedValues = profiles[profileId] as? [Any],
           inputs.count == expectedValues.count
-    else {
-      throw Self.error("Invalid parity fixture for \(profileId)")
-    }
-
+    else { throw Self.error("Invalid parity fixture for \(profileId)") }
     let fixtures = try zip(inputs, expectedValues).map { inputValue, expectedValue in
       let input = try Self.rgb(inputValue, label: "input")
       let expected = try Self.rgb(expectedValue, label: "expected")
-      return Fixture(
-        input: SIMD4(Float(input.x), Float(input.y), Float(input.z), 1),
-        expected: expected
-      )
+      return Fixture(input: SIMD4(Float(input.x), Float(input.y), Float(input.z), 1), expected: expected)
     }
-
     let tolerance = (parity["tolerance"] as? NSNumber)?.doubleValue ?? Self.defaultTolerance
-    return try run(
-      profileId: profileId,
-      texture: lutLoader.load(profileId: profileId),
-      fixtures: fixtures,
-      tolerance: tolerance
-    )
+    return try run(profileId: profileId, texture: lutLoader.load(profileId: profileId), fixtures: fixtures, tolerance: tolerance)
   }
 
   private func run(
@@ -431,10 +434,7 @@ private final class MetalLutParityHarness {
     fixtures: [Fixture],
     tolerance: Double
   ) throws -> MetalLutParityHarnessResult {
-    guard !fixtures.isEmpty else {
-      throw Self.error("Metal LUT parity fixture list is empty")
-    }
-
+    guard !fixtures.isEmpty else { throw Self.error("Metal LUT parity fixture list is empty") }
     let inputs = fixtures.map(\.input)
     let inputBuffer = try inputs.withUnsafeBytes { raw -> MTLBuffer in
       guard let base = raw.baseAddress,
@@ -442,39 +442,24 @@ private final class MetalLutParityHarness {
       else { throw Self.error("Unable to create Metal parity input buffer") }
       return buffer
     }
-
     let outputLength = fixtures.count * MemoryLayout<SIMD4<Float>>.stride
     guard let outputBuffer = device.makeBuffer(length: outputLength, options: .storageModeShared),
           let commandBuffer = commandQueue.makeCommandBuffer(),
           let encoder = commandBuffer.makeComputeCommandEncoder()
-    else {
-      throw Self.error("Unable to allocate Metal parity command resources")
-    }
-
+    else { throw Self.error("Unable to allocate Metal parity command resources") }
     encoder.setComputePipelineState(pipeline)
     encoder.setBuffer(inputBuffer, offset: 0, index: 0)
     encoder.setBuffer(outputBuffer, offset: 0, index: 1)
     encoder.setTexture(texture, index: 0)
-
     let threads = MTLSize(width: fixtures.count, height: 1, depth: 1)
     let width = max(1, min(pipeline.threadExecutionWidth, fixtures.count))
-    let group = MTLSize(width: width, height: 1, depth: 1)
-    encoder.dispatchThreads(threads, threadsPerThreadgroup: group)
+    encoder.dispatchThreads(threads, threadsPerThreadgroup: MTLSize(width: width, height: 1, depth: 1))
     encoder.endEncoding()
     commandBuffer.commit()
     commandBuffer.waitUntilCompleted()
-
-    if let commandError = commandBuffer.error {
-      throw commandError
-    }
-    guard commandBuffer.status == .completed else {
-      throw Self.error("Metal LUT parity command did not complete")
-    }
-
-    let output = outputBuffer.contents().bindMemory(
-      to: SIMD4<Float>.self,
-      capacity: fixtures.count
-    )
+    if let commandError = commandBuffer.error { throw commandError }
+    guard commandBuffer.status == .completed else { throw Self.error("Metal LUT parity command did not complete") }
+    let output = outputBuffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: fixtures.count)
     var maxError = 0.0
     for index in fixtures.indices {
       let actual = output[index]
@@ -483,7 +468,6 @@ private final class MetalLutParityHarness {
       maxError = max(maxError, abs(Double(actual.y) - expected.y))
       maxError = max(maxError, abs(Double(actual.z) - expected.z))
     }
-
     return MetalLutParityHarnessResult(
       passed: maxError <= tolerance,
       maxChannelError: maxError,
@@ -495,43 +479,27 @@ private final class MetalLutParityHarness {
   }
 
   private func loadParityFixture() throws -> [String: Any] {
-    guard let url = Bundle.main.url(
-      forResource: "native_parity",
-      withExtension: "json",
-      subdirectory: "gpu_luts"
-    ) else {
+    guard let url = Bundle.main.url(forResource: "native_parity", withExtension: "json", subdirectory: "gpu_luts") else {
       throw Self.error("Missing gpu_luts/native_parity.json")
     }
     let data = try Data(contentsOf: url)
     guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw Self.error("Unable to decode native_parity.json")
     }
-    guard (json["version"] as? NSNumber)?.intValue == 1 else {
-      throw Self.error("Unsupported native GPU parity fixture version")
-    }
-    guard (json["lutSize"] as? NSNumber)?.intValue == Self.lutSize else {
-      throw Self.error("Native GPU parity fixture LUT size mismatch")
-    }
+    guard (json["version"] as? NSNumber)?.intValue == 1 else { throw Self.error("Unsupported native GPU parity fixture version") }
+    guard (json["lutSize"] as? NSNumber)?.intValue == Self.lutSize else { throw Self.error("Native GPU parity fixture LUT size mismatch") }
     return json
   }
 
   private static func rgb(_ value: Any, label: String) throws -> SIMD3<Double> {
-    guard let values = value as? [Any], values.count == 3 else {
-      throw error("Parity \(label) must have three channels")
-    }
+    guard let values = value as? [Any], values.count == 3 else { throw error("Parity \(label) must have three channels") }
     let channels = values.compactMap { ($0 as? NSNumber)?.doubleValue }
-    guard channels.count == 3 else {
-      throw error("Parity \(label) contains a non-numeric channel")
-    }
+    guard channels.count == 3 else { throw error("Parity \(label) contains a non-numeric channel") }
     return SIMD3(channels[0], channels[1], channels[2])
   }
 
   private static func error(_ message: String) -> NSError {
-    NSError(
-      domain: "PixelCraftGpuParity",
-      code: 4001,
-      userInfo: [NSLocalizedDescriptionKey: message]
-    )
+    NSError(domain: "PixelCraftGpuParity", code: 4001, userInfo: [NSLocalizedDescriptionKey: message])
   }
 }
 
@@ -591,9 +559,9 @@ private final class MetalGaussianBlurParityHarness {
   private let pipeline: MTLComputePipelineState
 
   init() throws {
-    guard let device = MTLCreateSystemDefaultDevice(),
-          let queue = device.makeCommandQueue()
-    else { throw Self.error("Metal blur parity device/queue unavailable") }
+    guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
+      throw Self.error("Metal blur parity device/queue unavailable")
+    }
     let library = try device.makeLibrary(source: Self.shaderSource, options: nil)
     guard let function = library.makeFunction(name: "pixelcraft_gaussian_023") else {
       throw Self.error("Gaussian parity kernel unavailable")
@@ -608,7 +576,6 @@ private final class MetalGaussianBlurParityHarness {
     var cases: [[String: Any]] = []
     var overallMax = 0.0
     var overallPassed = true
-
     for value in Self.values {
       let sigma = max(value * 2.5, 0.01)
       let expected = Self.rust023Reference(source: source, sigma: sigma)
@@ -634,7 +601,6 @@ private final class MetalGaussianBlurParityHarness {
         "passed": passed,
       ])
     }
-
     return [
       "backend": "iosMetal",
       "reference": "imageproc 0.23 gaussian_blur_f32 separable/u8 continuity semantics",
@@ -648,73 +614,38 @@ private final class MetalGaussianBlurParityHarness {
   }
 
   private func runMetal(source: [[UInt8]], sigma: Float) throws -> [[UInt8]] {
-    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-      pixelFormat: .rgba8Unorm,
-      width: Self.width,
-      height: Self.height,
-      mipmapped: false
-    )
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: Self.width, height: Self.height, mipmapped: false)
     descriptor.usage = [.shaderRead, .shaderWrite]
     descriptor.storageMode = .shared
     guard let input = device.makeTexture(descriptor: descriptor),
           let intermediate = device.makeTexture(descriptor: descriptor),
           let output = device.makeTexture(descriptor: descriptor)
     else { throw Self.error("Unable to allocate Gaussian parity textures") }
-
     let bytes = source.flatMap { $0 }
     bytes.withUnsafeBytes { raw in
       guard let base = raw.baseAddress else { return }
-      input.replace(
-        region: MTLRegionMake2D(0, 0, Self.width, Self.height),
-        mipmapLevel: 0,
-        withBytes: base,
-        bytesPerRow: Self.width * 4
-      )
+      input.replace(region: MTLRegionMake2D(0, 0, Self.width, Self.height), mipmapLevel: 0, withBytes: base, bytesPerRow: Self.width * 4)
     }
-
     let radius = UInt32(ceil(2.0 * sigma))
     try encodePass(input: input, output: intermediate, sigma: sigma, radius: radius, axis: 0)
     try encodePass(input: intermediate, output: output, sigma: sigma, radius: radius, axis: 1)
-
     var out = [UInt8](repeating: 0, count: Self.width * Self.height * 4)
-    output.getBytes(
-      &out,
-      bytesPerRow: Self.width * 4,
-      from: MTLRegionMake2D(0, 0, Self.width, Self.height),
-      mipmapLevel: 0
-    )
-    return stride(from: 0, to: out.count, by: 4).map {
-      [out[$0], out[$0 + 1], out[$0 + 2], out[$0 + 3]]
-    }
+    output.getBytes(&out, bytesPerRow: Self.width * 4, from: MTLRegionMake2D(0, 0, Self.width, Self.height), mipmapLevel: 0)
+    return stride(from: 0, to: out.count, by: 4).map { [out[$0], out[$0 + 1], out[$0 + 2], out[$0 + 3]] }
   }
 
-  private func encodePass(
-    input: MTLTexture,
-    output: MTLTexture,
-    sigma: Float,
-    radius: UInt32,
-    axis: UInt32
-  ) throws {
-    guard let command = queue.makeCommandBuffer(),
-          let encoder = command.makeComputeCommandEncoder()
-    else { throw Self.error("Unable to create Gaussian parity command") }
-    var uniforms = BlurUniforms(
-      width: UInt32(Self.width),
-      height: UInt32(Self.height),
-      radius: radius,
-      axis: axis,
-      sigma: sigma
-    )
+  private func encodePass(input: MTLTexture, output: MTLTexture, sigma: Float, radius: UInt32, axis: UInt32) throws {
+    guard let command = queue.makeCommandBuffer(), let encoder = command.makeComputeCommandEncoder() else {
+      throw Self.error("Unable to create Gaussian parity command")
+    }
+    var uniforms = BlurUniforms(width: UInt32(Self.width), height: UInt32(Self.height), radius: radius, axis: axis, sigma: sigma)
     encoder.setComputePipelineState(pipeline)
     encoder.setTexture(input, index: 0)
     encoder.setTexture(output, index: 1)
     encoder.setBytes(&uniforms, length: MemoryLayout<BlurUniforms>.stride, index: 0)
     let w = pipeline.threadExecutionWidth
     let h = max(1, pipeline.maxTotalThreadsPerThreadgroup / w)
-    encoder.dispatchThreads(
-      MTLSize(width: Self.width, height: Self.height, depth: 1),
-      threadsPerThreadgroup: MTLSize(width: w, height: h, depth: 1)
-    )
+    encoder.dispatchThreads(MTLSize(width: Self.width, height: Self.height, depth: 1), threadsPerThreadgroup: MTLSize(width: w, height: h, depth: 1))
     encoder.endEncoding()
     command.commit()
     command.waitUntilCompleted()
@@ -728,11 +659,7 @@ private final class MetalGaussianBlurParityHarness {
     return filter(source: horizontal, kernel: kernel, horizontal: false)
   }
 
-  private static func filter(
-    source: [[UInt8]],
-    kernel: [Float],
-    horizontal: Bool
-  ) -> [[UInt8]] {
+  private static func filter(source: [[UInt8]], kernel: [Float], horizontal: Bool) -> [[UInt8]] {
     let radius = kernel.count / 2
     var output = Array(repeating: [UInt8](repeating: 0, count: 4), count: width * height)
     for y in 0..<height {
@@ -744,13 +671,9 @@ private final class MetalGaussianBlurParityHarness {
           let sy = horizontal ? y : min(height - 1, max(0, y + offset))
           let pixel = source[sy * width + sx]
           let weight = kernel[index]
-          accum += SIMD4(
-            Float(pixel[0]), Float(pixel[1]), Float(pixel[2]), Float(pixel[3])
-          ) * weight
+          accum += SIMD4(Float(pixel[0]), Float(pixel[1]), Float(pixel[2]), Float(pixel[3])) * weight
         }
-        output[y * width + x] = [
-          clampU8(accum.x), clampU8(accum.y), clampU8(accum.z), clampU8(accum.w),
-        ]
+        output[y * width + x] = [clampU8(accum.x), clampU8(accum.y), clampU8(accum.z), clampU8(accum.w)]
       }
     }
     return output
@@ -780,10 +703,6 @@ private final class MetalGaussianBlurParityHarness {
   }
 
   private static func error(_ message: String) -> NSError {
-    NSError(
-      domain: "PixelCraftGaussianParity",
-      code: 4300,
-      userInfo: [NSLocalizedDescriptionKey: message]
-    )
+    NSError(domain: "PixelCraftGaussianParity", code: 4300, userInfo: [NSLocalizedDescriptionKey: message])
   }
 }
