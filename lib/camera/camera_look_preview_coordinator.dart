@@ -101,9 +101,13 @@ class CameraLookPreviewCoordinator {
         creativeFilterId: state.creativeFilterId,
         creativeFilterStrength: state.creativeFilterStrength,
         adjustments: GpuEditorAdjustmentState(
+          exposure: state.adjustmentValue('exposure'),
+          temperature: state.adjustmentValue('temperature'),
+          tint: state.adjustmentValue('tint'),
           brightness: state.adjustmentValue('brightness'),
           contrast: state.adjustmentValue('contrast'),
           saturation: state.adjustmentValue('saturation'),
+          vignette: state.adjustmentValue('vignette'),
         ),
       );
 }
