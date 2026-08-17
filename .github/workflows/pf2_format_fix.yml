@@ -1,0 +1,66 @@
+name: PF2 one-shot Dart format fix
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.event.pull_request.number == 48 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PF2 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+
+      - name: Format PF2 Dart files
+        run: |
+          dart format \
+            lib/camera/camera_film_editor_handoff.dart \
+            lib/camera/camera_look_preview_coordinator.dart \
+            lib/camera/camera_look_state.dart \
+            lib/ui/camera/camera_primary_controls.dart \
+            lib/ui/screens/camera_film_preview_screen_g1.dart \
+            packages/dxtr_pixs_gpu/lib/camera_look_preview_bridge.dart \
+            packages/dxtr_pixs_gpu/lib/gpu_editor_preview_bridge.dart \
+            packages/dxtr_pixs_gpu/lib/native_gpu_camera_bridge.dart \
+            packages/dxtr_pixs_gpu/lib/native_gpu_preview_bridge.dart \
+            packages/dxtr_pixs_gpu/test/camera_look_preview_bridge_test.dart \
+            test/camera/camera_look_preview_coordinator_test.dart \
+            test/camera/camera_look_state_test.dart
+
+      - name: Commit formatted sources
+        run: |
+          if git diff --quiet --exit-code; then
+            echo "No formatting changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            lib/camera/camera_film_editor_handoff.dart \
+            lib/camera/camera_look_preview_coordinator.dart \
+            lib/camera/camera_look_state.dart \
+            lib/ui/camera/camera_primary_controls.dart \
+            lib/ui/screens/camera_film_preview_screen_g1.dart \
+            packages/dxtr_pixs_gpu/lib/camera_look_preview_bridge.dart \
+            packages/dxtr_pixs_gpu/lib/gpu_editor_preview_bridge.dart \
+            packages/dxtr_pixs_gpu/lib/native_gpu_camera_bridge.dart \
+            packages/dxtr_pixs_gpu/lib/native_gpu_preview_bridge.dart \
+            packages/dxtr_pixs_gpu/test/camera_look_preview_bridge_test.dart \
+            test/camera/camera_look_preview_coordinator_test.dart \
+            test/camera/camera_look_state_test.dart
+          git commit -m "style: format PF2 Dart sources"
+          git push origin HEAD:${{ github.head_ref }}
