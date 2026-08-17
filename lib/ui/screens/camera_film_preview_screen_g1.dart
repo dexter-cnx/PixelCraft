@@ -61,6 +61,15 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   bool _isCapturing = false;
   String? _error;
 
+  NativeCameraControlState _cameraControls = const NativeCameraControlState(
+    lensDirection: 'back',
+    hasFlash: true,
+    hasTorch: true,
+    flashMode: NativeCameraFlashMode.auto,
+    torchEnabled: false,
+    mirrorEnabled: true,
+  );
+
   late final MediaPickerService _mediaPickerService =
       widget.mediaPickerService ?? ImagePickerMediaService();
 
@@ -68,12 +77,32 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
+  // PF2 advanced device controls are wired through Camera2 now. iOS keeps its
+  // existing native preview behavior until the matching AVFoundation control
+  // bridge lands; controls fail closed there instead of silently diverging.
+  bool get _supportsNativeDeviceControls =>
+      defaultTargetPlatform == TargetPlatform.android;
+
   CameraLookState get _fallbackFilmLook => _preset.isOriginal
       ? CameraLookState()
       : CameraLookState(
           filmProfileId: _preset.id,
           filmStrength: _strength,
         );
+
+  bool get _isFrontCamera => _useNativeGpu
+      ? _cameraControls.isFront
+      : _activeCamera?.lensDirection == CameraLensDirection.front;
+
+  bool get _flashAvailable => _useNativeGpu
+      ? _supportsNativeDeviceControls && _cameraControls.hasFlash
+      : _activeCamera?.lensDirection == CameraLensDirection.back;
+
+  bool get _torchAvailable => _useNativeGpu
+      ? _supportsNativeDeviceControls && _cameraControls.hasTorch
+      : _activeCamera?.lensDirection == CameraLensDirection.back;
+
+  bool get _mirrorEnabled => _cameraControls.mirrorEnabled;
 
   @override
   void initState() {
@@ -160,6 +189,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       _lookCoordinator.attach(rendererId);
       _lookCoordinator.submit(_cameraLook);
 
+      var controls = _cameraControls;
+      if (_supportsNativeDeviceControls) {
+        controls = await _nativeCameraBridge.controlState(rendererId);
+      }
+
       if (!mounted) {
         _lookCoordinator.detach();
         await _gpuBridge.destroyRenderer(rendererId);
@@ -168,6 +202,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       setState(() {
         _gpuRendererId = rendererId;
         _nativeLenses = lenses;
+        _cameraControls = controls;
         _useNativeGpu = true;
         _isInitializing = false;
         _error = null;
@@ -257,7 +292,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     );
     try {
       await controller.initialize();
-      await controller.setFlashMode(FlashMode.off);
+      await _applyFallbackFlashMode(controller, _cameraControls.flashMode);
       if (!mounted) {
         await controller.dispose();
         return;
@@ -265,12 +300,38 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       setState(() {
         _controller = controller;
         _activeCamera = camera;
+        _cameraControls = NativeCameraControlState(
+          lensDirection:
+              camera.lensDirection == CameraLensDirection.front ? 'front' : 'back',
+          hasFlash: camera.lensDirection == CameraLensDirection.back,
+          hasTorch: camera.lensDirection == CameraLensDirection.back,
+          flashMode: _cameraControls.flashMode,
+          torchEnabled: false,
+          mirrorEnabled: _cameraControls.mirrorEnabled,
+        );
         _isInitializing = false;
         _error = null;
       });
     } on CameraException catch (error) {
       await controller.dispose();
       _showCameraError(error);
+    }
+  }
+
+  Future<void> _applyFallbackFlashMode(
+    CameraController controller,
+    NativeCameraFlashMode mode,
+  ) async {
+    try {
+      await controller.setFlashMode(
+        switch (mode) {
+          NativeCameraFlashMode.off => FlashMode.off,
+          NativeCameraFlashMode.auto => FlashMode.auto,
+          NativeCameraFlashMode.on => FlashMode.always,
+        },
+      );
+    } on CameraException {
+      await controller.setFlashMode(FlashMode.off);
     }
   }
 
@@ -312,6 +373,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       await _nativeCameraBridge.switchCamera(rendererId);
+      if (_supportsNativeDeviceControls && mounted) {
+        final controls = await _nativeCameraBridge.controlState(rendererId);
+        if (mounted) setState(() => _cameraControls = controls);
+      }
       return;
     }
 
@@ -319,6 +384,90 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (current == null) return;
     final currentIndex = _cameras.indexOf(current);
     await _initializeCamera(_cameras[(currentIndex + 1) % _cameras.length]);
+  }
+
+  Future<void> _setFlashMode(NativeCameraFlashMode mode) async {
+    if (_isCapturing || _cameraControls.torchEnabled || !_flashAvailable) return;
+    final rendererId = _gpuRendererId;
+    if (_useNativeGpu && rendererId != null) {
+      if (!_supportsNativeDeviceControls) return;
+      final controls = await _nativeCameraBridge.setFlashMode(rendererId, mode);
+      if (mounted) setState(() => _cameraControls = controls);
+      return;
+    }
+    final controller = _controller;
+    if (controller == null) return;
+    await _applyFallbackFlashMode(controller, mode);
+    if (!mounted) return;
+    setState(() {
+      _cameraControls = NativeCameraControlState(
+        lensDirection: _cameraControls.lensDirection,
+        hasFlash: _cameraControls.hasFlash,
+        hasTorch: _cameraControls.hasTorch,
+        flashMode: mode,
+        torchEnabled: false,
+        mirrorEnabled: _cameraControls.mirrorEnabled,
+      );
+    });
+  }
+
+  Future<void> _cycleFlashMode() async {
+    final next = switch (_cameraControls.flashMode) {
+      NativeCameraFlashMode.off => NativeCameraFlashMode.auto,
+      NativeCameraFlashMode.auto => NativeCameraFlashMode.on,
+      NativeCameraFlashMode.on => NativeCameraFlashMode.off,
+    };
+    await _setFlashMode(next);
+  }
+
+  Future<void> _setTorchEnabled(bool enabled) async {
+    if (_isCapturing || !_torchAvailable) return;
+    final rendererId = _gpuRendererId;
+    if (_useNativeGpu && rendererId != null) {
+      if (!_supportsNativeDeviceControls) return;
+      final controls =
+          await _nativeCameraBridge.setTorchEnabled(rendererId, enabled);
+      if (mounted) setState(() => _cameraControls = controls);
+      return;
+    }
+    final controller = _controller;
+    if (controller == null) return;
+    await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
+    if (!mounted) return;
+    setState(() {
+      _cameraControls = NativeCameraControlState(
+        lensDirection: _cameraControls.lensDirection,
+        hasFlash: _cameraControls.hasFlash,
+        hasTorch: _cameraControls.hasTorch,
+        flashMode: enabled
+            ? NativeCameraFlashMode.off
+            : _cameraControls.flashMode,
+        torchEnabled: enabled,
+        mirrorEnabled: _cameraControls.mirrorEnabled,
+      );
+    });
+  }
+
+  Future<void> _setMirrorEnabled(bool enabled) async {
+    final rendererId = _gpuRendererId;
+    if (_useNativeGpu && rendererId != null) {
+      if (!_supportsNativeDeviceControls) return;
+      final controls =
+          await _nativeCameraBridge.setMirrorEnabled(rendererId, enabled);
+      if (mounted) setState(() => _cameraControls = controls);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _cameraControls = NativeCameraControlState(
+        lensDirection: _cameraControls.lensDirection,
+        hasFlash: _cameraControls.hasFlash,
+        hasTorch: _cameraControls.hasTorch,
+        flashMode: _cameraControls.flashMode,
+        torchEnabled: _cameraControls.torchEnabled,
+        mirrorEnabled: enabled,
+      );
+    });
   }
 
   Future<void> _capture() async {
@@ -463,37 +612,94 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF111111),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'camera.controls'.tr(),
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(color: Colors.white),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          Future<void> refresh(Future<void> Function() action) async {
+            await action();
+            if (sheetContext.mounted) setSheetState(() {});
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'camera.controls'.tr(),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(color: Colors.white),
+                  ),
+                  const SizedBox(height: 14),
+                  Text('camera.flash'.tr(),
+                      style: const TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 8),
+                  SegmentedButton<NativeCameraFlashMode>(
+                    segments: [
+                      ButtonSegment(
+                        value: NativeCameraFlashMode.off,
+                        label: Text('camera.flash_off'.tr()),
+                      ),
+                      ButtonSegment(
+                        value: NativeCameraFlashMode.auto,
+                        label: Text('camera.flash_auto'.tr()),
+                      ),
+                      ButtonSegment(
+                        value: NativeCameraFlashMode.on,
+                        label: Text('camera.flash_on'.tr()),
+                      ),
+                    ],
+                    selected: {_cameraControls.flashMode},
+                    onSelectionChanged:
+                        _flashAvailable && !_cameraControls.torchEnabled
+                            ? (selection) => unawaited(refresh(
+                                  () => _setFlashMode(selection.first),
+                                ))
+                            : null,
+                    showSelectedIcon: false,
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile.adaptive(
+                    value: _cameraControls.torchEnabled,
+                    onChanged: _torchAvailable
+                        ? (value) => unawaited(
+                              refresh(() => _setTorchEnabled(value)),
+                            )
+                        : null,
+                    secondary: const Icon(Icons.flashlight_on_outlined),
+                    title: Text('camera.torch'.tr()),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: _mirrorEnabled,
+                    onChanged: _isFrontCamera
+                        ? (value) => unawaited(
+                              refresh(() => _setMirrorEnabled(value)),
+                            )
+                        : null,
+                    secondary: const Icon(Icons.flip_outlined),
+                    title: Text('camera.mirror'.tr()),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.cameraswitch_outlined),
+                    iconColor: Colors.white,
+                    textColor: Colors.white,
+                    title: Text('camera.switch_camera'.tr()),
+                    enabled: _canSwitchCamera,
+                    onTap: _canSwitchCamera
+                        ? () async {
+                            await _switchCamera();
+                            if (sheetContext.mounted) setSheetState(() {});
+                          }
+                        : null,
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.cameraswitch_outlined),
-                iconColor: Colors.white,
-                textColor: Colors.white,
-                title: Text('camera.switch_camera'.tr()),
-                enabled: _canSwitchCamera,
-                onTap: _canSwitchCamera
-                    ? () {
-                        Navigator.pop(context);
-                        unawaited(_switchCamera());
-                      }
-                    : null,
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -550,17 +756,12 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.no_photography_outlined,
-                color: Colors.white70,
-                size: 48,
-              ),
+              const Icon(Icons.no_photography_outlined,
+                  color: Colors.white70, size: 48),
               const SizedBox(height: 16),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white),
-              ),
+              Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white)),
               const SizedBox(height: 20),
               FilledButton.tonal(
                 onPressed: () {
@@ -593,10 +794,17 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    final preview = ColorFiltered(
+    Widget preview = ColorFiltered(
       colorFilter: _preset.colorFilter(_strength),
       child: CameraPreview(controller),
     );
+    if (_isFrontCamera && _mirrorEnabled) {
+      preview = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1),
+        child: preview,
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final screenAspect = constraints.maxWidth / constraints.maxHeight;
@@ -613,14 +821,37 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     );
   }
 
+  IconData get _flashIcon => switch (_cameraControls.flashMode) {
+        NativeCameraFlashMode.off => Icons.flash_off,
+        NativeCameraFlashMode.auto => Icons.flash_auto,
+        NativeCameraFlashMode.on => Icons.flash_on,
+      };
+
   Widget _buildTopBar() {
+    final flashEnabled =
+        _flashAvailable && !_cameraControls.torchEnabled && !_isCapturing;
     return Positioned(
       left: 12,
       right: 12,
       top: 8,
       child: Row(
         children: [
-          const SizedBox(width: 44),
+          SizedBox.square(
+            dimension: 44,
+            child: IconButton.filledTonal(
+              key: const Key('camera-flash'),
+              tooltip: 'camera.flash'.tr(),
+              onPressed:
+                  flashEnabled ? () => unawaited(_cycleFlashMode()) : null,
+              icon: Icon(_flashIcon),
+              style: IconButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.black54,
+                disabledForegroundColor: Colors.white30,
+                disabledBackgroundColor: Colors.black26,
+              ),
+            ),
+          ),
           const Spacer(),
           DecoratedBox(
             decoration: BoxDecoration(
@@ -685,14 +916,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _preset.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text(_preset.name,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700)),
               if (!_preset.isOriginal)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 44),
@@ -723,8 +951,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
-                      ),
+                          color: selected ? Colors.white : Colors.white38),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
                         fontWeight:
@@ -760,10 +987,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     ? 'camera.original'.tr()
                     : 'camera.$activeId'.tr(),
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700),
               ),
               if (activeId.isNotEmpty)
                 Padding(
@@ -791,19 +1017,16 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     final selected = id == activeId;
                     return ChoiceChip(
                       selected: selected,
-                      label: Text(
-                        filter == null
-                            ? 'camera.original'.tr()
-                            : 'camera.${filter.id}'.tr(),
-                      ),
+                      label: Text(filter == null
+                          ? 'camera.original'.tr()
+                          : 'camera.${filter.id}'.tr()),
                       onSelected: _isCapturing
                           ? null
                           : (_) => _selectCreativeFilter(filter?.id),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
-                      ),
+                          color: selected ? Colors.white : Colors.white38),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
                         fontWeight:
@@ -838,10 +1061,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
               Text(
                 '${'camera.$_selectedAdjustmentId'.tr()}  ${value.toStringAsFixed(2)}',
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 44),
@@ -870,8 +1092,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
-                      ),
+                          color: selected ? Colors.white : Colors.white38),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
                         fontWeight:
