@@ -475,9 +475,14 @@ internal class AndroidGpuCameraOesRenderer(
     }
 
     private fun applyStillFlash(builder: CaptureRequest.Builder) {
-        if (!hasFlashForLens(lensFacing) || torchEnabled) {
+        if (!hasFlashForLens(lensFacing)) {
             builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
             builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+            return
+        }
+        if (torchEnabled) {
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
             return
         }
         builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
