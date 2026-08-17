@@ -98,20 +98,18 @@ class NativeGpuHarnessResult {
 
 class NativeGpuPreviewBridge {
   const NativeGpuPreviewBridge({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
+    : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
 
   final MethodChannel _channel;
 
   Future<NativeGpuProbe> probe({bool forceSelfTest = false}) async {
     _traceNativeGpu('probe START forceSelfTest=$forceSelfTest');
     try {
-      final result = await _channel.invokeMapMethod<Object?, Object?>(
-        'probe',
-        <String, Object?>{
-          'protocolVersion': gpuPreviewProtocolVersion,
-          'forceSelfTest': forceSelfTest,
-        },
-      );
+      final result = await _channel
+          .invokeMapMethod<Object?, Object?>('probe', <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+            'forceSelfTest': forceSelfTest,
+          });
       if (result == null) {
         throw StateError('Native GPU probe returned no data');
       }
@@ -166,43 +164,30 @@ class NativeGpuPreviewBridge {
   Future<void> configureSurface(
     String rendererId,
     GpuPreviewSurfaceConfiguration surface,
-  ) =>
-      _invokeRendererControl('configureSurface', rendererId, surface.toMap());
+  ) => _invokeRendererControl('configureSurface', rendererId, surface.toMap());
 
   Future<void> setFilm(String rendererId, GpuPreviewFilmState film) =>
-      _invokeRendererControl(
-        'setFilm',
-        rendererId,
-        <String, Object?>{
-          'profileId': film.profileId,
-          'strength': film.normalized().strength,
-        },
-      );
+      _invokeRendererControl('setFilm', rendererId, <String, Object?>{
+        'profileId': film.profileId,
+        'strength': film.normalized().strength,
+      });
 
   Future<void> setStrength(String rendererId, double strength) =>
-      _invokeRendererControl(
-        'setStrength',
-        rendererId,
-        <String, Object?>{'strength': strength.clamp(0.0, 1.0).toDouble()},
-      );
+      _invokeRendererControl('setStrength', rendererId, <String, Object?>{
+        'strength': strength.clamp(0.0, 1.0).toDouble(),
+      });
 
   Future<void> setViewport(String rendererId, GpuPreviewViewport viewport) =>
-      _invokeRendererControl(
-        'setViewport',
-        rendererId,
-        <String, Object?>{
-          'width': viewport.width,
-          'height': viewport.height,
-          'devicePixelRatio': viewport.devicePixelRatio,
-        },
-      );
+      _invokeRendererControl('setViewport', rendererId, <String, Object?>{
+        'width': viewport.width,
+        'height': viewport.height,
+        'devicePixelRatio': viewport.devicePixelRatio,
+      });
 
   Future<void> setEnabled(String rendererId, bool enabled) =>
-      _invokeRendererControl(
-        'setEnabled',
-        rendererId,
-        <String, Object?>{'enabled': enabled},
-      );
+      _invokeRendererControl('setEnabled', rendererId, <String, Object?>{
+        'enabled': enabled,
+      });
 
   Future<void> pause(String rendererId) =>
       _invokeRendererControl('pause', rendererId);
@@ -218,14 +203,11 @@ class NativeGpuPreviewBridge {
   ]) async {
     _traceNativeGpu('$method START rendererId=$rendererId');
     try {
-      await _channel.invokeMethod<void>(
-        method,
-        <String, Object?>{
-          'protocolVersion': gpuPreviewProtocolVersion,
-          'rendererId': rendererId,
-          ...values,
-        },
-      );
+      await _channel.invokeMethod<void>(method, <String, Object?>{
+        'protocolVersion': gpuPreviewProtocolVersion,
+        'rendererId': rendererId,
+        ...values,
+      });
       _traceNativeGpu('$method OK rendererId=$rendererId');
     } catch (error, stackTrace) {
       _traceNativeGpu('$method FAILED rendererId=$rendererId error=$error');
@@ -260,7 +242,7 @@ class NativeGpuPreviewBridge {
 
 class NativeGpuPreviewSession implements GpuPreviewRendererSession {
   NativeGpuPreviewSession({NativeGpuPreviewBridge? bridge})
-      : _bridge = bridge ?? const NativeGpuPreviewBridge();
+    : _bridge = bridge ?? const NativeGpuPreviewBridge();
 
   final NativeGpuPreviewBridge _bridge;
   bool _hasSurface = false;

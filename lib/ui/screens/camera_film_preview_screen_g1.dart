@@ -19,10 +19,7 @@ import '../../gpu/native_gpu_preview_bridge.dart';
 import '../camera/camera_primary_controls.dart';
 
 class CameraFilmPreviewScreen extends StatefulWidget {
-  const CameraFilmPreviewScreen({
-    super.key,
-    this.mediaPickerService,
-  });
+  const CameraFilmPreviewScreen({super.key, this.mediaPickerService});
 
   final MediaPickerService? mediaPickerService;
 
@@ -77,7 +74,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   late final MediaPickerService _mediaPickerService =
       widget.mediaPickerService ?? ImagePickerMediaService();
 
-  bool get _supportsNativeGpuCamera => !kIsWeb &&
+  bool get _supportsNativeGpuCamera =>
+      !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
@@ -85,10 +83,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   CameraLookState get _fallbackFilmLook => _preset.isOriginal
       ? CameraLookState()
-      : CameraLookState(
-          filmProfileId: _preset.id,
-          filmStrength: _strength,
-        );
+      : CameraLookState(filmProfileId: _preset.id, filmStrength: _strength);
 
   bool get _isFrontCamera => _useNativeGpu
       ? _cameraControls.isFront
@@ -172,8 +167,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       final decision = _gpuPolicy.evaluate(probe);
       if (!decision.useNativeGpu) return false;
 
-      final permissionGranted =
-          await _nativeCameraBridge.requestCameraPermission();
+      final permissionGranted = await _nativeCameraBridge
+          .requestCameraPermission();
       if (!permissionGranted) {
         if (!mounted) return true;
         setState(() {
@@ -301,8 +296,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         _controller = controller;
         _activeCamera = camera;
         _cameraControls = NativeCameraControlState(
-          lensDirection:
-              camera.lensDirection == CameraLensDirection.front ? 'front' : 'back',
+          lensDirection: camera.lensDirection == CameraLensDirection.front
+              ? 'front'
+              : 'back',
           hasFlash: camera.lensDirection == CameraLensDirection.back,
           hasTorch: camera.lensDirection == CameraLensDirection.back,
           flashMode: _cameraControls.flashMode,
@@ -323,13 +319,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     NativeCameraFlashMode mode,
   ) async {
     try {
-      await controller.setFlashMode(
-        switch (mode) {
-          NativeCameraFlashMode.off => FlashMode.off,
-          NativeCameraFlashMode.auto => FlashMode.auto,
-          NativeCameraFlashMode.on => FlashMode.always,
-        },
-      );
+      await controller.setFlashMode(switch (mode) {
+        NativeCameraFlashMode.off => FlashMode.off,
+        NativeCameraFlashMode.auto => FlashMode.auto,
+        NativeCameraFlashMode.on => FlashMode.always,
+      });
     } on CameraException {
       await controller.setFlashMode(FlashMode.off);
     }
@@ -353,8 +347,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   void _showCameraError(CameraException error) {
     if (!mounted) return;
     final message = switch (error.code) {
-      'CameraAccessDenied' || 'CameraAccessDeniedWithoutPrompt' =>
-        'errors.permission_denied'.tr(),
+      'CameraAccessDenied' ||
+      'CameraAccessDeniedWithoutPrompt' => 'errors.permission_denied'.tr(),
       'CameraAccessRestricted' => 'errors.permission_restricted'.tr(),
       _ => 'errors.camera_unavailable'.tr(),
     };
@@ -387,7 +381,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   Future<void> _setFlashMode(NativeCameraFlashMode mode) async {
-    if (_isCapturing || _cameraControls.torchEnabled || !_flashAvailable) return;
+    if (_isCapturing || _cameraControls.torchEnabled || !_flashAvailable)
+      return;
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       if (!_supportsNativeDeviceControls) return;
@@ -425,8 +420,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       if (!_supportsNativeDeviceControls) return;
-      final controls =
-          await _nativeCameraBridge.setTorchEnabled(rendererId, enabled);
+      final controls = await _nativeCameraBridge.setTorchEnabled(
+        rendererId,
+        enabled,
+      );
       if (mounted) setState(() => _cameraControls = controls);
       return;
     }
@@ -452,8 +449,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       if (!_supportsNativeDeviceControls) return;
-      final controls =
-          await _nativeCameraBridge.setMirrorEnabled(rendererId, enabled);
+      final controls = await _nativeCameraBridge.setMirrorEnabled(
+        rendererId,
+        enabled,
+      );
       if (mounted) setState(() => _cameraControls = controls);
       return;
     }
@@ -520,18 +519,15 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (!mounted || source == null) return;
     if (source.provenance != MediaSourceProvenance.gallery ||
         !source.uri.isScheme('file')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('errors.unsupported_source'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('errors.unsupported_source'.tr())));
       return;
     }
     await _openEditor(source.uri.toFilePath(), look: CameraLookState());
   }
 
-  Future<void> _openEditor(
-    String imagePath, {
-    required CameraLookState look,
-  }) =>
+  Future<void> _openEditor(String imagePath, {required CameraLookState look}) =>
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => CameraFilmEditorHandoff(
@@ -628,14 +624,15 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 children: [
                   Text(
                     'camera.controls'.tr(),
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(color: Colors.white),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleLarge?.copyWith(color: Colors.white),
                   ),
                   const SizedBox(height: 14),
-                  Text('camera.flash'.tr(),
-                      style: const TextStyle(color: Colors.white70)),
+                  Text(
+                    'camera.flash'.tr(),
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                   const SizedBox(height: 8),
                   SegmentedButton<NativeCameraFlashMode>(
                     segments: [
@@ -655,19 +652,18 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     selected: {_cameraControls.flashMode},
                     onSelectionChanged:
                         _flashAvailable && !_cameraControls.torchEnabled
-                            ? (selection) => unawaited(refresh(
-                                  () => _setFlashMode(selection.first),
-                                ))
-                            : null,
+                        ? (selection) => unawaited(
+                            refresh(() => _setFlashMode(selection.first)),
+                          )
+                        : null,
                     showSelectedIcon: false,
                   ),
                   const SizedBox(height: 8),
                   SwitchListTile.adaptive(
                     value: _cameraControls.torchEnabled,
                     onChanged: _torchAvailable
-                        ? (value) => unawaited(
-                              refresh(() => _setTorchEnabled(value)),
-                            )
+                        ? (value) =>
+                              unawaited(refresh(() => _setTorchEnabled(value)))
                         : null,
                     secondary: const Icon(Icons.flashlight_on_outlined),
                     title: Text('camera.torch'.tr()),
@@ -675,9 +671,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                   SwitchListTile.adaptive(
                     value: _mirrorEnabled,
                     onChanged: _isFrontCamera
-                        ? (value) => unawaited(
-                              refresh(() => _setMirrorEnabled(value)),
-                            )
+                        ? (value) =>
+                              unawaited(refresh(() => _setMirrorEnabled(value)))
                         : null,
                     secondary: const Icon(Icons.flip_outlined),
                     title: Text('camera.mirror'.tr()),
@@ -715,8 +710,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             _buildViewfinder(),
             _buildTopBar(),
             if (_selectedTool == CameraPrimaryTool.film) _buildFilmControls(),
-            if (_selectedTool == CameraPrimaryTool.filter) _buildFilterControls(),
-            if (_selectedTool == CameraPrimaryTool.adjust) _buildAdjustControls(),
+            if (_selectedTool == CameraPrimaryTool.filter)
+              _buildFilterControls(),
+            if (_selectedTool == CameraPrimaryTool.adjust)
+              _buildAdjustControls(),
             Positioned(
               left: 0,
               right: 0,
@@ -756,12 +753,17 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.no_photography_outlined,
-                  color: Colors.white70, size: 48),
+              const Icon(
+                Icons.no_photography_outlined,
+                color: Colors.white70,
+                size: 48,
+              ),
               const SizedBox(height: 16),
-              Text(_error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white)),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white),
+              ),
               const SizedBox(height: 20),
               FilledButton.tonal(
                 onPressed: () {
@@ -822,10 +824,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   IconData get _flashIcon => switch (_cameraControls.flashMode) {
-        NativeCameraFlashMode.off => Icons.flash_off,
-        NativeCameraFlashMode.auto => Icons.flash_auto,
-        NativeCameraFlashMode.on => Icons.flash_on,
-      };
+    NativeCameraFlashMode.off => Icons.flash_off,
+    NativeCameraFlashMode.auto => Icons.flash_auto,
+    NativeCameraFlashMode.on => Icons.flash_on,
+  };
 
   Widget _buildTopBar() {
     final flashEnabled =
@@ -841,8 +843,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             child: IconButton.filledTonal(
               key: const Key('camera-flash'),
               tooltip: 'camera.flash'.tr(),
-              onPressed:
-                  flashEnabled ? () => unawaited(_cycleFlashMode()) : null,
+              onPressed: flashEnabled
+                  ? () => unawaited(_cycleFlashMode())
+                  : null,
               icon: Icon(_flashIcon),
               style: IconButton.styleFrom(
                 foregroundColor: Colors.white,
@@ -863,8 +866,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
               child: Text(
                 kDebugMode
                     ? (_useNativeGpu
-                        ? 'camera.gpu_look_preview'.tr()
-                        : 'camera.film_preview'.tr())
+                          ? 'camera.gpu_look_preview'.tr()
+                          : 'camera.film_preview'.tr())
                     : 'Dxtr Pixs',
                 style: const TextStyle(
                   color: Colors.white,
@@ -899,12 +902,12 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   BoxDecoration get _lookPanelDecoration => const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Color(0xB3000000)],
-        ),
-      );
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Colors.transparent, Color(0xB3000000)],
+    ),
+  );
 
   Widget _buildFilmControls() {
     return Positioned(
@@ -918,11 +921,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_preset.name,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700)),
+              Text(
+                _preset.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               if (!_preset.isOriginal)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 44),
@@ -948,16 +954,19 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     return ChoiceChip(
                       selected: selected,
                       label: Text(preset.name.replaceAll(' Inspired', '')),
-                      onSelected:
-                          _isCapturing ? null : (_) => _selectPreset(preset),
+                      onSelected: _isCapturing
+                          ? null
+                          : (_) => _selectPreset(preset),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                          color: selected ? Colors.white : Colors.white38),
+                        color: selected ? Colors.white : Colors.white38,
+                      ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                       ),
                       showCheckmark: false,
                     );
@@ -989,9 +998,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     ? 'camera.original'.tr()
                     : 'camera.$activeId'.tr(),
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700),
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               if (activeId.isNotEmpty)
                 Padding(
@@ -1013,26 +1023,31 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                   itemCount: cameraCreativeFilters.length + 1,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
-                    final filter =
-                        index == 0 ? null : cameraCreativeFilters[index - 1];
+                    final filter = index == 0
+                        ? null
+                        : cameraCreativeFilters[index - 1];
                     final id = filter?.id ?? '';
                     final selected = id == activeId;
                     return ChoiceChip(
                       selected: selected,
-                      label: Text(filter == null
-                          ? 'camera.original'.tr()
-                          : 'camera.${filter.id}'.tr()),
+                      label: Text(
+                        filter == null
+                            ? 'camera.original'.tr()
+                            : 'camera.${filter.id}'.tr(),
+                      ),
                       onSelected: _isCapturing
                           ? null
                           : (_) => _selectCreativeFilter(filter?.id),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                          color: selected ? Colors.white : Colors.white38),
+                        color: selected ? Colors.white : Colors.white38,
+                      ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                       ),
                       showCheckmark: false,
                     );
@@ -1063,9 +1078,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
               Text(
                 '${'camera.$_selectedAdjustmentId'.tr()}  ${value.toStringAsFixed(2)}',
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700),
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 44),
@@ -1089,16 +1105,19 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     return ChoiceChip(
                       selected: selected,
                       label: Text('camera.$id'.tr()),
-                      onSelected:
-                          _isCapturing ? null : (_) => _selectAdjustment(id),
+                      onSelected: _isCapturing
+                          ? null
+                          : (_) => _selectAdjustment(id),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                          color: selected ? Colors.white : Colors.white38),
+                        color: selected ? Colors.white : Colors.white38,
+                      ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                       ),
                       showCheckmark: false,
                     );

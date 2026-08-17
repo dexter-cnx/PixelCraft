@@ -3,10 +3,8 @@ import 'package:flutter/services.dart';
 
 import 'gpu_protocol.dart';
 
-typedef NativeGpuRuntimeFailureHandler = Future<void> Function(
-  String rendererId,
-  String message,
-);
+typedef NativeGpuRuntimeFailureHandler =
+    Future<void> Function(String rendererId, String message);
 
 enum NativeCameraFlashMode { off, auto, on }
 
@@ -14,10 +12,10 @@ extension NativeCameraFlashModeWire on NativeCameraFlashMode {
   String get wireName => name;
 
   static NativeCameraFlashMode parse(Object? value) => switch (value) {
-        'on' => NativeCameraFlashMode.on,
-        'off' => NativeCameraFlashMode.off,
-        _ => NativeCameraFlashMode.auto,
-      };
+    'on' => NativeCameraFlashMode.on,
+    'off' => NativeCameraFlashMode.off,
+    _ => NativeCameraFlashMode.auto,
+  };
 }
 
 @immutable
@@ -63,7 +61,7 @@ void _traceNativeCamera(String message) {
 /// Live camera frames remain entirely native.
 class NativeGpuCameraBridge {
   const NativeGpuCameraBridge({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
+    : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
 
   final MethodChannel _channel;
 
@@ -76,7 +74,8 @@ class NativeGpuCameraBridge {
               final arguments = call.arguments;
               if (arguments is! Map) return;
               final rendererId = arguments['rendererId'] as String? ?? '';
-              final message = arguments['message'] as String? ??
+              final message =
+                  arguments['message'] as String? ??
                   'Native GPU camera renderer failed';
               _traceNativeCamera(
                 'runtimeFailure rendererId=$rendererId message=$message',
@@ -89,7 +88,8 @@ class NativeGpuCameraBridge {
   Future<bool> requestCameraPermission() async {
     _traceNativeCamera('requestCameraPermission START');
     try {
-      final granted = await _channel.invokeMethod<bool>(
+      final granted =
+          await _channel.invokeMethod<bool>(
             'requestCameraPermission',
             const <String, Object?>{
               'protocolVersion': gpuPreviewProtocolVersion,
@@ -108,7 +108,8 @@ class NativeGpuCameraBridge {
   Future<List<String>> availableLenses() async {
     _traceNativeCamera('availableLenses START');
     try {
-      final lenses = await _channel.invokeListMethod<String>(
+      final lenses =
+          await _channel.invokeListMethod<String>(
             'availableCameraLenses',
             const <String, Object?>{
               'protocolVersion': gpuPreviewProtocolVersion,
@@ -130,32 +131,23 @@ class NativeGpuCameraBridge {
   Future<NativeCameraControlState> setFlashMode(
     String rendererId,
     NativeCameraFlashMode mode,
-  ) =>
-      _control(
-        'setFlashMode',
-        rendererId,
-        <String, Object?>{'flashMode': mode.wireName},
-      );
+  ) => _control('setFlashMode', rendererId, <String, Object?>{
+    'flashMode': mode.wireName,
+  });
 
   Future<NativeCameraControlState> setTorchEnabled(
     String rendererId,
     bool enabled,
-  ) =>
-      _control(
-        'setTorchEnabled',
-        rendererId,
-        <String, Object?>{'enabled': enabled},
-      );
+  ) => _control('setTorchEnabled', rendererId, <String, Object?>{
+    'enabled': enabled,
+  });
 
   Future<NativeCameraControlState> setMirrorEnabled(
     String rendererId,
     bool enabled,
-  ) =>
-      _control(
-        'setMirrorEnabled',
-        rendererId,
-        <String, Object?>{'enabled': enabled},
-      );
+  ) => _control('setMirrorEnabled', rendererId, <String, Object?>{
+    'enabled': enabled,
+  });
 
   Future<String> capturePhoto(String rendererId) async {
     _traceNativeCamera('capturePhoto START rendererId=$rendererId');
@@ -213,14 +205,12 @@ class NativeGpuCameraBridge {
   ]) async {
     _traceNativeCamera('$method START rendererId=$rendererId');
     try {
-      final result = await _channel.invokeMapMethod<Object?, Object?>(
-        method,
-        <String, Object?>{
-          'protocolVersion': gpuPreviewProtocolVersion,
-          'rendererId': rendererId,
-          ...extra,
-        },
-      );
+      final result = await _channel
+          .invokeMapMethod<Object?, Object?>(method, <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+            'rendererId': rendererId,
+            ...extra,
+          });
       final state = NativeCameraControlState.fromMap(result);
       _traceNativeCamera(
         '$method OK lens=${state.lensDirection} flash=${state.flashMode.name} '

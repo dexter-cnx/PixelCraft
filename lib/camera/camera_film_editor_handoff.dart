@@ -53,7 +53,8 @@ class _CameraFilmEditorHandoffState
   bool _sawSourceLoad = false;
   bool _lookScheduled = false;
 
-  CameraLookState get _initialLook => widget.look ??
+  CameraLookState get _initialLook =>
+      widget.look ??
       CameraLookState(
         filmProfileId: widget.profileId,
         filmStrength: widget.profileId.isEmpty ? 0 : widget.strength,
@@ -77,7 +78,8 @@ class _CameraFilmEditorHandoffState
       _sawSourceLoad = true;
     }
 
-    final canApplyInitialLook = _hasInitialLook &&
+    final canApplyInitialLook =
+        _hasInitialLook &&
         _sawSourceLoad &&
         !_lookScheduled &&
         !editor.isBusy &&

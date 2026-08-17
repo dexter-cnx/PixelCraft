@@ -11,7 +11,10 @@ class _RecordingSink implements CameraLookPreviewSink {
   Object? error;
 
   @override
-  Future<void> setCameraLook(String rendererId, GpuCameraLookState state) async {
+  Future<void> setCameraLook(
+    String rendererId,
+    GpuCameraLookState state,
+  ) async {
     calls.add(state);
     final currentGate = gate;
     if (currentGate != null) await currentGate.future;
@@ -23,7 +26,8 @@ class _RecordingSink implements CameraLookPreviewSink {
 void main() {
   test('maps composed camera state to GPU state', () async {
     final sink = _RecordingSink();
-    final coordinator = CameraLookPreviewCoordinator(sink: sink)..attach('renderer');
+    final coordinator = CameraLookPreviewCoordinator(sink: sink)
+      ..attach('renderer');
 
     coordinator.submit(
       CameraLookState()
@@ -50,7 +54,8 @@ void main() {
     final sink = _RecordingSink();
     final gate = Completer<void>();
     sink.gate = gate;
-    final coordinator = CameraLookPreviewCoordinator(sink: sink)..attach('renderer');
+    final coordinator = CameraLookPreviewCoordinator(sink: sink)
+      ..attach('renderer');
 
     coordinator.submit(CameraLookState().withAdjustment('brightness', 1.1));
     await Future<void>.delayed(Duration.zero);
@@ -70,7 +75,8 @@ void main() {
     final sink = _RecordingSink();
     final gate = Completer<void>();
     sink.gate = gate;
-    final coordinator = CameraLookPreviewCoordinator(sink: sink)..attach('renderer');
+    final coordinator = CameraLookPreviewCoordinator(sink: sink)
+      ..attach('renderer');
 
     coordinator.submit(CameraLookState().withAdjustment('contrast', 1.2));
     await Future<void>.delayed(Duration.zero);

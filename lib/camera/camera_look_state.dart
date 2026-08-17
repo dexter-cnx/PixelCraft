@@ -31,11 +31,7 @@ const cameraCreativeFilters = <CameraCreativeFilter>[
     label: 'Oceanic',
     gpuAssetId: 'creative_oceanic',
   ),
-  CameraCreativeFilter(
-    id: 'lofi',
-    label: 'Lo-Fi',
-    gpuAssetId: 'creative_lofi',
-  ),
+  CameraCreativeFilter(id: 'lofi', label: 'Lo-Fi', gpuAssetId: 'creative_lofi'),
   CameraCreativeFilter(
     id: 'dramatic',
     label: 'Dramatic',
@@ -68,11 +64,8 @@ const cameraGpuAdjustmentIds = <String>{
 CameraCreativeFilter cameraCreativeFilter(String id) =>
     cameraCreativeFilters.firstWhere(
       (filter) => filter.id == id,
-      orElse: () => throw ArgumentError.value(
-        id,
-        'id',
-        'Unknown camera creative filter',
-      ),
+      orElse: () =>
+          throw ArgumentError.value(id, 'id', 'Unknown camera creative filter'),
     );
 
 editing.EditorAdjustmentSpec cameraAdjustmentSpec(String id) {
@@ -100,12 +93,12 @@ class CameraLookState {
     this.creativeFilterStrength = 0,
     Map<String, double>? adjustments,
   }) : adjustments = Map.unmodifiable(
-          adjustments ??
-              <String, double>{
-                for (final id in cameraGpuAdjustmentIds)
-                  id: editing.defaultAdjustmentValue(id),
-              },
-        );
+         adjustments ??
+             <String, double>{
+               for (final id in cameraGpuAdjustmentIds)
+                 id: editing.defaultAdjustmentValue(id),
+             },
+       );
 
   final String filmProfileId;
   final double filmStrength;
@@ -132,10 +125,10 @@ class CameraLookState {
       );
 
   CameraLookState clearFilm() => CameraLookState(
-        creativeFilterId: creativeFilterId,
-        creativeFilterStrength: creativeFilterStrength,
-        adjustments: adjustments,
-      );
+    creativeFilterId: creativeFilterId,
+    creativeFilterStrength: creativeFilterStrength,
+    adjustments: adjustments,
+  );
 
   CameraLookState withCreative(String filterId, double strength) {
     cameraCreativeFilter(filterId);
@@ -149,10 +142,10 @@ class CameraLookState {
   }
 
   CameraLookState clearCreative() => CameraLookState(
-        filmProfileId: filmProfileId,
-        filmStrength: filmStrength,
-        adjustments: adjustments,
-      );
+    filmProfileId: filmProfileId,
+    filmStrength: filmStrength,
+    adjustments: adjustments,
+  );
 
   CameraLookState withAdjustment(String id, double value) {
     final spec = cameraAdjustmentSpec(id);
@@ -167,15 +160,13 @@ class CameraLookState {
     );
   }
 
-  CameraLookState resetAdjustment(String id) => withAdjustment(
-        id,
-        editing.defaultAdjustmentValue(id),
-      );
+  CameraLookState resetAdjustment(String id) =>
+      withAdjustment(id, editing.defaultAdjustmentValue(id));
 
   CameraLookState resetAdjustments() => CameraLookState(
-        filmProfileId: filmProfileId,
-        filmStrength: filmStrength,
-        creativeFilterId: creativeFilterId,
-        creativeFilterStrength: creativeFilterStrength,
-      );
+    filmProfileId: filmProfileId,
+    filmStrength: filmStrength,
+    creativeFilterId: creativeFilterId,
+    creativeFilterStrength: creativeFilterStrength,
+  );
 }

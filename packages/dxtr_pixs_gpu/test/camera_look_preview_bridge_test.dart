@@ -12,9 +12,9 @@ void main() {
     MethodCall? recorded;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      recorded = call;
-      return null;
-    });
+          recorded = call;
+          return null;
+        });
 
     const bridge = CameraLookPreviewBridge(channel: channel);
     await bridge.setCameraLook(

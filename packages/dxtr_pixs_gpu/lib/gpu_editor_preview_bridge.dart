@@ -37,23 +37,22 @@ class GpuEditorAdjustmentState {
     double? vignette,
     double? sharpen,
     double? gaussianBlur,
-  }) =>
-      GpuEditorAdjustmentState(
-        exposure: exposure ?? this.exposure,
-        temperature: temperature ?? this.temperature,
-        tint: tint ?? this.tint,
-        brightness: brightness ?? this.brightness,
-        contrast: contrast ?? this.contrast,
-        saturation: saturation ?? this.saturation,
-        vignette: vignette ?? this.vignette,
-        sharpen: sharpen ?? this.sharpen,
-        gaussianBlur: gaussianBlur ?? this.gaussianBlur,
-      );
+  }) => GpuEditorAdjustmentState(
+    exposure: exposure ?? this.exposure,
+    temperature: temperature ?? this.temperature,
+    tint: tint ?? this.tint,
+    brightness: brightness ?? this.brightness,
+    contrast: contrast ?? this.contrast,
+    saturation: saturation ?? this.saturation,
+    vignette: vignette ?? this.vignette,
+    sharpen: sharpen ?? this.sharpen,
+    gaussianBlur: gaussianBlur ?? this.gaussianBlur,
+  );
 }
 
 class GpuEditorPreviewBridge {
   const GpuEditorPreviewBridge({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel(gpuEditorPreviewChannelName);
+    : _channel = channel ?? const MethodChannel(gpuEditorPreviewChannelName);
 
   final MethodChannel _channel;
 
@@ -69,62 +68,49 @@ class GpuEditorPreviewBridge {
   }
 
   Future<void> setSourcePath(String rendererId, String path) =>
-      _channel.invokeMethod<void>(
-        'setSourcePath',
-        <String, Object?>{'rendererId': rendererId, 'path': path},
-      );
+      _channel.invokeMethod<void>('setSourcePath', <String, Object?>{
+        'rendererId': rendererId,
+        'path': path,
+      });
 
   Future<void> setAdjustments(
     String rendererId,
     GpuEditorAdjustmentState state,
-  ) =>
-      _channel.invokeMethod<void>(
-        'setAdjustments',
-        <String, Object?>{
-          'rendererId': rendererId,
-          'exposure': state.exposure,
-          'temperature': state.temperature,
-          'tint': state.tint,
-          'brightness': state.brightness,
-          'contrast': state.contrast,
-          'saturation': state.saturation,
-          'vignette': state.vignette,
-          'sharpen': state.sharpen,
-          'gaussianBlur': state.gaussianBlur,
-        },
-      );
+  ) => _channel.invokeMethod<void>('setAdjustments', <String, Object?>{
+    'rendererId': rendererId,
+    'exposure': state.exposure,
+    'temperature': state.temperature,
+    'tint': state.tint,
+    'brightness': state.brightness,
+    'contrast': state.contrast,
+    'saturation': state.saturation,
+    'vignette': state.vignette,
+    'sharpen': state.sharpen,
+    'gaussianBlur': state.gaussianBlur,
+  });
 
   Future<void> setCreative(
     String rendererId, {
     required String filterId,
     required double intensity,
-  }) =>
-      _channel.invokeMethod<void>(
-        'setCreative',
-        <String, Object?>{
-          'rendererId': rendererId,
-          'filterId': filterId,
-          'intensity': intensity.clamp(0.0, 1.0).toDouble(),
-        },
-      );
+  }) => _channel.invokeMethod<void>('setCreative', <String, Object?>{
+    'rendererId': rendererId,
+    'filterId': filterId,
+    'intensity': intensity.clamp(0.0, 1.0).toDouble(),
+  });
 
   Future<void> setFilm(
     String rendererId, {
     required String profileId,
     required double strength,
-  }) =>
-      _channel.invokeMethod<void>(
-        'setFilm',
-        <String, Object?>{
-          'rendererId': rendererId,
-          'profileId': profileId,
-          'strength': strength.clamp(0.0, 1.0).toDouble(),
-        },
-      );
+  }) => _channel.invokeMethod<void>('setFilm', <String, Object?>{
+    'rendererId': rendererId,
+    'profileId': profileId,
+    'strength': strength.clamp(0.0, 1.0).toDouble(),
+  });
 
   Future<void> destroyRenderer(String rendererId) =>
-      _channel.invokeMethod<void>(
-        'destroyRenderer',
-        <String, Object?>{'rendererId': rendererId},
-      );
+      _channel.invokeMethod<void>('destroyRenderer', <String, Object?>{
+        'rendererId': rendererId,
+      });
 }

@@ -148,8 +148,14 @@ class _ToolSelector extends StatelessWidget {
       key: const Key('camera-tool-selector'),
       segments: [
         ButtonSegment(value: CameraPrimaryTool.film, label: Text(filmLabel)),
-        ButtonSegment(value: CameraPrimaryTool.filter, label: Text(filterLabel)),
-        ButtonSegment(value: CameraPrimaryTool.adjust, label: Text(adjustLabel)),
+        ButtonSegment(
+          value: CameraPrimaryTool.filter,
+          label: Text(filterLabel),
+        ),
+        ButtonSegment(
+          value: CameraPrimaryTool.adjust,
+          label: Text(adjustLabel),
+        ),
       ],
       selected: {selectedTool},
       onSelectionChanged: (selection) {
@@ -167,9 +173,7 @@ class _ToolSelector extends StatelessWidget {
               ? Colors.white
               : Colors.black54,
         ),
-        side: WidgetStateProperty.all(
-          const BorderSide(color: Colors.white38),
-        ),
+        side: WidgetStateProperty.all(const BorderSide(color: Colors.white38)),
       ),
     );
   }

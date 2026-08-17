@@ -46,7 +46,10 @@ void main() {
 
     test('maps Rust-generated creative presets to canonical GPU asset ids', () {
       expect(cameraCreativeFilter('vintage').gpuAssetId, 'creative_vintage');
-      expect(cameraCreativeFilter('pastel_pink').gpuAssetId, 'creative_pastel_pink');
+      expect(
+        cameraCreativeFilter('pastel_pink').gpuAssetId,
+        'creative_pastel_pink',
+      );
       expect(cameraCreativeFilter('grayscale').usesCanonicalLut, isFalse);
       expect(cameraCreativeFilter('invert').usesCanonicalLut, isFalse);
     });

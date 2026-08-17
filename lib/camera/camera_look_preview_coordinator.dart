@@ -10,7 +10,7 @@ abstract interface class CameraLookPreviewSink {
 
 class NativeCameraLookPreviewSink implements CameraLookPreviewSink {
   const NativeCameraLookPreviewSink({CameraLookPreviewBridge? bridge})
-      : _bridge = bridge ?? const CameraLookPreviewBridge();
+    : _bridge = bridge ?? const CameraLookPreviewBridge();
 
   final CameraLookPreviewBridge _bridge;
 
@@ -26,7 +26,7 @@ class NativeCameraLookPreviewSink implements CameraLookPreviewSink {
 /// look state. Native camera frames remain outside Dart.
 class CameraLookPreviewCoordinator {
   CameraLookPreviewCoordinator({CameraLookPreviewSink? sink})
-      : _sink = sink ?? const NativeCameraLookPreviewSink();
+    : _sink = sink ?? const NativeCameraLookPreviewSink();
 
   final CameraLookPreviewSink _sink;
 
@@ -96,18 +96,18 @@ class CameraLookPreviewCoordinator {
   }
 
   GpuCameraLookState _toGpuState(CameraLookState state) => GpuCameraLookState(
-        filmProfileId: state.filmProfileId,
-        filmStrength: state.filmStrength,
-        creativeFilterId: state.creativeFilterId,
-        creativeFilterStrength: state.creativeFilterStrength,
-        adjustments: GpuEditorAdjustmentState(
-          exposure: state.adjustmentValue('exposure'),
-          temperature: state.adjustmentValue('temperature'),
-          tint: state.adjustmentValue('tint'),
-          brightness: state.adjustmentValue('brightness'),
-          contrast: state.adjustmentValue('contrast'),
-          saturation: state.adjustmentValue('saturation'),
-          vignette: state.adjustmentValue('vignette'),
-        ),
-      );
+    filmProfileId: state.filmProfileId,
+    filmStrength: state.filmStrength,
+    creativeFilterId: state.creativeFilterId,
+    creativeFilterStrength: state.creativeFilterStrength,
+    adjustments: GpuEditorAdjustmentState(
+      exposure: state.adjustmentValue('exposure'),
+      temperature: state.adjustmentValue('temperature'),
+      tint: state.adjustmentValue('tint'),
+      brightness: state.adjustmentValue('brightness'),
+      contrast: state.adjustmentValue('contrast'),
+      saturation: state.adjustmentValue('saturation'),
+      vignette: state.adjustmentValue('vignette'),
+    ),
+  );
 }
