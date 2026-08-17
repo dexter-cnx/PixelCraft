@@ -35,9 +35,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     with WidgetsBindingObserver {
   static const _gpuPolicy = GpuPreviewCapabilityPolicy();
   static const _cameraAdjustmentIds = <String>[
+    'exposure',
+    'temperature',
+    'tint',
     'brightness',
     'contrast',
     'saturation',
+    'vignette',
   ];
 
   final _gpuBridge = const NativeGpuPreviewBridge();
@@ -55,7 +59,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   CameraFilmPreset _preset = cameraFilmPresets.first;
   CameraPrimaryTool _selectedTool = CameraPrimaryTool.film;
   CameraLookState _cameraLook = CameraLookState();
-  String _selectedAdjustmentId = 'brightness';
+  String _selectedAdjustmentId = 'exposure';
   double _strength = 1;
   bool _isInitializing = true;
   bool _isCapturing = false;
@@ -67,7 +71,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     hasTorch: true,
     flashMode: NativeCameraFlashMode.auto,
     torchEnabled: false,
-    mirrorEnabled: true,
+    mirrorEnabled: false,
   );
 
   late final MediaPickerService _mediaPickerService =
@@ -857,9 +861,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               child: Text(
-                _useNativeGpu
-                    ? 'camera.gpu_look_preview'.tr()
-                    : 'camera.film_preview'.tr(),
+                kDebugMode
+                    ? (_useNativeGpu
+                        ? 'camera.gpu_look_preview'.tr()
+                        : 'camera.film_preview'.tr())
+                    : 'Dxtr Pixs',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
