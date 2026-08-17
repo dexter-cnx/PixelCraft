@@ -620,6 +620,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       top: 8,
       child: Row(
         children: [
+          const SizedBox(width: 44),
           const Spacer(),
           DecoratedBox(
             decoration: BoxDecoration(
@@ -642,6 +643,23 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             ),
           ),
           const Spacer(),
+          SizedBox.square(
+            dimension: 44,
+            child: IconButton.filledTonal(
+              key: const Key('camera-switch'),
+              tooltip: 'camera.switch_camera'.tr(),
+              onPressed: _canSwitchCamera && !_isCapturing
+                  ? () => unawaited(_switchCamera())
+                  : null,
+              icon: const Icon(Icons.cameraswitch_outlined),
+              style: IconButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.black54,
+                disabledForegroundColor: Colors.white30,
+                disabledBackgroundColor: Colors.black26,
+              ),
+            ),
+          ),
         ],
       ),
     );
