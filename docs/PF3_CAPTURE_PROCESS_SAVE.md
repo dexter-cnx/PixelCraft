@@ -6,6 +6,8 @@ Branch: `feature/pf3-capture-process-save`
 
 Base: `main`
 
+UX refinement in progress on this branch: request Gallery-write permission during Camera startup, and keep capture processing/saving feedback on the Camera screen through SnackBars instead of navigating to a processing page.
+
 ## Goal
 
 PF3 replaces the temporary PF2 camera capture → Editor handoff with the product capture flow:
