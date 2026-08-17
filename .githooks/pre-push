@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then
+  echo "[Pixel Craft] pre-push: unable to locate repository root" >&2
+  exit 1
+fi
+
+if ! command -v make >/dev/null 2>&1; then
+  echo "[Pixel Craft] pre-push: required tool 'make' is unavailable" >&2
+  echo "Install make, then retry the push." >&2
+  exit 1
+fi
+
+exec make -C "$ROOT" pre-push
