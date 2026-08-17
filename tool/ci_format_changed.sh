@@ -17,15 +17,24 @@ if ! command -v dart >/dev/null 2>&1; then
   exit 1
 fi
 
-declare -A seen=()
+# Keep this script compatible with the stock Bash 3.2 shipped by macOS.
+# Do not use associative arrays here; de-duplicate with a small linear scan.
 files=()
+
+contains_file() {
+  local candidate="$1"
+  local existing
+  for existing in "${files[@]}"; do
+    [[ "$existing" == "$candidate" ]] && return 0
+  done
+  return 1
+}
 
 add_file() {
   local file="$1"
   [[ "$file" == *.dart ]] || return 0
   [[ -f "$file" ]] || return 0
-  [[ -n "${seen[$file]:-}" ]] && return 0
-  seen[$file]=1
+  contains_file "$file" && return 0
   files+=("$file")
 }
 
