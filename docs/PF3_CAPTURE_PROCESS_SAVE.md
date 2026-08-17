@@ -1,10 +1,10 @@
 # PF3 Capture → Process → Save
 
-Status: **IMPLEMENTATION IN PROGRESS / STACKED ON PF2**
+Status: **IMPLEMENTATION IN PROGRESS / REBASED ON MAIN**
 
 Branch: `feature/pf3-capture-process-save`
 
-Base while PF2 remains unmerged: `feature/pf2-unified-camera-look`
+Base: `main`
 
 ## Goal
 
@@ -19,6 +19,8 @@ clean camera JPEG
  -> system Gallery
  -> return/remain in Camera
 ```
+
+Gallery-picked/external sources remain on the normal Editor path and are not routed through the camera capture-save pipeline.
 
 ## Hard invariants
 
@@ -40,6 +42,7 @@ clean camera JPEG
 7. A render failure must never save clean or partially processed bytes as if PF3 succeeded.
 8. Temporary clean capture remains available on failure so Retry can use the exact same source.
 9. Gallery-picked/external sources remain neutral and unchanged by the active CameraLook.
+10. A neutral camera capture is still a camera capture; capture-vs-Gallery routing must never be inferred from whether `CameraLookState` is neutral.
 
 ## Current implementation
 
@@ -55,21 +58,29 @@ clean camera JPEG
 - `GalleryMediaSaveService` saves the Rust-generated JPEG to the system Gallery.
 - Android relative path remains `Pictures/Dxtr Pixs`.
 
-`lib/camera/camera_film_editor_handoff.dart`
+`lib/camera/camera_capture_save_handoff.dart`
 
-- retained temporarily as a compatibility call site for the existing large Camera screen;
-- it no longer opens the Editor;
-- it reads the clean capture, invokes PF3 render/save, deletes the temporary source after success, and returns to Camera;
+- camera-only PF3 processing/save destination;
+- reads the clean capture, invokes PF3 render/save, deletes the temporary source after success, and returns to Camera;
 - failure keeps the temporary source so Retry can rerun the same clean capture;
 - Cancel cleans up the temporary source.
 
-The compatibility class name should be removed in a later cleanup once the Camera screen capture orchestration is split into a smaller controller/service boundary. Do not mix that structural refactor into PF3 correctness work unless needed.
+`lib/camera/camera_film_editor_handoff.dart`
+
+- remains the PF2 Editor handoff for Gallery/external sources;
+- PF3 does not repurpose it.
+
+`lib/ui/screens/camera_film_preview_screen_g1.dart`
+
+- shutter/native capture routes to `CameraCaptureSaveHandoff`;
+- fallback camera capture routes to `CameraCaptureSaveHandoff`;
+- Gallery selection continues to route to `CameraFilmEditorHandoff` with a neutral `CameraLookState`.
 
 ## Current UI behavior
 
-During processing the user sees a short processing/saving state. After Gallery save succeeds the flow returns to Camera and shows a localized saved confirmation.
+During camera-capture processing the user sees a short processing/saving state. After Gallery save succeeds the flow returns to Camera and shows a localized saved confirmation.
 
-PF3 does not automatically open the Editor after shutter.
+PF3 does not automatically open the Editor after shutter. Gallery selection still opens the Editor.
 
 ## Automated coverage
 
@@ -81,6 +92,8 @@ Covers:
 - rendered JPEG bytes, not source bytes, are passed to Gallery save;
 - phase order is `processing -> saving -> completed`;
 - render failure prevents Gallery save.
+
+CI also runs `flutter test test/camera` as a dedicated camera gate.
 
 ## Remaining validation
 
@@ -95,16 +108,11 @@ Before PF3 can close:
 - verify saved JPEG visually corresponds to final CameraLook;
 - verify shutter after a final slider movement uses the committed final value;
 - verify repeated captures do not navigate into Editor;
+- verify Gallery still opens the normal Editor path;
 - verify Camera resumes correctly after each save;
 - verify failure/retry and temporary-source cleanup where practical;
 - update `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, and README only after the verified final head is known.
 
-## Stacking / merge policy
+## Merge policy
 
-PF3 currently depends on PF2 code that is not yet on `main`, so the PR must remain stacked on `feature/pf2-unified-camera-look` until PF2 merges. After PF2 merge:
-
-1. rebase/update PF3 onto `main`;
-2. confirm the diff contains only PF3 changes;
-3. run exact-head CI again;
-4. perform/record PF3 physical-device validation;
-5. only then merge PF3.
+PF2 is merged. PF3 is now rebased directly onto `main`, and the diff has been reduced to PF3-only files. The PR remains Draft until exact-head CI and Android/iOS physical validation pass.
