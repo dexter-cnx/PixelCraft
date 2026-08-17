@@ -1,20 +1,19 @@
 name: PF2 one-shot fallback flash capability fix
 
 on:
-  pull_request:
-    types: [synchronize, ready_for_review]
+  push:
+    branches: [feature/pf2-unified-camera-look]
 
 permissions:
   contents: write
 
 jobs:
   fix:
-    if: github.event.pull_request.number == 48 && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: feature/pf2-unified-camera-look
           fetch-depth: 1
       - uses: subosito/flutter-action@v2
         with:
@@ -111,4 +110,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lib/ui/screens/camera_film_preview_screen_g1.dart
           git commit -m "fix: probe fallback camera flash capabilities"
-          git push origin HEAD:${{ github.head_ref }}
+          git push origin HEAD:feature/pf2-unified-camera-look
