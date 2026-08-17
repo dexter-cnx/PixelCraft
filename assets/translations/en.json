@@ -32,6 +32,12 @@
     "dramatic": "Dramatic",
     "golden": "Golden",
     "pastel_pink": "Pastel Pink",
+    "flash": "Flash",
+    "flash_off": "Off",
+    "flash_auto": "Auto",
+    "flash_on": "On",
+    "torch": "Torch",
+    "mirror": "Mirror front camera",
     "native_look_required": "Filter and Adjust require the native GPU camera preview."
   },
   "errors": {
