@@ -93,9 +93,7 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
           name: AppRouteNames.camera,
           builder: (_, __) => Theme(
             data: _cameraTheme(),
-            child: const RustBootstrapScreen(
-              child: CameraFilmPreviewScreen(),
-            ),
+            child: const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
           ),
         ),
         GoRoute(
