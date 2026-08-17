@@ -324,14 +324,20 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     try {
       await controller.setFlashMode(FlashMode.auto);
       hasFlash = true;
-    } on CameraException {}
+    } on CameraException {
+      // Unsupported auto flash means this fallback camera has no flash capability.
+    }
     try {
       await controller.setFlashMode(FlashMode.torch);
       hasTorch = true;
-    } on CameraException {}
+    } on CameraException {
+      // Unsupported torch means this fallback camera has no torch capability.
+    }
     try {
       await controller.setFlashMode(FlashMode.off);
-    } on CameraException {}
+    } on CameraException {
+      // Best-effort reset after probing; unsupported off mode needs no further action.
+    }
     return (hasFlash: hasFlash, hasTorch: hasTorch);
   }
 
