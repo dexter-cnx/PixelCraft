@@ -11,10 +11,10 @@ abstract final class AppRoutePaths {
   static const gpuEditorLab = '/debug/gpu-editor-lab';
 
   static String initialLocationForIntent(AppRouteIntent intent) => switch (intent) {
-        AppRouteIntent.camera => camera,
-        AppRouteIntent.desktopHome => desktop,
-        AppRouteIntent.editor => editor,
-      };
+    AppRouteIntent.camera => camera,
+    AppRouteIntent.desktopHome => desktop,
+    AppRouteIntent.editor => editor,
+  };
 }
 
 abstract final class AppRouteNames {
@@ -33,14 +33,14 @@ class EditorRouteData {
     this.recoveryRecipe,
     this.initialFilmProfileId,
     this.initialFilmStrength = 1,
-  })  : assert(
-          (imagePath == null) != (imageBytes == null),
-          'Provide exactly one editor source.',
-        ),
-        assert(
-          initialFilmProfileId == null || imagePath != null,
-          'Initial camera Film handoff requires a file-backed source.',
-        );
+  }) : assert(
+         (imagePath == null) != (imageBytes == null),
+         'Provide exactly one editor source.',
+       ),
+       assert(
+         initialFilmProfileId == null || imagePath != null,
+         'Initial camera Film handoff requires a file-backed source.',
+       );
 
   final String? imagePath;
   final List<int>? imageBytes;
