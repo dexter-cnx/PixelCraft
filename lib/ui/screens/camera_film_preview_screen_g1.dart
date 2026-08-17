@@ -255,7 +255,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     setState(() {
       _useNativeGpu = false;
       _selectedTool = CameraPrimaryTool.film;
-      _cameraLook = _fallbackFilmLook;
       _isInitializing = true;
     });
     try {
@@ -506,7 +505,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final capture = await controller.takePicture();
     if (!mounted) return;
     final camera = _activeCamera;
-    final look = _fallbackFilmLook;
+    final look = _cameraLook;
     await _detachAndDisposeController(showLoading: true);
     if (!mounted) return;
     await _openEditor(capture.path, look: look);
