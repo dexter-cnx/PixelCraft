@@ -39,7 +39,7 @@ class NativeCameraControlState {
       hasTorch: value['hasTorch'] as bool? ?? false,
       flashMode: NativeCameraFlashModeWire.parse(value['flashMode']),
       torchEnabled: value['torchEnabled'] as bool? ?? false,
-      mirrorEnabled: value['mirrorEnabled'] as bool? ?? true,
+      mirrorEnabled: value['mirrorEnabled'] as bool? ?? false,
     );
   }
 
@@ -193,18 +193,6 @@ class NativeGpuCameraBridge {
         },
       );
       final lens = result?['lensDirection'] as String? ?? '';
-
-      // Selfie preview follows the familiar camera-app convention: entering
-      // the front lens starts mirrored. The user can still turn Mirror off
-      // explicitly from Controls while remaining on the front camera.
-      if (lens == 'front') {
-        await _control(
-          'setMirrorEnabled',
-          rendererId,
-          const <String, Object?>{'enabled': true},
-        );
-      }
-
       _traceNativeCamera(
         'switchCamera OK rendererId=$rendererId lensDirection=$lens',
       );
