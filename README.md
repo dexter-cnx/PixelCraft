@@ -222,8 +222,9 @@ PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE
 G7A Release Engineering / Store Preparation    MERGED
 G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY
 
-PF1 Camera-first mobile/tablet shell            NEXT / NOT IMPLEMENTED
-PF2 Unified Camera Film/Filter/Adjust UX        PLANNED
+PF0 Platform-flow routing foundation           PARTIAL / ROUTING MERGED (#50)
+PF1 Camera-first mobile/tablet shell            IN PROGRESS / CAMERA-FIRST ENTRY MERGED (#50)
+PF2 Unified Camera Film/Filter/Adjust UX        NEXT
 PF3 Capture-process-save-to-Gallery             PLANNED
 PF4 Gallery-to-editor source flow               PLANNED
 PF5 External edit request/result contract       PLANNED FOUNDATION ONLY

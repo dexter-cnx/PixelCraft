@@ -59,7 +59,36 @@ Primary inputs are Open Image and Drag & Drop. Secondary/future inputs may inclu
 
 ## 3. Current implementation vs target
 
-Current `lib/main.dart` still boots Rust and returns `HomeScreen`.
+Current `lib/main.dart` uses `MaterialApp.router` with a persistent `GoRouter`. Platform entry is now explicit: phone/tablet start at `/camera`, while desktop starts at `/desktop`. Both workspaces are wrapped by the shared Rust bootstrap.
+
+The navigation foundation lives in:
+
+```text
+lib/app/app_routes.dart
+docs/NAVIGATION_ARCHITECTURE.md
+```
+
+Current route graph:
+
+```text
+/                       -> platform-aware initial workspace
+/camera                 -> CameraFilmPreviewScreen
+/desktop                -> HomeScreen / desktop open-drop shell
+/editor                 -> ProductEditorScreen or CameraFilmEditorHandoff
+/films                  -> FilmProfilesScreen
+/debug/gpu-editor-lab   -> debug GPU editor lab
+```
+
+Routing policy is intentionally narrow:
+
+```text
+workspace change = route
+workspace tool change = state
+```
+
+Camera -> Editor uses `context.pushNamed(...)` with typed `EditorRouteData`. The payload travels through `GoRouterState.extra`, avoiding arbitrary local file paths in URLs and leaving room for a future stable external asset identity from Nixin. Film/Filter/Adjust selection, modal sheets, and local dismissals remain local state/local Navigator interactions.
+
+The app holds one router instance for its lifetime. `RustBootstrapScreen` uses a shared initialization future, so switching between routed workspaces does not rerun native initialization.
 
 Current camera implementation is exposed through:
 
@@ -693,8 +722,8 @@ A green PR head is not enough to close a slice; verify resulting `main` push CI.
 
 ## 25. Current continuation point
 
-First finish PR #49 closure on the latest documentation-synced head, mark it Ready only after `Fast CI` + `CI Gate` are green, merge, and verify resulting `main` CI.
+PR #50 is merged. Platform routing is established: phone/tablet start at `/camera`, desktop starts at `/desktop`, and Camera -> Editor uses typed go_router handoff with shared Rust bootstrap.
 
-Then continue product work with **PF0 + PF1**. Establish platform root, localization/state/preferences/service foundations, then move the existing verified camera implementation into the primary phone/tablet experience without creating a second camera or processing authority.
+Continue with **PF1 + PF2**: finish the camera-first mobile/tablet shell around the existing camera stack, integrate Film / Filter / Adjust as camera-context tools, and complete the remaining localization/preferences/service-state foundations needed by that flow. Do not create a second camera implementation or move canonical processing authority out of Rust.
 
 See `docs/PROJECT_HANDOFF.md` for the canonical execution order and current status.

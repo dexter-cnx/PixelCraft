@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-16. CI affected-validation architecture is implemented and full-validated on PR #49; product direction remains unchanged: phone/tablet are camera-first, desktop is editor/open/drop-first, PixelCraft owns camera/editor/image processing, Nixin/Dextryx Images owns long-lived image management. PF0 + PF1 remain the next product implementation slice.**
+Last refresh: **2026-08-17. PR #50 merged the `go_router` navigation foundation and platform-aware app entry. Phone/tablet now route camera-first at app launch, desktop remains editor/open/drop-first, and workspace navigation is declarative while Film/Filter/Adjust remain local tool state. PF0 routing is implemented; PF1/PF2 camera-shell integration is the next product slice.**
 
 ---
 
@@ -273,8 +273,8 @@ W1D DAM-style multi-item expansion              CANCELLED AS DEFAULT DIRECTION
 
 CI-01 affected fast-fail / reliability tiers    PR #49 / FULL VALIDATION GREEN
 
-PF0 Platform-flow foundations                   NEXT / NOT IMPLEMENTED
-PF1 Camera-first mobile/tablet shell             PLANNED
+PF0 Platform-flow foundations                   PARTIAL / ROUTING FOUNDATION MERGED (#50)
+PF1 Camera-first mobile/tablet shell             IN PROGRESS / CAMERA-FIRST ENTRY MERGED (#50)
 PF2 Unified Camera Film/Filter/Adjust UX         PLANNED
 PF3 Capture-process-save-to-Gallery              PLANNED
 PF4 Gallery-to-editor source flow                PLANNED
@@ -428,7 +428,7 @@ docs/G6_DEVICE_MANUAL_CHECKLIST.md
 
 # 8. PF0 — platform-flow foundations
 
-PF0 should be implemented before or as the first slice of PF1.
+PF0 is now partially implemented. PR #50 established the navigation/router foundation and platform-aware app entry; localization, preferences, processing-job state, and remaining service boundaries continue as PF0 follow-up work alongside PF1.
 
 ## Localization
 
@@ -505,8 +505,36 @@ MediaSaveService
 PermissionService
 CapabilityRegistry
 ProcessingJob coordinator/state
-AppRouter / navigation abstraction
+AppRouter / navigation abstraction   # go_router foundation implemented in PR #50
 ```
+
+## Navigation foundation — merged in PR #50
+
+Canonical document:
+
+```text
+docs/NAVIGATION_ARCHITECTURE.md
+```
+
+Current route contracts:
+
+```text
+/                       platform-aware entry
+/camera                 phone/tablet camera workspace
+/desktop                desktop open/drop workspace
+/editor                 product editor
+/films                  Film Profiles workspace
+/debug/gpu-editor-lab   debug-only GPU editor lab
+```
+
+Navigation rule:
+
+```text
+workspace change = route
+workspace tool change = state
+```
+
+`EditorRouteData` is passed through `GoRouterState.extra`, so arbitrary local file paths are not encoded into public URLs. Camera -> Editor already uses named routing. Film/Filter/Adjust interactions, sheets, dialogs, and local dismissals remain local UI state/local Navigator behavior. The router is created once at app startup and disposed with the app state; Rust bootstrap initialization is shared across routed workspaces.
 
 ## Processing job state
 
@@ -554,7 +582,7 @@ This keeps future RAW and Nixin integration from forcing a source-identity redes
 
 # 9. Existing implementation relevant to PF1-PF4
 
-Current runtime still boots Rust and returns `HomeScreen`; PF1 changes platform routing.
+Current runtime uses `MaterialApp.router` with one persistent `GoRouter`. Phone/tablet initial location is `/camera`; desktop initial location is `/desktop`. Both routes remain behind the shared Rust bootstrap, so navigation does not repeatedly initialize the native engine.
 
 Existing camera foundation already provides:
 
@@ -814,36 +842,24 @@ flutter test
 
 # 17. Current next action
 
-## First: finish CI-01 PR #49 closure
+## Next product slice: PF1 + PF2
 
-PR #49 has a full green validation baseline on run #432. Documentation sync is being finalized on the PR head.
+PR #50 is merged. The navigation/router foundation and platform-aware root entry are complete: phone/tablet launch at `/camera`, desktop launches at `/desktop`, Camera -> Editor uses typed `EditorRouteData`, and Rust bootstrap initialization is shared across routed workspaces.
 
-Before calling CI-01 complete:
+Continue with the remaining **PF1 + PF2** work without rebuilding routing or creating a second camera stack.
 
-1. require latest PR head `Fast CI` + `CI Gate` to be green;
-2. mark PR #49 Ready for Review;
-3. merge only after required checks remain green;
-4. verify the resulting `main` push full CI;
-5. then delete the merged feature branch when safe.
+Required next slice:
 
-## Product work after CI-01
-
-Implement **PF0 + PF1 first**.
-
-Required first slice:
-
-1. add `easy_localization` foundation with `en` + `th`, device locale detection, fallback `en`;
-2. standardize Riverpod application-state boundaries without moving canonical edit semantics out of Rust;
-3. add `AppPreferencesStore` abstraction with a lightweight backend; do not add Hive yet;
-4. define `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, typed `ProcessingJobState`, and a lightweight route/navigation boundary;
-5. define a format-aware source descriptor that can later support RAW and external caller identity;
-6. introduce platform-adaptive root routing after Rust bootstrap;
-7. phone/tablet launch directly into the existing camera foundation;
-8. desktop launches an editor/open/drop-oriented surface rather than the mobile camera shell;
-9. mobile/tablet camera bottom hierarchy becomes Gallery / Shutter / Controls;
-10. preserve current verified GPU/Rust contracts and camera permission/lifecycle hardening;
-11. keep Home/Workspace code only as bounded continuity/recovery support while the new root stabilizes;
-12. do not start MobileSAM, real RAW, O1, G7B, Hive migration, or Nixin DAM work.
+1. finish the mobile/tablet camera shell hierarchy as Gallery / Shutter / Controls around the existing verified camera foundation;
+2. integrate Film / Filter / Adjust as camera-context tools and local state, not top-level routes;
+3. preserve native Metal/OpenGL ES realtime preview paths and Flutter camera fallback behavior;
+4. add/finish `easy_localization` foundation with `en` + `th`, device locale detection, and fallback `en`;
+5. continue Riverpod application-state boundaries without moving canonical edit semantics out of Rust;
+6. add/finish `AppPreferencesStore`, `MediaPickerService`, `MediaSaveService`, `PermissionService`, `CapabilityRegistry`, typed `ProcessingJobState`, and format-aware source descriptor boundaries as needed by PF1/PF2;
+7. keep desktop editor/open/drop-first and do not route desktop into the mobile camera shell;
+8. keep capture semantics clean-source + Rust-authoritative processing; PF3 will change shutter completion to JPEG save + remain in Camera;
+9. preserve original imported Gallery source bytes/format; PF4 owns the complete Gallery -> editor -> processed output flow;
+10. do not start MobileSAM, real RAW, O1, G7B, Hive migration, or Nixin DAM work.
 
 Package follow-up after PF0/PF1 stabilizes:
 
