@@ -282,7 +282,12 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     );
     try {
       await controller.initialize();
-      await _applyFallbackFlashMode(controller, _cameraControls.flashMode);
+      final flashCapabilities = await _probeFallbackFlashCapabilities(
+        controller,
+      );
+      if (flashCapabilities.hasFlash) {
+        await _applyFallbackFlashMode(controller, _cameraControls.flashMode);
+      }
       if (!mounted) {
         await controller.dispose();
         return;
@@ -294,9 +299,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           lensDirection: camera.lensDirection == CameraLensDirection.front
               ? 'front'
               : 'back',
-          hasFlash: camera.lensDirection == CameraLensDirection.back,
-          hasTorch: camera.lensDirection == CameraLensDirection.back,
-          flashMode: _cameraControls.flashMode,
+          hasFlash: flashCapabilities.hasFlash,
+          hasTorch: flashCapabilities.hasTorch,
+          flashMode: flashCapabilities.hasFlash
+              ? _cameraControls.flashMode
+              : NativeCameraFlashMode.off,
           torchEnabled: false,
           mirrorEnabled: _cameraControls.mirrorEnabled,
         );
@@ -307,6 +314,25 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       await controller.dispose();
       _showCameraError(error);
     }
+  }
+
+  Future<({bool hasFlash, bool hasTorch})> _probeFallbackFlashCapabilities(
+    CameraController controller,
+  ) async {
+    var hasFlash = false;
+    var hasTorch = false;
+    try {
+      await controller.setFlashMode(FlashMode.auto);
+      hasFlash = true;
+    } on CameraException {}
+    try {
+      await controller.setFlashMode(FlashMode.torch);
+      hasTorch = true;
+    } on CameraException {}
+    try {
+      await controller.setFlashMode(FlashMode.off);
+    } on CameraException {}
+    return (hasFlash: hasFlash, hasTorch: hasTorch);
   }
 
   Future<void> _applyFallbackFlashMode(
@@ -425,7 +451,22 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
     final controller = _controller;
     if (controller == null) return;
-    await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
+    try {
+      await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
+    } on CameraException {
+      if (!mounted) return;
+      setState(() {
+        _cameraControls = NativeCameraControlState(
+          lensDirection: _cameraControls.lensDirection,
+          hasFlash: _cameraControls.hasFlash,
+          hasTorch: false,
+          flashMode: _cameraControls.flashMode,
+          torchEnabled: false,
+          mirrorEnabled: _cameraControls.mirrorEnabled,
+        );
+      });
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _cameraControls = NativeCameraControlState(
