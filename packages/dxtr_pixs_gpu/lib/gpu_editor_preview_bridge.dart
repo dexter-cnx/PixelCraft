@@ -6,30 +6,46 @@ const gpuEditorPreviewChannelName = 'dev.pixelcraft/gpu_editor_preview_v1';
 @immutable
 class GpuEditorAdjustmentState {
   const GpuEditorAdjustmentState({
+    this.exposure = 0,
+    this.temperature = 0,
+    this.tint = 0,
     this.brightness = 1,
     this.contrast = 1,
     this.saturation = 1,
+    this.vignette = 0,
     this.sharpen = 0,
     this.gaussianBlur = 0,
   });
 
+  final double exposure;
+  final double temperature;
+  final double tint;
   final double brightness;
   final double contrast;
   final double saturation;
+  final double vignette;
   final double sharpen;
   final double gaussianBlur;
 
   GpuEditorAdjustmentState copyWith({
+    double? exposure,
+    double? temperature,
+    double? tint,
     double? brightness,
     double? contrast,
     double? saturation,
+    double? vignette,
     double? sharpen,
     double? gaussianBlur,
   }) =>
       GpuEditorAdjustmentState(
+        exposure: exposure ?? this.exposure,
+        temperature: temperature ?? this.temperature,
+        tint: tint ?? this.tint,
         brightness: brightness ?? this.brightness,
         contrast: contrast ?? this.contrast,
         saturation: saturation ?? this.saturation,
+        vignette: vignette ?? this.vignette,
         sharpen: sharpen ?? this.sharpen,
         gaussianBlur: gaussianBlur ?? this.gaussianBlur,
       );
@@ -66,9 +82,13 @@ class GpuEditorPreviewBridge {
         'setAdjustments',
         <String, Object?>{
           'rendererId': rendererId,
+          'exposure': state.exposure,
+          'temperature': state.temperature,
+          'tint': state.tint,
           'brightness': state.brightness,
           'contrast': state.contrast,
           'saturation': state.saturation,
+          'vignette': state.vignette,
           'sharpen': state.sharpen,
           'gaussianBlur': state.gaussianBlur,
         },

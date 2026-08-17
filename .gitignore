@@ -14,3 +14,5 @@ rust/target/
 lib/src/rust/
 !lib/src/rust/.gitkeep
 .DS_Store
+# Gradle caches for app and local Flutter plugins/packages
+**/android/.gradle/
