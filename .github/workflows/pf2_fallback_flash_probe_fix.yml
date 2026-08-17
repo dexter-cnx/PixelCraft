@@ -1,0 +1,114 @@
+name: PF2 one-shot fallback flash capability fix
+
+on:
+  pull_request:
+    types: [synchronize, ready_for_review]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.number == 48 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+      - name: Patch fallback flash capability handling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/ui/screens/camera_film_preview_screen_g1.dart')
+          s = p.read_text()
+          old = '''      await controller.initialize();
+      await _applyFallbackFlashMode(controller, _cameraControls.flashMode);
+      if (!mounted) {
+'''
+          new = '''      await controller.initialize();
+      final flashCapabilities = await _probeFallbackFlashCapabilities(controller);
+      if (flashCapabilities.hasFlash) {
+        await _applyFallbackFlashMode(controller, _cameraControls.flashMode);
+      }
+      if (!mounted) {
+'''
+          assert old in s, 'initialize flash pattern not found'
+          s = s.replace(old, new, 1)
+          old = '''          hasFlash: camera.lensDirection == CameraLensDirection.back,
+          hasTorch: camera.lensDirection == CameraLensDirection.back,
+          flashMode: _cameraControls.flashMode,
+'''
+          new = '''          hasFlash: flashCapabilities.hasFlash,
+          hasTorch: flashCapabilities.hasTorch,
+          flashMode: flashCapabilities.hasFlash
+              ? _cameraControls.flashMode
+              : NativeCameraFlashMode.off,
+'''
+          assert old in s, 'fallback control capability pattern not found'
+          s = s.replace(old, new, 1)
+          marker = '''  Future<void> _applyFallbackFlashMode(
+'''
+          helper = '''  Future<({bool hasFlash, bool hasTorch})> _probeFallbackFlashCapabilities(
+    CameraController controller,
+  ) async {
+    var hasFlash = false;
+    var hasTorch = false;
+    try {
+      await controller.setFlashMode(FlashMode.auto);
+      hasFlash = true;
+    } on CameraException {}
+    try {
+      await controller.setFlashMode(FlashMode.torch);
+      hasTorch = true;
+    } on CameraException {}
+    try {
+      await controller.setFlashMode(FlashMode.off);
+    } on CameraException {}
+    return (hasFlash: hasFlash, hasTorch: hasTorch);
+  }
+
+'''
+          assert marker in s, 'flash helper insertion point not found'
+          s = s.replace(marker, helper + marker, 1)
+          old = '''    final controller = _controller;
+    if (controller == null) return;
+    await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
+    if (!mounted) return;
+'''
+          new = '''    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
+    } on CameraException {
+      if (!mounted) return;
+      setState(() {
+        _cameraControls = NativeCameraControlState(
+          lensDirection: _cameraControls.lensDirection,
+          hasFlash: _cameraControls.hasFlash,
+          hasTorch: false,
+          flashMode: _cameraControls.flashMode,
+          torchEnabled: false,
+          mirrorEnabled: _cameraControls.mirrorEnabled,
+        );
+      });
+      return;
+    }
+    if (!mounted) return;
+'''
+          assert old in s, 'fallback torch pattern not found'
+          p.write_text(s.replace(old, new, 1))
+          PY
+          dart format lib/ui/screens/camera_film_preview_screen_g1.dart
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/ui/screens/camera_film_preview_screen_g1.dart
+          git commit -m "fix: probe fallback camera flash capabilities"
+          git push origin HEAD:${{ github.head_ref }}
