@@ -697,7 +697,7 @@ internal class AndroidGpuCameraOesRenderer(
             GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uCropScale"), crop.first, crop.second)
             GLES20.glUniform1i(
                 GLES20.glGetUniformLocation(program, "uRotationSteps"),
-                relativeRotationDegrees() / 90,
+                previewRotationDegrees() / 90,
             )
             GLES20.glUniform1f(
                 GLES20.glGetUniformLocation(program, "uMirrorX"),
@@ -779,7 +779,7 @@ internal class AndroidGpuCameraOesRenderer(
     private fun cropScale(): Pair<Float, Float> {
         val size = previewSize ?: return 1f to 1f
         if (outputWidth <= 0 || outputHeight <= 0) return 1f to 1f
-        val rotated = relativeRotationDegrees() % 180 != 0
+        val rotated = previewRotationDegrees() % 180 != 0
         val sourceWidth = if (rotated) size.height.toFloat() else size.width.toFloat()
         val sourceHeight = if (rotated) size.width.toFloat() else size.height.toFloat()
         val sourceAspect = sourceWidth / sourceHeight
@@ -790,6 +790,14 @@ internal class AndroidGpuCameraOesRenderer(
             1f to (sourceAspect / outputAspect)
         }
     }
+
+    /**
+     * SurfaceTexture already presents the Camera2 OES stream in display-ready
+     * orientation on the Android path used by PixelCraft. Applying the sensor
+     * orientation here rotated the physical-device preview an extra 90 degrees.
+     * Keep preview orientation independent from JPEG metadata orientation.
+     */
+    private fun previewRotationDegrees(): Int = 0
 
     private fun relativeRotationDegrees(): Int {
         val displayDegrees = when (displayRotation) {
