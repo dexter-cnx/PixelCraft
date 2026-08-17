@@ -20,9 +20,13 @@ struct NativeGpuCameraLook {
   let filmStrength: Float
   let creativeFilterId: String
   let creativeFilterStrength: Float
+  let exposure: Float
+  let temperature: Float
+  let tint: Float
   let brightness: Float
   let contrast: Float
   let saturation: Float
+  let vignette: Float
 
   init(arguments: [String: Any]) throws {
     let creative = arguments["creativeFilterId"] as? String ?? ""
@@ -38,9 +42,13 @@ struct NativeGpuCameraLook {
       0,
       1
     )
+    exposure = Self.clamp(Self.number(arguments, "exposure", fallback: 0), -2, 2)
+    temperature = Self.clamp(Self.number(arguments, "temperature", fallback: 0), -1, 1)
+    tint = Self.clamp(Self.number(arguments, "tint", fallback: 0), -1, 1)
     brightness = Self.clamp(Self.number(arguments, "brightness", fallback: 1), 0, 2)
     contrast = Self.clamp(Self.number(arguments, "contrast", fallback: 1), 0, 2)
     saturation = Self.clamp(Self.number(arguments, "saturation", fallback: 1), 0, 2)
+    vignette = Self.clamp(Self.number(arguments, "vignette", fallback: 0), -1, 1)
   }
 
   var hasFilm: Bool {
@@ -52,7 +60,8 @@ struct NativeGpuCameraLook {
   }
 
   var hasAdjustments: Bool {
-    brightness != 1 || contrast != 1 || saturation != 1
+    exposure != 0 || temperature != 0 || tint != 0 ||
+      brightness != 1 || contrast != 1 || saturation != 1 || vignette != 0
   }
 
   var isNeutral: Bool {
