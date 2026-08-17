@@ -59,7 +59,36 @@ Primary inputs are Open Image and Drag & Drop. Secondary/future inputs may inclu
 
 ## 3. Current implementation vs target
 
-Current `lib/main.dart` still boots Rust and returns `HomeScreen`.
+Current `lib/main.dart` uses `MaterialApp.router` with a persistent `GoRouter`. Platform entry is now explicit: phone/tablet start at `/camera`, while desktop starts at `/desktop`. Both workspaces are wrapped by the shared Rust bootstrap.
+
+The navigation foundation lives in:
+
+```text
+lib/app/app_routes.dart
+docs/NAVIGATION_ARCHITECTURE.md
+```
+
+Current route graph:
+
+```text
+/                       -> platform-aware initial workspace
+/camera                 -> CameraFilmPreviewScreen
+/desktop                -> HomeScreen / desktop open-drop shell
+/editor                 -> ProductEditorScreen or CameraFilmEditorHandoff
+/films                  -> FilmProfilesScreen
+/debug/gpu-editor-lab   -> debug GPU editor lab
+```
+
+Routing policy is intentionally narrow:
+
+```text
+workspace change = route
+workspace tool change = state
+```
+
+Camera -> Editor uses `context.pushNamed(...)` with typed `EditorRouteData`. The payload travels through `GoRouterState.extra`, avoiding arbitrary local file paths in URLs and leaving room for a future stable external asset identity from Nixin. Film/Filter/Adjust selection, modal sheets, and local dismissals remain local state/local Navigator interactions.
+
+The app holds one router instance for its lifetime. `RustBootstrapScreen` uses a shared initialization future, so switching between routed workspaces does not rerun native initialization.
 
 Current camera implementation is exposed through:
 
