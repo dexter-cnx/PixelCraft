@@ -10,11 +10,12 @@ abstract final class AppRoutePaths {
   static const films = '/films';
   static const gpuEditorLab = '/debug/gpu-editor-lab';
 
-  static String initialLocationForIntent(AppRouteIntent intent) => switch (intent) {
-    AppRouteIntent.camera => camera,
-    AppRouteIntent.desktopHome => desktop,
-    AppRouteIntent.editor => editor,
-  };
+  static String initialLocationForIntent(AppRouteIntent intent) =>
+      switch (intent) {
+        AppRouteIntent.camera => camera,
+        AppRouteIntent.desktopHome => desktop,
+        AppRouteIntent.editor => editor,
+      };
 }
 
 abstract final class AppRouteNames {

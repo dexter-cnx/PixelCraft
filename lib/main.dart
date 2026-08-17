@@ -20,7 +20,8 @@ import 'ui/screens/product_editor_screen.dart';
 
 const _launchGpuEditorLab = bool.fromEnvironment('GPU_EDITOR_LAB');
 
-bool get _isMobilePlatform => !kIsWeb &&
+bool get _isMobilePlatform =>
+    !kIsWeb &&
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
@@ -89,8 +90,7 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
         GoRoute(
           path: AppRoutePaths.desktop,
           name: AppRouteNames.desktop,
-          builder: (_, __) =>
-              const RustBootstrapScreen(child: HomeScreen()),
+          builder: (_, __) => const RustBootstrapScreen(child: HomeScreen()),
         ),
         GoRoute(
           path: AppRoutePaths.films,
@@ -126,9 +126,8 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
           builder: (_, __) => const GpuEditorPreviewLabScreen(),
         ),
       ],
-      errorBuilder: (_, state) => Scaffold(
-        body: Center(child: Text('Route not found: ${state.uri}')),
-      ),
+      errorBuilder: (_, state) =>
+          Scaffold(body: Center(child: Text('Route not found: ${state.uri}'))),
     );
   }
 

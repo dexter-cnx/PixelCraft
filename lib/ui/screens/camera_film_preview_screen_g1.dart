@@ -19,10 +19,7 @@ import '../../gpu/native_gpu_preview_bridge.dart';
 import '../camera/camera_primary_controls.dart';
 
 class CameraFilmPreviewScreen extends StatefulWidget {
-  const CameraFilmPreviewScreen({
-    super.key,
-    this.mediaPickerService,
-  });
+  const CameraFilmPreviewScreen({super.key, this.mediaPickerService});
 
   final MediaPickerService? mediaPickerService;
 
@@ -56,7 +53,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   late final MediaPickerService _mediaPickerService =
       widget.mediaPickerService ?? ImagePickerMediaService();
 
-  bool get _supportsNativeGpuCamera => !kIsWeb &&
+  bool get _supportsNativeGpuCamera =>
+      !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
@@ -120,8 +118,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       final decision = _gpuPolicy.evaluate(probe);
       if (!decision.useNativeGpu) return false;
 
-      final permissionGranted =
-          await _nativeCameraBridge.requestCameraPermission();
+      final permissionGranted = await _nativeCameraBridge
+          .requestCameraPermission();
       if (!permissionGranted) {
         if (!mounted) return true;
         setState(() {
@@ -262,8 +260,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   void _showCameraError(CameraException error) {
     if (!mounted) return;
     final message = switch (error.code) {
-      'CameraAccessDenied' || 'CameraAccessDeniedWithoutPrompt' =>
-        'errors.permission_denied'.tr(),
+      'CameraAccessDenied' ||
+      'CameraAccessDeniedWithoutPrompt' => 'errors.permission_denied'.tr(),
       'CameraAccessRestricted' => 'errors.permission_restricted'.tr(),
       _ => 'errors.camera_unavailable'.tr(),
     };
@@ -327,11 +325,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final camera = _activeCamera;
     await _detachAndDisposeController(showLoading: true);
     if (!mounted) return;
-    await _openEditor(
-      capture.path,
-      profileId: _preset.id,
-      strength: _strength,
-    );
+    await _openEditor(capture.path, profileId: _preset.id, strength: _strength);
     if (!mounted) return;
     if (camera != null) await _initializeCamera(camera);
   }
@@ -342,9 +336,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (!mounted || source == null) return;
     if (source.provenance != MediaSourceProvenance.gallery ||
         !source.uri.isScheme('file')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('errors.unsupported_source'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('errors.unsupported_source'.tr())));
       return;
     }
     await _openEditor(source.uri.toFilePath(), profileId: '', strength: 0);
@@ -429,10 +423,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             children: [
               Text(
                 'camera.controls'.tr(),
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(color: Colors.white),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(color: Colors.white),
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -653,8 +646,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     return ChoiceChip(
                       selected: selected,
                       label: Text(preset.name.replaceAll(' Inspired', '')),
-                      onSelected:
-                          _isCapturing ? null : (_) => _selectPreset(preset),
+                      onSelected: _isCapturing
+                          ? null
+                          : (_) => _selectPreset(preset),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
@@ -662,8 +656,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                       ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                       ),
                       showCheckmark: false,
                     );
