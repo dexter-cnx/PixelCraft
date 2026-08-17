@@ -66,9 +66,13 @@ internal class AndroidGpuCameraOesRenderer(
             uniform int uRotationSteps;
             uniform float uMirrorX;
             uniform float uEnabled;
+            uniform float uExposure;
+            uniform float uTemperature;
+            uniform float uTint;
             uniform float uBrightness;
             uniform float uContrast;
             uniform float uSaturation;
+            uniform float uVignette;
             uniform float uUseFilm;
             uniform float uFilmStrength;
             uniform int uCreativeMode;
@@ -163,6 +167,17 @@ internal class AndroidGpuCameraOesRenderer(
               return clamp(blended8, 0.0, 255.0) / 255.0;
             }
 
+            vec3 applyVignette(vec3 color, vec2 uv, float amount) {
+              vec2 normalized = (uv - vec2(0.5)) * 2.0;
+              float radius = length(normalized) / 1.41421356237;
+              float t = clamp((radius - 0.35) / 0.65, 0.0, 1.0);
+              float mask = t * t * (3.0 - 2.0 * t);
+              float scale = amount >= 0.0
+                ? 1.0 - amount * mask * 0.72
+                : 1.0 + (-amount) * mask * 0.45;
+              return clamp(color * scale, 0.0, 1.0);
+            }
+
             void main() {
               vec2 uv = orientUv(vTexCoord);
               uv = (uSurfaceTextureMatrix * vec4(uv, 0.0, 1.0)).xy;
@@ -171,10 +186,14 @@ internal class AndroidGpuCameraOesRenderer(
                 gl_FragColor = vec4(source, 1.0);
                 return;
               }
-              vec3 color = clamp(source + (uBrightness - 1.0), 0.0, 1.0);
+              vec3 color = clamp(source * exp2(clamp(uExposure, -2.0, 2.0)), 0.0, 1.0);
+              color = clamp(color + vec3(34.0, 6.0, -34.0) / 255.0 * uTemperature, 0.0, 1.0);
+              color = clamp(color + vec3(16.0, -28.0, 16.0) / 255.0 * uTint, 0.0, 1.0);
+              color = clamp(color + (uBrightness - 1.0), 0.0, 1.0);
               color = clamp((color - vec3(MIDPOINT)) * uContrast + vec3(MIDPOINT), 0.0, 1.0);
               float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
               color = clamp(vec3(luminance) + (color - vec3(luminance)) * uSaturation, 0.0, 1.0);
+              color = applyVignette(color, uv, clamp(uVignette, -1.0, 1.0));
               if (uUseFilm > 0.5) {
                 color = mix(color, sampleFilmLut(color), clamp(uFilmStrength, 0.0, 1.0));
               }
@@ -210,7 +229,7 @@ internal class AndroidGpuCameraOesRenderer(
     @Volatile private var lutUploadPending = false
     @Volatile private var flashMode = "auto"
     @Volatile private var torchEnabled = false
-    @Volatile private var mirrorFrontPreview = true
+    @Volatile private var mirrorFrontPreview = false
 
     private var activeLook = NativeGpuCameraLook()
     private var creativeMode = CREATIVE_NONE
@@ -546,9 +565,13 @@ internal class AndroidGpuCameraOesRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uRotationSteps"), previewRotationDegrees() / 90)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMirrorX"), if (lensFacing == CameraCharacteristics.LENS_FACING_FRONT && mirrorFrontPreview) 1f else 0f)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uEnabled"), if (enabled) 1f else 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uExposure"), activeLook.exposure)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTemperature"), activeLook.temperature)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTint"), activeLook.tint)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uBrightness"), activeLook.brightness)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uContrast"), activeLook.contrast)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uSaturation"), activeLook.saturation)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uVignette"), activeLook.vignette)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uUseFilm"), if (activeLook.hasFilm && filmLutTexture != 0) 1f else 0f)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uFilmStrength"), activeLook.filmStrength)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCreativeMode"), if (creativeMode == CREATIVE_LUT && creativeLutTexture == 0) CREATIVE_NONE else creativeMode)
