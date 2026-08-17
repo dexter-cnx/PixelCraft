@@ -599,6 +599,7 @@ internal class AndroidGpuCameraOesRenderer(
         )
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "eglCreateWindowSurface failed" }
         makeCurrent()
+        initializeGlObjects()
         GLES20.glViewport(0, 0, outputWidth, outputHeight)
         filmLutBytes?.let { filmLutTexture = uploadLutTexture(filmLutTexture, it) }
         creativeLutBytes?.let { creativeLutTexture = uploadLutTexture(creativeLutTexture, it) }
@@ -639,6 +640,13 @@ internal class AndroidGpuCameraOesRenderer(
             0,
         )
         check(eglContext != EGL14.EGL_NO_CONTEXT) { "eglCreateContext failed" }
+    }
+
+    private fun initializeGlObjects() {
+        if (program != 0) return
+        check(eglDisplay != EGL14.EGL_NO_DISPLAY) { "EGL display is not initialized" }
+        check(eglContext != EGL14.EGL_NO_CONTEXT) { "EGL context is not initialized" }
+        check(eglSurface != EGL14.EGL_NO_SURFACE) { "EGL surface is not initialized" }
 
         program = linkProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         oesTexture = createOesTexture()
@@ -857,6 +865,7 @@ internal class AndroidGpuCameraOesRenderer(
         val vertex = compileShader(GLES20.GL_VERTEX_SHADER, vertexSource)
         val fragment = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
         val result = GLES20.glCreateProgram()
+        check(result != 0) { "GPU camera program creation failed" }
         GLES20.glAttachShader(result, vertex)
         GLES20.glAttachShader(result, fragment)
         GLES20.glLinkProgram(result)
@@ -874,6 +883,7 @@ internal class AndroidGpuCameraOesRenderer(
 
     private fun compileShader(type: Int, source: String): Int {
         val shader = GLES20.glCreateShader(type)
+        check(shader != 0) { "GPU camera shader creation failed for type=$type" }
         GLES20.glShaderSource(shader, source)
         GLES20.glCompileShader(shader)
         val status = IntArray(1)
@@ -881,7 +891,7 @@ internal class AndroidGpuCameraOesRenderer(
         if (status[0] == 0) {
             val log = GLES20.glGetShaderInfoLog(shader)
             GLES20.glDeleteShader(shader)
-            throw IllegalStateException("GPU camera shader compile failed: $log")
+            throw IllegalStateException("GPU camera shader compile failed type=$type: $log")
         }
         return shader
     }
