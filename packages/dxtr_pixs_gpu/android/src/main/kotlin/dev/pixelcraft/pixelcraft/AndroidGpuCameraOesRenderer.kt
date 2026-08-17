@@ -90,11 +90,11 @@ internal class AndroidGpuCameraOesRenderer(
             vec2 orientUv(vec2 uv) {
               vec2 p = (uv - vec2(0.5)) * uCropScale;
               if (uRotationSteps == 1) {
-                p = vec2(p.y, -p.x);
+                p = vec2(-p.y, p.x);
               } else if (uRotationSteps == 2) {
                 p = -p;
               } else if (uRotationSteps == 3) {
-                p = vec2(-p.y, p.x);
+                p = vec2(p.y, -p.x);
               }
               p.x = mix(p.x, -p.x, uMirrorX);
               return p + vec2(0.5);
