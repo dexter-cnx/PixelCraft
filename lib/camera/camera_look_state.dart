@@ -53,13 +53,16 @@ const cameraCreativeFilters = <CameraCreativeFilter>[
   ),
 ];
 
-/// First PF2 camera adjustments whose realtime GPU semantics are already
-/// proven by the editor preview path and are cheap enough for continuous
-/// camera preview. More adjustments can be added only after parity evidence.
+/// PF2 realtime camera adjustments with native preview semantics matched to
+/// the authoritative Rust editor operations.
 const cameraGpuAdjustmentIds = <String>{
+  'exposure',
+  'temperature',
+  'tint',
   'brightness',
   'contrast',
   'saturation',
+  'vignette',
 };
 
 CameraCreativeFilter cameraCreativeFilter(String id) =>
