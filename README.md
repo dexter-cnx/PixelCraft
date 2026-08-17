@@ -28,7 +28,15 @@ Launch directly into Camera:
 └─────────────────────────────┘
 ```
 
-Target behavior:
+PF2 provides a unified Camera look state containing independent Film, Creative Filter, and realtime Adjust layers. The native preview executes the frozen semantic order:
+
+```text
+Adjust -> Film -> Creative Filter
+```
+
+Android uses OpenGL ES and iOS uses Metal for preview. Rust remains authoritative for final image semantics and saved pixels.
+
+Target PF3 shutter behavior remains:
 
 ```text
 Shutter
@@ -38,6 +46,8 @@ Shutter
  -> save to system Gallery
  -> remain in Camera
 ```
+
+Until PF3 lands, PF2 temporarily hands the clean capture and the selected `CameraLookState` to the existing Rust-backed editor path.
 
 Live GPU pixels are preview-only and never become final-render authority.
 
@@ -52,6 +62,8 @@ Gallery
  -> Rust full-resolution render
  -> save processed result to Gallery
 ```
+
+Gallery-picked sources remain neutral and do not automatically inherit the current Camera look.
 
 The original source format is preserved as source data. JPEG stays JPEG source, PNG stays PNG source, WebP stays WebP source, and a future RAW input remains RAW source. Export is a separate output decision.
 
@@ -97,6 +109,46 @@ Hard contracts:
 6. Unsupported GPU operation ordering falls back instead of silently changing semantics.
 7. Flutter/Riverpod state orchestrates UI and transient preview state; it must not become a second canonical edit recipe.
 8. PixelCraft editor-local source/recovery metadata never becomes a general DAM catalog.
+9. PF2 does not pre-compose the complete look into one 33³ LUT; Film and Creative LUT stages remain sequential with direct Adjust/exact Creative operations.
+
+## PF2 current status
+
+```text
+PR: #48
+branch: feature/pf2-unified-camera-look
+implementation baseline: b4451dce62bd877435cdab4ddd69c3f69cc037cd
+CI: #420 / run 31946914217 — SUCCESS
+implementation: COMPLETE
+physical-device validation: PENDING
+PR state: OPEN / DRAFT
+```
+
+Automated gates on the implementation baseline are green. PF2 is intentionally not marked complete/ready because the direct per-frame native shader stages still require physical-device validation for frame pacing and runtime behavior.
+
+Canonical PF2 docs:
+
+```text
+docs/PF2_CAMERA_LOOK_CONTRACT.md
+docs/PF2_DEVICE_VALIDATION_CHECKLIST.md
+```
+
+The physical-device gate covers:
+
+- neutral preview baseline;
+- Film selection and strength;
+- every Creative Filter class;
+- brightness/contrast/saturation continuous sliders;
+- Film + Filter + Adjust coexistence;
+- rapid-switch/latest-value-wins stress;
+- sustained preview/frame pacing and thermal observation;
+- lens switching and lifecycle pause/resume;
+- shutter + temporary capture/editor handoff;
+- Gallery source neutrality;
+- runtime fail-closed fallback where safely inducible;
+- EN/TH controls;
+- regression smoke.
+
+PR #48 should remain Draft until the required device checklist passes and evidence is recorded.
 
 ## State management
 
@@ -138,13 +190,6 @@ Policy:
 - unsupported locales fall back to **English**;
 - new user-facing Flutter strings should enter localization resources rather than being hardcoded.
 
-Initial translation layout may use:
-
-```text
-assets/translations/en.json
-assets/translations/th.json
-```
-
 ## Preferences and persistence
 
 Do **not** add Hive merely as a future-proofing dependency.
@@ -169,9 +214,9 @@ Existing persistence remains separated by responsibility:
 - filesystem/system Gallery — image files;
 - Rust recipe — authoritative editing semantics.
 
-## Application services for the platform-flow milestone
+## Application services
 
-The next product-flow work should converge on explicit service boundaries rather than screen-specific platform calls:
+Platform-flow work converges on explicit service boundaries rather than screen-specific platform calls:
 
 ```text
 AppPreferencesStore
@@ -183,13 +228,13 @@ ProcessingJob orchestration
 App route/navigation abstraction
 ```
 
-`MediaSaveService` should be the common path for camera JPEG results and editor exports to system Gallery.
+`MediaSaveService` is the target common path for PF3 camera JPEG results and editor exports to system Gallery.
 
-Error handling should map typed failures such as permission denied, camera unavailable, decode failure, unsupported source, render failure, and save failure into localized UI messages.
+Error handling maps typed failures such as permission denied, camera unavailable, decode failure, unsupported source, render failure, and save failure into localized UI messages.
 
 ## Future-safe source contract
 
-Source handling should remain format-aware and should not assume every input is JPEG/PNG.
+Source handling remains format-aware and does not assume every input is JPEG/PNG.
 
 A future external-edit request may carry fields such as:
 
@@ -203,9 +248,9 @@ returnPolicy
 metadata?
 ```
 
-A corresponding `PixelCraftEditResult` should return the edited output without transferring Nixin Workplaces/catalog authority into PixelCraft.
+A corresponding `PixelCraftEditResult` returns the edited output without transferring Nixin Workplaces/catalog authority into PixelCraft.
 
-This contract is a **planned foundation only**; full Nixin integration is not part of the current implementation slice.
+This contract is a **planned foundation only**; full Nixin integration is not part of PF2/PF3.
 
 ## Current capability status
 
@@ -219,109 +264,29 @@ G6  Reliability / Performance / Device Matrix  CLOSED / VERIFIED
 
 P0-P3 package extraction                       MERGED
 PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE
+PKG-02 existing-package ownership audit         PLANNED AFTER PF FLOW STABILIZES
+PKG-03 camera package extraction review         DEFER UNTIL AFTER PF3
+
 G7A Release Engineering / Store Preparation    MERGED
 G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY
 
-PF1 Camera-first mobile/tablet shell            NEXT / NOT IMPLEMENTED
-PF2 Unified Camera Film/Filter/Adjust UX        PLANNED
+PF0 Platform-flow foundations                  MERGED / ACTIVE FOUNDATION
+PF1 Camera-first mobile/tablet shell            MERGED
+PF2 Unified Camera Film/Filter/Adjust UX        IMPLEMENTED / DEVICE VALIDATION PENDING — PR #48
 PF3 Capture-process-save-to-Gallery             PLANNED
 PF4 Gallery-to-editor source flow               PLANNED
-PF5 External edit request/result contract       PLANNED FOUNDATION ONLY
+PF5 External edit request/result foundation     PLANNED FOUNDATION ONLY
 
-MobileSAM / ONNX                               FUTURE / NOT ACTIVATED
+MobileSAM / ONNX segmentation                  FUTURE / NOT ACTIVATED
 Real RAW development                           FUTURE / NOT ACTIVATED
-Dart 3.13 RecordUse/native tree-shaking        FUTURE / DEFERRED
+Dart 3.13 native tree-shaking / RecordUse       FUTURE / DEFERRED / DO NOT START NOW
 ```
 
-## Film and Filter foundation
+## Verification
 
-Film Profiles and Creative Filters are already real Rust-backed capabilities rather than fake UI controls.
-
-Film uses first-class operations and canonical 33x33x33 LUT data with full-resolution replay/export. Current inspired looks include Provia, Velvia, Astia, E100, Ektar, and Chrome 64.
-
-Creative filters include grayscale/invert and canonical LUT-backed presets such as vintage, oceanic, lofi, dramatic, golden, and pastel pink.
-
-PF2 is therefore primarily camera UX integration over existing processing foundations.
-
-## Future MobileSAM and RAW
-
-Future package direction:
+Standard automated verification includes:
 
 ```text
-dxtr_pixs_segment  # MobileSAM/local segmentation
-dxtr_pixs_restore  # restoration capabilities
-dxtr_pixs_raw      # real RAW development
-```
-
-These are not activated by the camera-first milestone.
-
-A future MobileSAM/ONNX path should produce masks through a replaceable mask-provider boundary and must not become image-processing authority.
-
-A future real RAW milestone must separately define decode/demosaic, camera color/WB, highlight recovery, working color space, memory/performance, full-resolution replay, and export behavior.
-
-## Package graph
-
-```text
-PixelCraft app
- ├── dxtr_pixs_film
- ├── dxtr_pixs_gpu
- ├── dxtr_pixs_editing
- └── dxtr_pixs_engine
-
-dxtr_pixs_film    -> dxtr_pixs_editing
-dxtr_pixs_gpu     -> dxtr_pixs_editing
-dxtr_pixs_editing -> Dart SDK only
-dxtr_pixs_engine  -> repository rust/ crate through build integration
-```
-
-Native ABI/runtime identifiers remain stable unless separately approved.
-
-## Product identity
-
-```text
-master brand: Dextryx
-product: Dextryx Pixels
-installed label: Dxtr Pixs
-repository: PixelCraft
-Android applicationId: dev.cnxdev.pixelcraft
-iOS bundle id: dev.cnxdev.pixelcraft
-```
-
-## Requirements
-
-- Flutter 3.44 or newer
-- Dart 3.12 or newer
-- Rust stable
-- `flutter_rust_bridge_codegen` 2.12.0
-- Android Studio / Android SDK
-- Xcode + CocoaPods for iOS
-- iOS 13.0 or newer
-
-## Setup
-
-```bash
-git clone https://github.com/dexter-cnx/PixelCraft.git
-cd PixelCraft
-./tool/bootstrap.sh
-flutter run
-```
-
-Or:
-
-```bash
-make setup
-make run
-```
-
-After changing Rust APIs:
-
-```bash
-make codegen
-```
-
-Validation:
-
-```bash
 bash tool/check_package_boundaries.sh
 make gpu-lut-verify
 make verify-native
@@ -329,16 +294,10 @@ flutter analyze
 flutter test
 ```
 
-A green PR head alone does not close a milestone; resulting `main` CI must also be verified.
+For PF2 closure, also run the complete physical-device checklist in:
 
-## Documentation
+```text
+docs/PF2_DEVICE_VALIDATION_CHECKLIST.md
+```
 
-- `docs/PROJECT_HANDOFF.md` — canonical continuation status and execution order
-- `docs/CODE_WALKTHROUGH.md` — runtime, state, localization, service, and package architecture
-- `docs/FILM_PROFILES_AND_RELIABILITY.md` — Film profile/reliability details
-- `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md` — deferred Dart 3.13 plan
-- release/device evidence documents under `docs/`
-
-## License
-
-MIT
+Do not claim device validation from CI alone.
