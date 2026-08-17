@@ -25,6 +25,13 @@ bool get _isMobilePlatform =>
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
+ThemeData _cameraTheme() => ThemeData(
+  useMaterial3: true,
+  colorSchemeSeed: const Color(0xFF9D8CFF),
+  brightness: Brightness.dark,
+  scaffoldBackgroundColor: Colors.black,
+);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
@@ -84,8 +91,10 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
         GoRoute(
           path: AppRoutePaths.camera,
           name: AppRouteNames.camera,
-          builder: (_, __) =>
-              const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
+          builder: (_, __) => Theme(
+            data: _cameraTheme(),
+            child: const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
+          ),
         ),
         GoRoute(
           path: AppRoutePaths.desktop,
@@ -150,11 +159,8 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
       brightness: Brightness.light,
       scaffoldBackgroundColor: const Color(0xFFF8F7FC),
     ),
-    darkTheme: ThemeData(
-      useMaterial3: true,
-      colorSchemeSeed: const Color(0xFF9D8CFF),
-      brightness: Brightness.dark,
-    ),
+    darkTheme: _cameraTheme(),
+    themeMode: ThemeMode.system,
     routerConfig: _router,
   );
 }

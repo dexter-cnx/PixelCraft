@@ -7,6 +7,12 @@ import 'gpu_preview_session.dart';
 const gpuPreviewProtocolVersion = 1;
 const gpuPreviewChannelName = 'dev.pixelcraft/gpu_preview_v1';
 
+void _traceNativeGpu(String message) {
+  if (kDebugMode) {
+    debugPrint('[PF2][NativeGpu] $message');
+  }
+}
+
 @immutable
 class NativeGpuProbe {
   const NativeGpuProbe({
@@ -81,7 +87,8 @@ class NativeGpuHarnessResult {
   final int samples;
   final String profileId;
 
-  factory NativeGpuHarnessResult.fromMap(Map<Object?, Object?> map) => NativeGpuHarnessResult(
+  factory NativeGpuHarnessResult.fromMap(Map<Object?, Object?> map) =>
+      NativeGpuHarnessResult(
         passed: map['passed'] as bool? ?? false,
         maxChannelError: (map['maxChannelError'] as num? ?? 1).toDouble(),
         samples: map['samples'] as int? ?? 0,
@@ -91,84 +98,122 @@ class NativeGpuHarnessResult {
 
 class NativeGpuPreviewBridge {
   const NativeGpuPreviewBridge({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
+    : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
 
   final MethodChannel _channel;
 
   Future<NativeGpuProbe> probe({bool forceSelfTest = false}) async {
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      'probe',
-      <String, Object?>{
-        'protocolVersion': gpuPreviewProtocolVersion,
-        'forceSelfTest': forceSelfTest,
-      },
-    );
-    if (result == null) throw StateError('Native GPU probe returned no data');
-    return NativeGpuProbe.fromMap(result);
+    _traceNativeGpu('probe START forceSelfTest=$forceSelfTest');
+    try {
+      final result = await _channel
+          .invokeMapMethod<Object?, Object?>('probe', <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+            'forceSelfTest': forceSelfTest,
+          });
+      if (result == null) {
+        throw StateError('Native GPU probe returned no data');
+      }
+      final probe = NativeGpuProbe.fromMap(result);
+      _traceNativeGpu(
+        'probe OK backend=${probe.backend.name} available=${probe.available} '
+        'lut33=${probe.supportsLut33} selfTest=${probe.selfTestPassed} '
+        'assets=${probe.assetsLoaded} blacklisted=${probe.blacklisted} '
+        'cached=${probe.cached} renderer=${probe.renderer} '
+        'failureCode=${probe.failureCode} failureDetail=${probe.failureDetail}',
+      );
+      return probe;
+    } catch (error, stackTrace) {
+      _traceNativeGpu('probe FAILED error=$error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
-  Future<void> invalidateCapabilityCache() => _channel.invokeMethod<void>('invalidateCapabilityCache');
+  Future<void> invalidateCapabilityCache() async {
+    _traceNativeGpu('invalidateCapabilityCache START');
+    try {
+      await _channel.invokeMethod<void>('invalidateCapabilityCache');
+      _traceNativeGpu('invalidateCapabilityCache OK');
+    } catch (error, stackTrace) {
+      _traceNativeGpu('invalidateCapabilityCache FAILED error=$error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
+  }
 
   Future<String> createRenderer() async {
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      'createRenderer',
-      const <String, Object?>{'protocolVersion': gpuPreviewProtocolVersion},
-    );
-    final rendererId = result?['rendererId'] as String?;
-    if (rendererId == null || rendererId.isEmpty) {
-      throw StateError('Native GPU renderer creation returned no rendererId');
+    _traceNativeGpu('createRenderer START');
+    try {
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'createRenderer',
+        const <String, Object?>{'protocolVersion': gpuPreviewProtocolVersion},
+      );
+      final rendererId = result?['rendererId'] as String?;
+      if (rendererId == null || rendererId.isEmpty) {
+        throw StateError('Native GPU renderer creation returned no rendererId');
+      }
+      _traceNativeGpu('createRenderer OK rendererId=$rendererId');
+      return rendererId;
+    } catch (error, stackTrace) {
+      _traceNativeGpu('createRenderer FAILED error=$error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      rethrow;
     }
-    return rendererId;
   }
 
-  Future<void> configureSurface(String rendererId, GpuPreviewSurfaceConfiguration surface) =>
-      _invokeRendererControl('configureSurface', rendererId, surface.toMap());
+  Future<void> configureSurface(
+    String rendererId,
+    GpuPreviewSurfaceConfiguration surface,
+  ) => _invokeRendererControl('configureSurface', rendererId, surface.toMap());
 
-  Future<void> setFilm(String rendererId, GpuPreviewFilmState film) => _invokeRendererControl(
-        'setFilm',
-        rendererId,
-        <String, Object?>{
-          'profileId': film.profileId,
-          'strength': film.normalized().strength,
-        },
-      );
+  Future<void> setFilm(String rendererId, GpuPreviewFilmState film) =>
+      _invokeRendererControl('setFilm', rendererId, <String, Object?>{
+        'profileId': film.profileId,
+        'strength': film.normalized().strength,
+      });
 
-  Future<void> setStrength(String rendererId, double strength) => _invokeRendererControl(
-        'setStrength',
-        rendererId,
-        <String, Object?>{'strength': strength.clamp(0.0, 1.0).toDouble()},
-      );
+  Future<void> setStrength(String rendererId, double strength) =>
+      _invokeRendererControl('setStrength', rendererId, <String, Object?>{
+        'strength': strength.clamp(0.0, 1.0).toDouble(),
+      });
 
-  Future<void> setViewport(String rendererId, GpuPreviewViewport viewport) => _invokeRendererControl(
-        'setViewport',
-        rendererId,
-        <String, Object?>{
-          'width': viewport.width,
-          'height': viewport.height,
-          'devicePixelRatio': viewport.devicePixelRatio,
-        },
-      );
+  Future<void> setViewport(String rendererId, GpuPreviewViewport viewport) =>
+      _invokeRendererControl('setViewport', rendererId, <String, Object?>{
+        'width': viewport.width,
+        'height': viewport.height,
+        'devicePixelRatio': viewport.devicePixelRatio,
+      });
 
   Future<void> setEnabled(String rendererId, bool enabled) =>
-      _invokeRendererControl('setEnabled', rendererId, <String, Object?>{'enabled': enabled});
+      _invokeRendererControl('setEnabled', rendererId, <String, Object?>{
+        'enabled': enabled,
+      });
 
-  Future<void> pause(String rendererId) => _invokeRendererControl('pause', rendererId);
-  Future<void> resume(String rendererId) => _invokeRendererControl('resume', rendererId);
-  Future<void> destroyRenderer(String rendererId) => _invokeRendererControl('destroyRenderer', rendererId);
+  Future<void> pause(String rendererId) =>
+      _invokeRendererControl('pause', rendererId);
+  Future<void> resume(String rendererId) =>
+      _invokeRendererControl('resume', rendererId);
+  Future<void> destroyRenderer(String rendererId) =>
+      _invokeRendererControl('destroyRenderer', rendererId);
 
   Future<void> _invokeRendererControl(
     String method,
     String rendererId, [
     Map<String, Object?> values = const <String, Object?>{},
   ]) async {
-    await _channel.invokeMethod<void>(
-      method,
-      <String, Object?>{
+    _traceNativeGpu('$method START rendererId=$rendererId');
+    try {
+      await _channel.invokeMethod<void>(method, <String, Object?>{
         'protocolVersion': gpuPreviewProtocolVersion,
         'rendererId': rendererId,
         ...values,
-      },
-    );
+      });
+      _traceNativeGpu('$method OK rendererId=$rendererId');
+    } catch (error, stackTrace) {
+      _traceNativeGpu('$method FAILED rendererId=$rendererId error=$error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
   Future<NativeGpuHarnessResult> runReferenceHarness() async {
@@ -188,14 +233,16 @@ class NativeGpuPreviewBridge {
         'profileId': profileId,
       },
     );
-    if (result == null) throw StateError('Native Film GPU harness returned no data');
+    if (result == null) {
+      throw StateError('Native Film GPU harness returned no data');
+    }
     return NativeGpuHarnessResult.fromMap(result);
   }
 }
 
 class NativeGpuPreviewSession implements GpuPreviewRendererSession {
   NativeGpuPreviewSession({NativeGpuPreviewBridge? bridge})
-      : _bridge = bridge ?? const NativeGpuPreviewBridge();
+    : _bridge = bridge ?? const NativeGpuPreviewBridge();
 
   final NativeGpuPreviewBridge _bridge;
   bool _hasSurface = false;
@@ -216,7 +263,8 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
 
   @override
   Future<void> createRenderer() async {
-    if (state != GpuPreviewSessionState.idle && state != GpuPreviewSessionState.destroyed) {
+    if (state != GpuPreviewSessionState.idle &&
+        state != GpuPreviewSessionState.destroyed) {
       throw StateError('Cannot create GPU renderer from state $state');
     }
     try {
@@ -240,16 +288,20 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
   }
 
   @override
-  Future<void> setFilm(GpuPreviewFilmState film) => _bridge.setFilm(_requiredRendererId, film);
+  Future<void> setFilm(GpuPreviewFilmState film) =>
+      _bridge.setFilm(_requiredRendererId, film);
 
   @override
-  Future<void> setStrength(double strength) => _bridge.setStrength(_requiredRendererId, strength);
+  Future<void> setStrength(double strength) =>
+      _bridge.setStrength(_requiredRendererId, strength);
 
   @override
-  Future<void> setViewport(GpuPreviewViewport viewport) => _bridge.setViewport(_requiredRendererId, viewport);
+  Future<void> setViewport(GpuPreviewViewport viewport) =>
+      _bridge.setViewport(_requiredRendererId, viewport);
 
   @override
-  Future<void> setEnabled(bool enabled) => _bridge.setEnabled(_requiredRendererId, enabled);
+  Future<void> setEnabled(bool enabled) =>
+      _bridge.setEnabled(_requiredRendererId, enabled);
 
   @override
   Future<void> pause() async {
@@ -260,7 +312,9 @@ class NativeGpuPreviewSession implements GpuPreviewRendererSession {
   @override
   Future<void> resume() async {
     await _bridge.resume(_requiredRendererId);
-    state = _hasSurface ? GpuPreviewSessionState.surfaceConfigured : GpuPreviewSessionState.created;
+    state = _hasSurface
+        ? GpuPreviewSessionState.surfaceConfigured
+        : GpuPreviewSessionState.created;
   }
 
   @override

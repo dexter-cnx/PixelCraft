@@ -3,20 +3,35 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/editor_controller.dart';
 import '../ui/screens/product_editor_screen.dart';
+import 'camera_look_state.dart';
 
-/// Opens the normal Editor for a camera capture, then applies the Film Profile
-/// selected in the live viewfinder once the new source has finished loading.
+/// Opens the normal Editor for a camera capture, then applies the transient
+/// camera look after the source has finished loading.
+///
+/// This is a PF2 bridge only. PF3 will replace capture -> editor with clean
+/// capture -> Rust authoritative full-resolution render -> JPEG Gallery save.
+/// The handoff deliberately commits in canonical order: Adjust -> Film ->
+/// Creative. Each editor preview request is allowed to drain before the next
+/// one so the editor's latest-value-wins queue cannot coalesce an intermediate
+/// adjustment away.
 class CameraFilmEditorHandoff extends ConsumerStatefulWidget {
   const CameraFilmEditorHandoff({
     super.key,
     required this.imagePath,
     required this.profileId,
     required this.strength,
+    this.look,
   });
 
   final String imagePath;
+
+  /// Legacy PF1 Film fields retained for compatibility with existing callers.
   final String profileId;
   final double strength;
+
+  /// PF2 composed look. When present this takes precedence over [profileId]
+  /// and [strength].
+  final CameraLookState? look;
 
   @override
   ConsumerState<CameraFilmEditorHandoff> createState() =>
@@ -25,8 +40,35 @@ class CameraFilmEditorHandoff extends ConsumerStatefulWidget {
 
 class _CameraFilmEditorHandoffState
     extends ConsumerState<CameraFilmEditorHandoff> {
+  static const _adjustmentOrder = <String>[
+    'exposure',
+    'temperature',
+    'tint',
+    'brightness',
+    'contrast',
+    'saturation',
+    'vignette',
+  ];
+
   bool _sawSourceLoad = false;
-  bool _filmScheduled = false;
+  bool _lookScheduled = false;
+
+  CameraLookState get _initialLook =>
+      widget.look ??
+      CameraLookState(
+        filmProfileId: widget.profileId,
+        filmStrength: widget.profileId.isEmpty ? 0 : widget.strength,
+      );
+
+  bool get _hasInitialLook {
+    final look = _initialLook;
+    return look.hasFilm ||
+        look.hasCreative ||
+        _adjustmentOrder.any((id) {
+          final neutral = cameraAdjustmentSpec(id).neutral;
+          return (look.adjustmentValue(id) - neutral).abs() > 0.000001;
+        });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,34 +78,69 @@ class _CameraFilmEditorHandoffState
       _sawSourceLoad = true;
     }
 
-    final canApplyInitialFilm =
-        widget.profileId.isNotEmpty &&
+    final canApplyInitialLook =
+        _hasInitialLook &&
         _sawSourceLoad &&
-        !_filmScheduled &&
+        !_lookScheduled &&
         !editor.isBusy &&
         !editor.isGeneratingFilmPreviews &&
-        editor.previewBytes != null &&
-        editor.selectedFilmProfile != widget.profileId;
+        !editor.isGeneratingFilterPreviews &&
+        editor.previewBytes != null;
 
-    if (canApplyInitialFilm) {
-      _filmScheduled = true;
+    if (canApplyInitialLook) {
+      _lookScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
-        final controller = ref.read(editorProvider.notifier);
-        await controller.selectFilmProfile(widget.profileId);
-        if (!mounted) return;
-
-        if (ref.read(editorProvider).selectedFilmProfile != widget.profileId) {
-          setState(() => _filmScheduled = false);
-          return;
-        }
-
-        if (widget.strength < 0.999) {
-          await controller.updateFilmProfileStrength(widget.strength);
+        try {
+          await _applyInitialLook();
+        } catch (_) {
+          if (mounted) setState(() => _lookScheduled = false);
         }
       });
     }
 
     return ProductEditorScreen(imagePath: widget.imagePath);
+  }
+
+  Future<void> _applyInitialLook() async {
+    final controller = ref.read(editorProvider.notifier);
+    final look = _initialLook;
+
+    for (final id in _adjustmentOrder) {
+      final value = look.adjustmentValue(id);
+      final neutral = cameraAdjustmentSpec(id).neutral;
+      if ((value - neutral).abs() <= 0.000001) continue;
+      controller.selectFilter(id);
+      await controller.commitFilterValue(value);
+      await _waitForPreviewIdle();
+      if (!mounted) return;
+    }
+
+    if (look.hasFilm) {
+      await controller.selectFilmProfile(look.filmProfileId);
+      await _waitForPreviewIdle();
+      if (!mounted) return;
+      if (look.filmStrength < 0.999) {
+        await controller.updateFilmProfileStrength(look.filmStrength);
+        await _waitForPreviewIdle();
+        if (!mounted) return;
+      }
+    }
+
+    if (look.hasCreative) {
+      await controller.applyCreativeFilter(look.creativeFilterId);
+      await _waitForPreviewIdle();
+      if (!mounted) return;
+      if (look.creativeFilterStrength < 0.999) {
+        await controller.updateCreativeFilterValue(look.creativeFilterStrength);
+        await _waitForPreviewIdle();
+      }
+    }
+  }
+
+  Future<void> _waitForPreviewIdle() async {
+    while (mounted && ref.read(editorProvider).isPreviewProcessing) {
+      await Future<void>.delayed(const Duration(milliseconds: 8));
+    }
   }
 }

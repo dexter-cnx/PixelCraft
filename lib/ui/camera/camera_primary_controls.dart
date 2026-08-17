@@ -43,7 +43,10 @@ class CameraPrimaryControls extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 42, 16, 16),
+        // Keep the primary control strip below the PF2 Film/Filter/Adjust
+        // panels. The previous 42px top padding made this widget overlap the
+        // look panel ChoiceChips and intercept their pointer events.
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -145,8 +148,14 @@ class _ToolSelector extends StatelessWidget {
       key: const Key('camera-tool-selector'),
       segments: [
         ButtonSegment(value: CameraPrimaryTool.film, label: Text(filmLabel)),
-        ButtonSegment(value: CameraPrimaryTool.filter, label: Text(filterLabel)),
-        ButtonSegment(value: CameraPrimaryTool.adjust, label: Text(adjustLabel)),
+        ButtonSegment(
+          value: CameraPrimaryTool.filter,
+          label: Text(filterLabel),
+        ),
+        ButtonSegment(
+          value: CameraPrimaryTool.adjust,
+          label: Text(adjustLabel),
+        ),
       ],
       selected: {selectedTool},
       onSelectionChanged: (selection) {
@@ -164,9 +173,7 @@ class _ToolSelector extends StatelessWidget {
               ? Colors.white
               : Colors.black54,
         ),
-        side: WidgetStateProperty.all(
-          const BorderSide(color: Colors.white38),
-        ),
+        side: WidgetStateProperty.all(const BorderSide(color: Colors.white38)),
       ),
     );
   }

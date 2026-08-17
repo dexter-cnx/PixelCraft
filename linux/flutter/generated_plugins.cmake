@@ -8,8 +8,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  dxtr_pixs_engine
+  dxtr_pixs_gpu
   jni
-  pixelcraft_engine
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

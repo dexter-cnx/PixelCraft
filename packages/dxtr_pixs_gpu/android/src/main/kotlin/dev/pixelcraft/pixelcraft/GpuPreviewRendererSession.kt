@@ -34,6 +34,7 @@ internal class NativeGpuRendererSession(
     var surface: NativeGpuSurfaceConfig? = null,
     var profileId: String = "",
     var strength: Double = 0.0,
+    var cameraLook: NativeGpuCameraLook = NativeGpuCameraLook(),
     var viewport: NativeGpuViewport? = null,
     var enabled: Boolean = true,
 )
@@ -131,6 +132,14 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     }
 
     @Synchronized
+    fun setCameraLook(id: String, look: NativeGpuCameraLook) {
+        session(id).apply {
+            cameraLook = look
+            renderer.setCameraLook(look)
+        }
+    }
+
+    @Synchronized
     fun setViewport(id: String, viewport: NativeGpuViewport) {
         require(viewport.width > 0.0 && viewport.height > 0.0) {
             "Viewport dimensions must be positive"
@@ -146,6 +155,21 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
             renderer.setEnabled(enabled)
         }
     }
+
+    @Synchronized
+    fun cameraControlState(id: String): Map<String, Any> = session(id).renderer.cameraControlState()
+
+    @Synchronized
+    fun setFlashMode(id: String, mode: String): Map<String, Any> =
+        session(id).renderer.setFlashMode(mode)
+
+    @Synchronized
+    fun setTorchEnabled(id: String, enabled: Boolean): Map<String, Any> =
+        session(id).renderer.setTorchEnabled(enabled)
+
+    @Synchronized
+    fun setMirrorEnabled(id: String, enabled: Boolean): Map<String, Any> =
+        session(id).renderer.setMirrorEnabled(enabled)
 
     @Synchronized
     fun pause(id: String) {
