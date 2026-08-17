@@ -16,6 +16,8 @@ Equivalent direct command:
 bash tool/install_git_hooks.sh
 ```
 
+The shell path intentionally supports the stock Apple Bash 3.2 that ships with macOS; installing Homebrew Bash is not required for the hook.
+
 On Windows PowerShell, when working directly from Windows rather than Git Bash/WSL:
 
 ```powershell
@@ -73,7 +75,7 @@ make format-check  # read-only CI-safe check; exits non-zero on formatting drift
 make pre-push      # run the same local guard manually
 ```
 
-Dart file selection is centralized in `tool/ci_format_changed.sh`. `make format` uses its write mode and `make format-check` uses its read-only check mode, so local formatting and CI do not maintain separate Dart file lists.
+Dart file selection is centralized in `tool/ci_format_changed.sh`. `make format` uses its write mode and `make format-check` uses its read-only check mode, so local formatting and CI do not maintain separate Dart file lists. The helper deliberately avoids Bash 4-only features so the same repository-managed path works on stock macOS Bash 3.2, Linux, WSL, and Git Bash.
 
 Rust formatter manifests are centralized in the Makefile through `RUST_FORMAT_MANIFESTS` and cover both:
 
