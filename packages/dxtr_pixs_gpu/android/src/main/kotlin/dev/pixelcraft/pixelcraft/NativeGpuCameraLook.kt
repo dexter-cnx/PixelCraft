@@ -11,9 +11,13 @@ internal data class NativeGpuCameraLook(
     val filmStrength: Float = 0f,
     val creativeFilterId: String = "",
     val creativeFilterStrength: Float = 0f,
+    val exposure: Float = 0f,
+    val temperature: Float = 0f,
+    val tint: Float = 0f,
     val brightness: Float = 1f,
     val contrast: Float = 1f,
     val saturation: Float = 1f,
+    val vignette: Float = 0f,
 ) {
     companion object {
         private val exactCreativeFilters = setOf("grayscale", "invert")
@@ -38,9 +42,13 @@ internal data class NativeGpuCameraLook(
                 creativeFilterId = creative,
                 creativeFilterStrength =
                     number(arguments, "creativeFilterStrength", 0f).coerceIn(0f, 1f),
+                exposure = number(arguments, "exposure", 0f).coerceIn(-2f, 2f),
+                temperature = number(arguments, "temperature", 0f).coerceIn(-1f, 1f),
+                tint = number(arguments, "tint", 0f).coerceIn(-1f, 1f),
                 brightness = number(arguments, "brightness", 1f).coerceIn(0f, 2f),
                 contrast = number(arguments, "contrast", 1f).coerceIn(0f, 2f),
                 saturation = number(arguments, "saturation", 1f).coerceIn(0f, 2f),
+                vignette = number(arguments, "vignette", 0f).coerceIn(-1f, 1f),
             )
         }
 
@@ -65,7 +73,8 @@ internal data class NativeGpuCameraLook(
         get() = creativeFilterId.isNotEmpty() && creativeFilterStrength > 0f
 
     val hasAdjustments: Boolean
-        get() = brightness != 1f || contrast != 1f || saturation != 1f
+        get() = exposure != 0f || temperature != 0f || tint != 0f ||
+            brightness != 1f || contrast != 1f || saturation != 1f || vignette != 0f
 
     val isNeutral: Boolean
         get() = !hasFilm && !hasCreative && !hasAdjustments
