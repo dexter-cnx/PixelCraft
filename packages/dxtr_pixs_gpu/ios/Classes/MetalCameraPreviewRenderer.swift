@@ -72,11 +72,7 @@ final class MetalCameraPreviewRenderer: NSObject {
     return out;
   }
 
-  inline float3 sample_lut(
-    texture3d<float> lut,
-    sampler lutSampler,
-    float3 color
-  ) {
+  inline float3 sample_lut(texture3d<float> lut, sampler lutSampler, float3 color) {
     const float lutSize = 33.0;
     float3 grid = clamp(color, 0.0, 1.0) * (lutSize - 1.0);
     float3 lutUv = (grid + 0.5) / lutSize;
@@ -175,6 +171,9 @@ final class MetalCameraPreviewRenderer: NSObject {
   private var lookFilmStrength: Float = 0
   private var lookCreativeStrength: Float = 0
   private var lookCreativeMode: Float = 0
+  private var flashMode: AVCaptureDevice.FlashMode = .auto
+  private var torchEnabled = false
+  private var mirrorFrontPreview = true
   private var released = false
   private var configured = false
   private var captureHandler: CaptureHandler?
@@ -264,7 +263,6 @@ final class MetalCameraPreviewRenderer: NSObject {
 
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
     defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-
     guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else {
       throw Self.error("Camera frame has no readable base address")
     }
@@ -281,7 +279,6 @@ final class MetalCameraPreviewRenderer: NSObject {
     var sourceSum = SIMD3<Double>(repeating: 0)
     var filmSum = SIMD3<Double>(repeating: 0)
     var samples = 0
-
     for y in stride(from: originY, to: originY + side, by: step) {
       for x in stride(from: originX, to: originX + side, by: step) {
         let offset = y * bytesPerRow + x * 4
@@ -291,7 +288,6 @@ final class MetalCameraPreviewRenderer: NSObject {
           Double(bytes[offset]) / 255.0
         )
         sourceSum += source
-
         if let lutBytes {
           let transformed = Self.sampleAtlasLut(source, atlas: lutBytes)
           let amount = Double(max(0, min(1, activeStrength)))
@@ -302,11 +298,7 @@ final class MetalCameraPreviewRenderer: NSObject {
         samples += 1
       }
     }
-
-    guard samples > 0 else {
-      throw Self.error("Color characterization produced no camera samples")
-    }
-
+    guard samples > 0 else { throw Self.error("Color characterization produced no camera samples") }
     let sourceMean = sourceSum / Double(samples)
     let filmMean = filmSum / Double(samples)
     return [
@@ -331,31 +323,20 @@ final class MetalCameraPreviewRenderer: NSObject {
     view.preferredFramesPerSecond = 60
     view.isPaused = false
     view.enableSetNeedsDisplay = false
-    sessionQueue.async { [weak self] in
-      self?.configureAndStartIfNeeded()
-    }
+    sessionQueue.async { [weak self] in self?.configureAndStartIfNeeded() }
   }
 
   func detach(view: MTKView) {
-    if outputView === view {
-      view.delegate = nil
-      outputView = nil
-    }
+    if outputView === view { view.delegate = nil; outputView = nil }
   }
 
   func updateInterfaceOrientation(_ orientation: UIInterfaceOrientation) {
     interfaceOrientation = orientation
-    sessionQueue.async { [weak self] in
-      self?.applyOrientation()
-    }
+    sessionQueue.async { [weak self] in self?.applyOrientation() }
   }
 
   func setFilm(profileId: String, strength: Double) {
-    frameLock.lock()
-    lookGeneration &+= 1
-    let generation = lookGeneration
-    frameLock.unlock()
-
+    frameLock.lock(); lookGeneration &+= 1; let generation = lookGeneration; frameLock.unlock()
     let clamped = Float(max(0, min(1, strength)))
     lookQueue.async { [weak self] in
       guard let self, !self.released else { return }
@@ -385,34 +366,20 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   func setCameraLook(_ look: NativeGpuCameraLook) {
-    frameLock.lock()
-    lookGeneration &+= 1
-    let generation = lookGeneration
-    frameLock.unlock()
-
+    frameLock.lock(); lookGeneration &+= 1; let generation = lookGeneration; frameLock.unlock()
     lookQueue.async { [weak self] in
       guard let self, !self.released else { return }
       do {
-        let filmTexture = look.hasFilm
-          ? try self.lutLoader.load(profileId: look.filmProfileId)
-          : nil
+        let filmTexture = look.hasFilm ? try self.lutLoader.load(profileId: look.filmProfileId) : nil
         let creativeAsset = look.creativeLutAssetId
         let creativeTexture = look.hasCreative && creativeAsset != nil
-          ? try self.lutLoader.load(profileId: creativeAsset!)
-          : nil
+          ? try self.lutLoader.load(profileId: creativeAsset!) : nil
         let mode: Float
-        if !look.hasCreative {
-          mode = Self.creativeNone
-        } else if look.creativeFilterId == "grayscale" {
-          mode = Self.creativeGrayscale
-        } else if look.creativeFilterId == "invert" {
-          mode = Self.creativeInvert
-        } else if creativeTexture != nil {
-          mode = Self.creativeLut
-        } else {
-          throw Self.error("Unsupported CameraLook creative stage: \(look.creativeFilterId)")
-        }
-
+        if !look.hasCreative { mode = Self.creativeNone }
+        else if look.creativeFilterId == "grayscale" { mode = Self.creativeGrayscale }
+        else if look.creativeFilterId == "invert" { mode = Self.creativeInvert }
+        else if creativeTexture != nil { mode = Self.creativeLut }
+        else { throw Self.error("Unsupported CameraLook creative stage: \(look.creativeFilterId)") }
         guard self.isCurrentLookGeneration(generation) else { return }
         self.renderQueue.async { [weak self] in
           guard let self, !self.released, self.isCurrentLookGeneration(generation) else { return }
@@ -446,14 +413,51 @@ final class MetalCameraPreviewRenderer: NSObject {
     }
   }
 
-  func setEnabled(_ value: Bool) {
-    enabled = value
+  func setEnabled(_ value: Bool) { enabled = value }
+
+  func cameraControlState() -> [String: Any] {
+    sessionQueue.sync { controlStateMap() }
+  }
+
+  func setFlashMode(_ value: String) throws -> [String: Any] {
+    try sessionQueue.sync {
+      let mode: AVCaptureDevice.FlashMode
+      switch value {
+      case "off": mode = .off
+      case "on": mode = .on
+      case "auto": mode = .auto
+      default: throw Self.error("Unsupported flash mode: \(value)")
+      }
+      flashMode = torchEnabled ? .off : mode
+      return controlStateMap()
+    }
+  }
+
+  func setTorchEnabled(_ value: Bool) throws -> [String: Any] {
+    try sessionQueue.sync {
+      let device = currentInput?.device ?? Self.camera(position: lensPosition)
+      guard let device else { throw Self.error("Active camera is unavailable") }
+      if value {
+        guard device.hasTorch && device.isTorchAvailable else {
+          throw Self.error("Torch is unavailable for the active camera")
+        }
+        flashMode = .off
+      }
+      try applyTorch(value, device: device)
+      torchEnabled = value
+      return controlStateMap()
+    }
+  }
+
+  func setMirrorEnabled(_ value: Bool) -> [String: Any] {
+    sessionQueue.sync {
+      mirrorFrontPreview = value
+      return controlStateMap()
+    }
   }
 
   func pause() {
-    DispatchQueue.main.async { [weak self] in
-      self?.outputView?.isPaused = true
-    }
+    DispatchQueue.main.async { [weak self] in self?.outputView?.isPaused = true }
     sessionQueue.async { [weak self] in
       guard let self, self.session.isRunning else { return }
       self.session.stopRunning()
@@ -461,12 +465,8 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   func resume() {
-    DispatchQueue.main.async { [weak self] in
-      self?.outputView?.isPaused = false
-    }
-    sessionQueue.async { [weak self] in
-      self?.configureAndStartIfNeeded()
-    }
+    DispatchQueue.main.async { [weak self] in self?.outputView?.isPaused = false }
+    sessionQueue.async { [weak self] in self?.configureAndStartIfNeeded() }
   }
 
   func switchCamera(completion: @escaping (Result<String, Error>) -> Void) {
@@ -480,13 +480,14 @@ final class MetalCameraPreviewRenderer: NSObject {
         completion(.failure(Self.error("Requested camera lens is unavailable")))
         return
       }
-
       do {
+        if self.torchEnabled, let currentDevice = self.currentInput?.device {
+          try self.applyTorch(false, device: currentDevice)
+          self.torchEnabled = false
+        }
         let input = try AVCaptureDeviceInput(device: device)
         self.session.beginConfiguration()
-        if let current = self.currentInput {
-          self.session.removeInput(current)
-        }
+        if let current = self.currentInput { self.session.removeInput(current) }
         guard self.session.canAddInput(input) else {
           if let current = self.currentInput, self.session.canAddInput(current) {
             self.session.addInput(current)
@@ -520,56 +521,76 @@ final class MetalCameraPreviewRenderer: NSObject {
       self.captureHandler = completion
       self.applyOrientation()
       let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+      let captureDevice = self.currentInput?.device
+      settings.flashMode = captureDevice?.hasFlash == true && !self.torchEnabled
+        ? self.flashMode
+        : .off
       self.photoOutput.capturePhoto(with: settings, delegate: self)
     }
   }
 
   func releaseRenderer() {
-    frameLock.lock()
-    lookGeneration &+= 1
-    frameLock.unlock()
+    frameLock.lock(); lookGeneration &+= 1; frameLock.unlock()
     released = true
-    if let view = outputView {
-      view.delegate = nil
-      view.isPaused = true
-    }
+    if let view = outputView { view.delegate = nil; view.isPaused = true }
     outputView = nil
     videoOutput.setSampleBufferDelegate(nil, queue: nil)
-    frameLock.lock()
-    latestPixelBuffer = nil
-    diagnosticsMonitor = nil
-    frameLock.unlock()
+    frameLock.lock(); latestPixelBuffer = nil; diagnosticsMonitor = nil; frameLock.unlock()
     sessionQueue.async { [weak self] in
       guard let self else { return }
+      if self.torchEnabled, let device = self.currentInput?.device {
+        try? self.applyTorch(false, device: device)
+        self.torchEnabled = false
+      }
       if self.session.isRunning { self.session.stopRunning() }
       self.captureHandler?(.failure(Self.error("Camera closed during capture")))
       self.captureHandler = nil
       self.currentInput = nil
     }
-    if let cache = textureCache {
-      CVMetalTextureCacheFlush(cache, 0)
-    }
+    if let cache = textureCache { CVMetalTextureCacheFlush(cache, 0) }
     textureCache = nil
   }
 
+  private func controlStateMap() -> [String: Any] {
+    let camera = currentInput?.device ?? Self.camera(position: lensPosition)
+    return [
+      "lensDirection": lensPosition == .front ? "front" : "back",
+      "hasFlash": camera?.hasFlash ?? false,
+      "hasTorch": camera?.hasTorch ?? false,
+      "flashMode": Self.flashModeName(flashMode),
+      "torchEnabled": torchEnabled,
+      "mirrorEnabled": mirrorFrontPreview,
+    ]
+  }
+
+  private func applyTorch(_ enabled: Bool, device: AVCaptureDevice) throws {
+    guard device.hasTorch else {
+      if enabled { throw Self.error("Torch is unavailable for the active camera") }
+      return
+    }
+    try device.lockForConfiguration()
+    defer { device.unlockForConfiguration() }
+    device.torchMode = enabled ? .on : .off
+  }
+
+  private static func flashModeName(_ mode: AVCaptureDevice.FlashMode) -> String {
+    switch mode {
+    case .on: return "on"
+    case .auto: return "auto"
+    default: return "off"
+    }
+  }
+
   private func isCurrentLookGeneration(_ generation: UInt64) -> Bool {
-    frameLock.lock()
-    let current = generation == lookGeneration && !released
-    frameLock.unlock()
-    return current
+    frameLock.lock(); let current = generation == lookGeneration && !released; frameLock.unlock(); return current
   }
 
   private func configureAndStartIfNeeded() {
     guard !released, outputView != nil else { return }
     do {
-      if !configured {
-        try configureSession()
-        configured = true
-      }
+      if !configured { try configureSession(); configured = true }
       applyOrientation()
-      if !session.isRunning {
-        session.startRunning()
-      }
+      if !session.isRunning { session.startRunning() }
     } catch {
       fail("Unable to start AVFoundation camera: \(error.localizedDescription)")
     }
@@ -581,63 +602,38 @@ final class MetalCameraPreviewRenderer: NSObject {
     }
     lensPosition = camera.position
     let input = try AVCaptureDeviceInput(device: camera)
-
     session.beginConfiguration()
     defer { session.commitConfiguration() }
     session.sessionPreset = .high
-
-    guard session.canAddInput(input) else {
-      throw Self.error("Unable to add camera input")
-    }
+    guard session.canAddInput(input) else { throw Self.error("Unable to add camera input") }
     session.addInput(input)
     currentInput = input
-
     videoOutput.alwaysDiscardsLateVideoFrames = true
-    videoOutput.videoSettings = [
-      kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-    ]
+    videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
     videoOutput.setSampleBufferDelegate(self, queue: captureQueue)
-    guard session.canAddOutput(videoOutput) else {
-      throw Self.error("Unable to add video output")
-    }
+    guard session.canAddOutput(videoOutput) else { throw Self.error("Unable to add video output") }
     session.addOutput(videoOutput)
-
-    guard session.canAddOutput(photoOutput) else {
-      throw Self.error("Unable to add clean photo output")
-    }
+    guard session.canAddOutput(photoOutput) else { throw Self.error("Unable to add clean photo output") }
     session.addOutput(photoOutput)
   }
 
   private func applyOrientation() {
     let videoOrientation = Self.captureOrientation(from: interfaceOrientation)
     if let connection = videoOutput.connection(with: .video) {
-      if connection.isVideoOrientationSupported {
-        connection.videoOrientation = videoOrientation
-      }
-      if connection.isVideoMirroringSupported {
-        connection.isVideoMirrored = false
-      }
+      if connection.isVideoOrientationSupported { connection.videoOrientation = videoOrientation }
+      if connection.isVideoMirroringSupported { connection.isVideoMirrored = false }
     }
     if let connection = photoOutput.connection(with: .video) {
-      if connection.isVideoOrientationSupported {
-        connection.videoOrientation = videoOrientation
-      }
-      if connection.isVideoMirroringSupported {
-        connection.isVideoMirrored = false
-      }
+      if connection.isVideoOrientationSupported { connection.videoOrientation = videoOrientation }
+      if connection.isVideoMirroringSupported { connection.isVideoMirrored = false }
     }
   }
 
   private func latestFrameForRender() -> (pixelBuffer: CVPixelBuffer, isUnique: Bool)? {
     frameLock.lock()
-    guard let pixelBuffer = latestPixelBuffer else {
-      frameLock.unlock()
-      return nil
-    }
+    guard let pixelBuffer = latestPixelBuffer else { frameLock.unlock(); return nil }
     let isUnique = latestFrameSerial != lastScheduledFrameSerial
-    if isUnique {
-      lastScheduledFrameSerial = latestFrameSerial
-    }
+    if isUnique { lastScheduledFrameSerial = latestFrameSerial }
     frameLock.unlock()
     return (pixelBuffer, isUnique)
   }
@@ -649,20 +645,11 @@ final class MetalCameraPreviewRenderer: NSObject {
     isUniqueFrame: Bool
   ) {
     guard !released, let cache = textureCache else { return }
-
     let width = CVPixelBufferGetWidth(pixelBuffer)
     let height = CVPixelBufferGetHeight(pixelBuffer)
     var cvTexture: CVMetalTexture?
     let status = CVMetalTextureCacheCreateTextureFromImage(
-      kCFAllocatorDefault,
-      cache,
-      pixelBuffer,
-      nil,
-      .bgra8Unorm,
-      width,
-      height,
-      0,
-      &cvTexture
+      kCFAllocatorDefault, cache, pixelBuffer, nil, .bgra8Unorm, width, height, 0, &cvTexture
     )
     guard
       status == kCVReturnSuccess,
@@ -670,13 +657,11 @@ final class MetalCameraPreviewRenderer: NSObject {
       let sourceTexture = CVMetalTextureGetTexture(cvTexture),
       let commandBuffer = commandQueue.makeCommandBuffer()
     else { return }
-
     let pass = MTLRenderPassDescriptor()
     pass.colorAttachments[0].texture = drawable.texture
     pass.colorAttachments[0].loadAction = .clear
     pass.colorAttachments[0].storeAction = .store
     pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1)
-
     guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
     let crop = cropScale(
       sourceWidth: Float(width),
@@ -686,7 +671,7 @@ final class MetalCameraPreviewRenderer: NSObject {
     )
     var uniforms = PreviewUniforms(
       cropScale: crop,
-      mirrorX: lensPosition == .front ? 1 : 0,
+      mirrorX: lensPosition == .front && mirrorFrontPreview ? 1 : 0,
       enabled: enabled ? 1 : 0,
       brightness: lookBrightness,
       contrast: lookContrast,
@@ -696,7 +681,6 @@ final class MetalCameraPreviewRenderer: NSObject {
       creativeStrength: lookCreativeStrength,
       creativeMode: lookCreativeMode
     )
-
     encoder.setRenderPipelineState(pipeline)
     encoder.setFragmentTexture(sourceTexture, index: 0)
     encoder.setFragmentTexture(currentFilmLut, index: 1)
@@ -705,7 +689,6 @@ final class MetalCameraPreviewRenderer: NSObject {
     encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     encoder.endEncoding()
     commandBuffer.present(drawable)
-
     let committedAt = CACurrentMediaTime()
     let monitor = diagnosticsMonitor
     commandBuffer.addCompletedHandler { [weak monitor] _ in
@@ -724,44 +707,23 @@ final class MetalCameraPreviewRenderer: NSObject {
       max(0, min(1, color.y)) * 32.0,
       max(0, min(1, color.z)) * 32.0
     )
-    let r0 = Int(floor(scaled.x))
-    let g0 = Int(floor(scaled.y))
-    let b0 = Int(floor(scaled.z))
-    let r1 = min(r0 + 1, 32)
-    let g1 = min(g0 + 1, 32)
-    let b1 = min(b0 + 1, 32)
-    let rf = scaled.x - Double(r0)
-    let gf = scaled.y - Double(g0)
-    let bf = scaled.z - Double(b0)
-
+    let r0 = Int(floor(scaled.x)), g0 = Int(floor(scaled.y)), b0 = Int(floor(scaled.z))
+    let r1 = min(r0 + 1, 32), g1 = min(g0 + 1, 32), b1 = min(b0 + 1, 32)
+    let rf = scaled.x - Double(r0), gf = scaled.y - Double(g0), bf = scaled.z - Double(b0)
     func texel(_ red: Int, _ green: Int, _ blue: Int) -> SIMD3<Double> {
-      let tileX = blue % 6
-      let tileY = blue / 6
-      let x = tileX * 33 + red
-      let y = tileY * 33 + green
-      let offset = (y * 198 + x) * 4
+      let tileX = blue % 6, tileY = blue / 6
+      let x = tileX * 33 + red, y = tileY * 33 + green, offset = (y * 198 + x) * 4
       return atlas.withUnsafeBytes { raw in
         let bytes = raw.bindMemory(to: UInt8.self)
-        return SIMD3<Double>(
-          Double(bytes[offset]) / 255.0,
-          Double(bytes[offset + 1]) / 255.0,
-          Double(bytes[offset + 2]) / 255.0
-        )
+        return SIMD3(Double(bytes[offset]) / 255.0, Double(bytes[offset + 1]) / 255.0, Double(bytes[offset + 2]) / 255.0)
       }
     }
-
     func slice(_ blue: Int) -> SIMD3<Double> {
-      let c00 = texel(r0, g0, blue)
-      let c10 = texel(r1, g0, blue)
-      let c01 = texel(r0, g1, blue)
-      let c11 = texel(r1, g1, blue)
-      let top = c00 + (c10 - c00) * rf
-      let bottom = c01 + (c11 - c01) * rf
+      let c00 = texel(r0, g0, blue), c10 = texel(r1, g0, blue), c01 = texel(r0, g1, blue), c11 = texel(r1, g1, blue)
+      let top = c00 + (c10 - c00) * rf, bottom = c01 + (c11 - c01) * rf
       return top + (bottom - top) * gf
     }
-
-    let low = slice(b0)
-    let high = slice(b1)
+    let low = slice(b0), high = slice(b1)
     return low + (high - low) * bf
   }
 
@@ -773,9 +735,7 @@ final class MetalCameraPreviewRenderer: NSObject {
   ) -> SIMD2<Float> {
     let sourceAspect = sourceWidth / sourceHeight
     let outputAspect = outputWidth / outputHeight
-    if sourceAspect > outputAspect {
-      return SIMD2<Float>(outputAspect / sourceAspect, 1)
-    }
+    if sourceAspect > outputAspect { return SIMD2<Float>(outputAspect / sourceAspect, 1) }
     return SIMD2<Float>(1, sourceAspect / outputAspect)
   }
 
@@ -809,11 +769,7 @@ final class MetalCameraPreviewRenderer: NSObject {
   }
 
   private static func error(_ message: String) -> NSError {
-    NSError(
-      domain: "PixelCraftGpu",
-      code: 2001,
-      userInfo: [NSLocalizedDescriptionKey: message]
-    )
+    NSError(domain: "PixelCraftGpu", code: 2001, userInfo: [NSLocalizedDescriptionKey: message])
   }
 }
 
@@ -824,14 +780,12 @@ extension MetalCameraPreviewRenderer: AVCaptureVideoDataOutputSampleBufferDelega
     from connection: AVCaptureConnection
   ) {
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-
     frameLock.lock()
     let overwrotePending = latestPixelBuffer != nil && latestFrameSerial != lastScheduledFrameSerial
     latestFrameSerial &+= 1
     latestPixelBuffer = pixelBuffer
     let monitor = diagnosticsMonitor
     frameLock.unlock()
-
     monitor?.recordCaptureFrame(overwrotePending: overwrotePending)
   }
 
@@ -840,9 +794,7 @@ extension MetalCameraPreviewRenderer: AVCaptureVideoDataOutputSampleBufferDelega
     didDrop sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    frameLock.lock()
-    let monitor = diagnosticsMonitor
-    frameLock.unlock()
+    frameLock.lock(); let monitor = diagnosticsMonitor; frameLock.unlock()
     monitor?.recordDroppedCaptureFrame()
   }
 }
@@ -851,13 +803,7 @@ extension MetalCameraPreviewRenderer: MTKViewDelegate {
   func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
   func draw(in view: MTKView) {
-    guard
-      !released,
-      outputView === view,
-      let frame = latestFrameForRender(),
-      let drawable = view.currentDrawable
-    else { return }
-
+    guard !released, outputView === view, let frame = latestFrameForRender(), let drawable = view.currentDrawable else { return }
     let drawableSize = view.drawableSize
     renderQueue.async { [weak self] in
       self?.render(
@@ -878,22 +824,13 @@ extension MetalCameraPreviewRenderer: AVCapturePhotoCaptureDelegate {
   ) {
     let completion = captureHandler
     captureHandler = nil
-    if let error {
-      completion?(.failure(error))
-      return
-    }
+    if let error { completion?(.failure(error)); return }
     guard let data = photo.fileDataRepresentation() else {
-      completion?(.failure(Self.error("AVCapturePhotoOutput returned no JPEG data")))
-      return
+      completion?(.failure(Self.error("AVCapturePhotoOutput returned no JPEG data"))); return
     }
     do {
-      let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("pixelcraft-camera", isDirectory: true)
-      try FileManager.default.createDirectory(
-        at: directory,
-        withIntermediateDirectories: true,
-        attributes: nil
-      )
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pixelcraft-camera", isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
       let file = directory.appendingPathComponent("capture-\(UUID().uuidString).jpg")
       try data.write(to: file, options: .atomic)
       completion?(.success(file.path))
