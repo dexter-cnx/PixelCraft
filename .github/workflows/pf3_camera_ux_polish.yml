@@ -1,0 +1,111 @@
+name: PF3 camera UX polish
+
+on:
+  push:
+    branches: [feature/pf3-capture-process-save]
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/pf3-capture-process-save
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Apply camera UX polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) Session-level latest processed capture thumbnail.
+          recent = Path('lib/camera/camera_recent_thumbnail.dart')
+          recent.write_text('''import 'dart:typed_data';\n\nimport 'package:flutter/foundation.dart';\n\n/// Session-level preview of the most recently processed and saved camera JPEG.\n///\n/// This deliberately uses the app's own saved output rather than requesting\n/// broader Photo Library read access just to decorate the Gallery button.\nclass CameraRecentThumbnail {\n  CameraRecentThumbnail._();\n\n  static final CameraRecentThumbnail instance = CameraRecentThumbnail._();\n\n  final ValueNotifier<Uint8List?> bytes = ValueNotifier<Uint8List?>(null);\n\n  void update(Uint8List jpegBytes) {\n    bytes.value = Uint8List.fromList(jpegBytes);\n  }\n}\n''')
+
+          # 2) Capture handoff: translucent floating snackbars + update thumbnail after save.
+          handoff = Path('lib/camera/camera_capture_save_handoff.dart')
+          text = handoff.read_text()
+          if "import 'camera_recent_thumbnail.dart';" not in text:
+              text = text.replace("import 'camera_look_state.dart';\n", "import 'camera_look_state.dart';\nimport 'camera_recent_thumbnail.dart';\n")
+          old = """          SnackBar(content: Text(message), duration: duration, action: action),\n"""
+          new = """          SnackBar(\n            content: Text(message),\n            duration: duration,\n            action: action,\n            behavior: SnackBarBehavior.floating,\n            backgroundColor: Colors.black.withValues(alpha: 0.72),\n            elevation: 0,\n            shape: RoundedRectangleBorder(\n              borderRadius: BorderRadius.circular(16),\n              side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),\n            ),\n          ),\n"""
+          if old not in text:
+              raise SystemExit('handoff snackbar anchor not found')
+          text = text.replace(old, new, 1)
+          old_result = """      await pipeline.processAndSave(\n        sourceJpeg: sourceBytes,\n        look: look,\n"""
+          new_result = """      final result = await pipeline.processAndSave(\n        sourceJpeg: sourceBytes,\n        look: look,\n"""
+          if old_result not in text:
+              raise SystemExit('pipeline result anchor not found')
+          text = text.replace(old_result, new_result, 1)
+          old_cleanup = """      await _deleteSourceBestEffort(imagePath);\n      show('camera.capture_saved'.tr());\n"""
+          new_cleanup = """      CameraRecentThumbnail.instance.update(result.jpegBytes);\n      await _deleteSourceBestEffort(imagePath);\n      show('camera.capture_saved'.tr());\n"""
+          if old_cleanup not in text:
+              raise SystemExit('thumbnail update anchor not found')
+          handoff.write_text(text)
+
+          # 3) Bottom-left Gallery action: show latest saved photo thumbnail.
+          controls = Path('lib/ui/camera/camera_primary_controls.dart')
+          text = controls.read_text()
+          if "camera_recent_thumbnail.dart" not in text:
+              text = text.replace("import 'package:flutter/material.dart';\n", "import 'package:flutter/material.dart';\n\nimport '../../camera/camera_recent_thumbnail.dart';\n")
+          old_gallery = """                Expanded(\n                  child: _SideAction(\n                    icon: Icons.photo_library_outlined,\n                    label: galleryLabel,\n                    onPressed: isCapturing ? null : onGalleryPressed,\n                  ),\n                ),\n"""
+          new_gallery = """                Expanded(\n                  child: _GalleryAction(\n                    label: galleryLabel,\n                    onPressed: isCapturing ? null : onGalleryPressed,\n                  ),\n                ),\n"""
+          if old_gallery not in text:
+              raise SystemExit('gallery action anchor not found')
+          text = text.replace(old_gallery, new_gallery, 1)
+          marker = "class _SideAction extends StatelessWidget {\n"
+          gallery_class = '''class _GalleryAction extends StatelessWidget {\n  const _GalleryAction({required this.label, required this.onPressed});\n\n  final String label;\n  final VoidCallback? onPressed;\n\n  @override\n  Widget build(BuildContext context) {\n    return TextButton(\n      onPressed: onPressed,\n      style: TextButton.styleFrom(foregroundColor: Colors.white),\n      child: Column(\n        mainAxisSize: MainAxisSize.min,\n        children: [\n          ValueListenableBuilder(\n            valueListenable: CameraRecentThumbnail.instance.bytes,\n            builder: (context, bytes, _) {\n              if (bytes == null) {\n                return const Icon(Icons.photo_library_outlined, size: 26);\n              }\n              return Container(\n                width: 34,\n                height: 34,\n                clipBehavior: Clip.antiAlias,\n                decoration: BoxDecoration(\n                  borderRadius: BorderRadius.circular(9),\n                  border: Border.all(color: Colors.white70, width: 1.5),\n                ),\n                child: Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),\n              );\n            },\n          ),\n          const SizedBox(height: 4),\n          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),\n        ],\n      ),\n    );\n  }\n}\n\n'''
+          if marker not in text:
+              raise SystemExit('side action class anchor not found')
+          text = text.replace(marker, gallery_class + marker, 1)
+          controls.write_text(text)
+
+          # 4) Greeting: remove scrolling. Keep content responsive by scaling down only
+          # when the available height is smaller than the intrinsic layout.
+          greeting = Path('lib/ui/screens/greeting_screen.dart')
+          text = greeting.read_text()
+          old_open = """          SafeArea(\n            child: SingleChildScrollView(\n              padding: const EdgeInsets.fromLTRB(24, 34, 24, 28),\n              child: Center(\n                child: ConstrainedBox(\n                  constraints: const BoxConstraints(maxWidth: 560),\n                  child: Column(\n"""
+          new_open = """          SafeArea(\n            child: LayoutBuilder(\n              builder: (context, constraints) => Padding(\n                padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),\n                child: Center(\n                  child: FittedBox(\n                    fit: BoxFit.scaleDown,\n                    alignment: Alignment.center,\n                    child: SizedBox(\n                      width: constraints.maxWidth > 560\n                          ? 560\n                          : constraints.maxWidth,\n                      child: Column(\n"""
+          if old_open not in text:
+              raise SystemExit('greeting scroll opening anchor not found')
+          text = text.replace(old_open, new_open, 1)
+          old_close = """                    ],\n                  ),\n                ),\n              ),\n            ),\n          ),\n"""
+          new_close = """                        ],\n                      ),\n                    ),\n                  ),\n                ),\n              ),\n            ),\n          ),\n"""
+          if old_close not in text:
+              raise SystemExit('greeting scroll closing anchor not found')
+          text = text.replace(old_close, new_close, 1)
+          greeting.write_text(text)
+
+          # 5) PF3 docs.
+          doc = Path('docs/PF3_CAPTURE_PROCESS_SAVE.md')
+          text = doc.read_text()
+          section = '''\n## Camera UX polish\n\n- capture process/save SnackBars are floating with a semi-transparent black surface so they do not visually block the camera preview;\n- after a processed JPEG is saved successfully, the Gallery control shows that latest saved image as its thumbnail for the current app session;\n- the thumbnail intentionally uses PixelCraft's own processed output and does not broaden Photo Library read permission just for decoration;\n- before the first successful save in a session, the Gallery control falls back to the standard Gallery icon;\n- Greeting is non-scrollable; it uses responsive scale-down within the available SafeArea instead of `SingleChildScrollView`.\n'''
+          if '## Camera UX polish' not in text:
+              text = text.replace('\n## Automated coverage\n', section + '\n## Automated coverage\n')
+              doc.write_text(text)
+          PY
+      - name: Canonical format
+        run: |
+          dart format \
+            lib/camera/camera_recent_thumbnail.dart \
+            lib/camera/camera_capture_save_handoff.dart \
+            lib/ui/camera/camera_primary_controls.dart \
+            lib/ui/screens/greeting_screen.dart
+          rm .github/workflows/pf3_camera_ux_polish.yml
+      - name: Commit polish
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat: polish PF3 camera feedback and greeting'
+          git push origin HEAD:feature/pf3-capture-process-save
