@@ -248,7 +248,9 @@ class _LivePreviewSnapshotSource {
   _LivePreviewSnapshotSource._();
 
   static final instance = _LivePreviewSnapshotSource._();
-  static const _channel = MethodChannel('dev.pixelcraft/gpu_preview_snapshot_v1');
+  static const _channel = MethodChannel(
+    'dev.pixelcraft/gpu_preview_snapshot_v1',
+  );
   static const _minimumRefreshInterval = Duration(milliseconds: 180);
 
   final ValueNotifier<Uint8List?> bytes = ValueNotifier<Uint8List?>(null);
@@ -281,10 +283,7 @@ class _LivePreviewSnapshotSource {
     try {
       final snapshot = await _channel.invokeMethod<Uint8List>(
         'snapshot',
-        const <String, Object?>{
-          'maxEdge': 180,
-          'jpegQuality': 0.72,
-        },
+        const <String, Object?>{'maxEdge': 180, 'jpegQuality': 0.72},
       );
       if (snapshot != null && snapshot.isNotEmpty) {
         bytes.value = Uint8List.fromList(snapshot);
@@ -295,7 +294,9 @@ class _LivePreviewSnapshotSource {
       }
     } on MissingPluginException catch (error) {
       if (kDebugMode) {
-        debugPrint('[PF3][LookPreview] live snapshot channel unavailable: $error');
+        debugPrint(
+          '[PF3][LookPreview] live snapshot channel unavailable: $error',
+        );
       }
     }
   }
