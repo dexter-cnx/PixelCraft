@@ -13,9 +13,11 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     companion object {
         private const val PERMISSION_CHANNEL = "dev.cnxdev.pixelcraft/permissions"
+        private const val CAMERA_REQUEST = 4300
         private const val GALLERY_WRITE_REQUEST = 4301
     }
 
+    private var pendingCameraPermissionResult: MethodChannel.Result? = null
     private var pendingGalleryPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -25,10 +27,32 @@ class MainActivity : FlutterActivity() {
             PERMISSION_CHANNEL,
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "requestCamera" -> requestPermission(
+                    permission = Manifest.permission.CAMERA,
+                    requestCode = CAMERA_REQUEST,
+                    result = result,
+                )
                 "requestGalleryWrite" -> requestGalleryWritePermission(result)
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun requestPermission(
+        permission: String,
+        requestCode: Int,
+        result: MethodChannel.Result,
+    ) {
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
+            result.success("granted")
+            return
+        }
+        if (requestCode == CAMERA_REQUEST && pendingCameraPermissionResult != null) {
+            result.success("denied")
+            return
+        }
+        pendingCameraPermissionResult = result
+        ActivityCompat.requestPermissions(this, arrayOf(permission), requestCode)
     }
 
     private fun requestGalleryWritePermission(result: MethodChannel.Result) {
@@ -67,21 +91,37 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != GALLERY_WRITE_REQUEST) return
+        when (requestCode) {
+            CAMERA_REQUEST -> completePermissionRequest(
+                result = pendingCameraPermissionResult,
+                permission = Manifest.permission.CAMERA,
+                grantResults = grantResults,
+                clear = { pendingCameraPermissionResult = null },
+            )
+            GALLERY_WRITE_REQUEST -> completePermissionRequest(
+                result = pendingGalleryPermissionResult,
+                permission = Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                grantResults = grantResults,
+                clear = { pendingGalleryPermissionResult = null },
+            )
+        }
+    }
 
-        val result = pendingGalleryPermissionResult ?: return
-        pendingGalleryPermissionResult = null
+    private fun completePermissionRequest(
+        result: MethodChannel.Result?,
+        permission: String,
+        grantResults: IntArray,
+        clear: () -> Unit,
+    ) {
+        result ?: return
+        clear()
         val granted = grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         if (granted) {
             result.success("granted")
             return
         }
-
-        val canAskAgain = ActivityCompat.shouldShowRequestPermissionRationale(
-            this,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        )
+        val canAskAgain = ActivityCompat.shouldShowRequestPermissionRationale(this, permission)
         result.success(if (canAskAgain) "denied" else "restricted")
     }
 }
