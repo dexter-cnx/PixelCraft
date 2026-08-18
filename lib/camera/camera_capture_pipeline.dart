@@ -56,17 +56,21 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
       orientation: captureOrientation,
     );
     final normalizedZoom = zoomFactor.clamp(1.0, 8.0).toDouble();
+    final correctionTurns =
+        captureOrientation.correctiveQuarterTurnsForJpeg(sourceJpeg);
 
     return Isolate.run(() async {
       await initializeRustBridge();
       rust.loadImage(bytes: sourceJpeg);
 
-      // Native still capture + JPEG/EXIF metadata are the sole pixel-orientation
-      // authority. Do not rotate again here: doing so can turn an already-correct
-      // landscape JPEG back into portrait after decode normalization.
+      // Rust loadImage performs the normal JPEG/EXIF normalization first. Only
+      // add a physical correction when the resulting oriented JPEG shape still
+      // disagrees with the shutter orientation. This fixes Android portrait
+      // stills in landscape without double-rotating already-correct JPEGs.
+      if (correctionTurns != 0) {
+        rust.rotateQuarterTurns(turns: correctionTurns);
+      }
 
-      // Zoom is authoritative and center-cropped, matching the scaled camera
-      // preview without stretching pixels.
       if (normalizedZoom > 1.000001) {
         final size = 1 / normalizedZoom;
         rust.applyCrop(
@@ -77,8 +81,6 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
         );
       }
 
-      // Ratio framing follows JPEG orientation normalization and zoom so spatial
-      // effects such as vignette are evaluated against the final composition.
       if (crop != null &&
           (crop.x > 0 || crop.y > 0 || crop.width < 1 || crop.height < 1)) {
         rust.applyCrop(
