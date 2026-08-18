@@ -108,9 +108,7 @@ class CameraLookFilmstrip extends StatelessWidget {
                                   height: 64,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: Colors.white.withValues(
-                                      alpha: 0.12,
-                                    ),
+                                    color: Colors.white.withValues(alpha: 0.12),
                                   ),
                                 ),
                               ),

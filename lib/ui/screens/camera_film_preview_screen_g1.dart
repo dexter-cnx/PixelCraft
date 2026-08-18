@@ -1054,11 +1054,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   Widget _buildFilterControls() {
     final activeId = _cameraLook.creativeFilterId;
     final items = <CameraLookFilmstripItem>[
-      CameraLookFilmstripItem(
-        id: '',
-        label: 'camera.original'.tr(),
-        index: 0,
-      ),
+      CameraLookFilmstripItem(id: '', label: 'camera.original'.tr(), index: 0),
       for (var index = 0; index < cameraCreativeFilters.length; index++)
         CameraLookFilmstripItem(
           id: cameraCreativeFilters[index].id,
