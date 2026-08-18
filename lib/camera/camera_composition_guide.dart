@@ -164,6 +164,7 @@ class _CompositionGuidePainter extends CustomPainter {
             canvas.drawCircle(Offset(x, y), 2.4, dot);
           }
         }
+        return;
       case CameraCompositionGuide.goldenRatio:
         const minor = 0.3819660112501051;
         const major = 1 - minor;
@@ -181,15 +182,17 @@ class _CompositionGuidePainter extends CustomPainter {
         for (final y in ys) {
           drawSegment(Offset(frame.left, y), Offset(frame.right, y));
         }
+        return;
       case CameraCompositionGuide.goldenSpiral:
         canvas.save();
         canvas.clipRect(frame);
         canvas.translate(frame.center.dx, frame.center.dy);
         canvas.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
         canvas.translate(-frame.center.dx, -frame.center.dy);
-        _drawGoldenSpiral(canvas, frame, shadow);
-        _drawGoldenSpiral(canvas, frame, line);
+        _drawGoldenRectangleGuide(canvas, frame, shadow);
+        _drawGoldenRectangleGuide(canvas, frame, line);
         canvas.restore();
+        return;
     }
   }
 
@@ -205,35 +208,150 @@ class _CompositionGuidePainter extends CustomPainter {
     return Rect.fromLTWH(0, (size.height - height) / 2, size.width, height);
   }
 
-  void _drawGoldenSpiral(Canvas canvas, Rect frame, Paint paint) {
+  void _drawGoldenRectangleGuide(Canvas canvas, Rect frame, Paint paint) {
+    const phi = 1.618033988749895;
     final landscape = frame.width >= frame.height;
-    final center = Offset(
-      landscape ? frame.left + frame.width * 0.382 : frame.center.dx,
-      landscape ? frame.center.dy : frame.top + frame.height * 0.618,
-    );
-    final diagonal = math.sqrt(
-      frame.width * frame.width + frame.height * frame.height,
-    );
-    const turns = 1.75;
-    const samples = 240;
-    final path = Path();
-    for (var i = 0; i <= samples; i++) {
-      final t = i / samples * turns * 2 * math.pi;
-      final normalized = math.exp(0.306349 * t) /
-          math.exp(0.306349 * turns * 2 * math.pi);
-      final radius = diagonal * 0.64 * normalized;
-      final angle = landscape ? t + math.pi : t + math.pi / 2;
-      final point = Offset(
-        center.dx + math.cos(angle) * radius,
-        center.dy + math.sin(angle) * radius,
+    final Rect goldenFrame;
+    if (landscape) {
+      final width = math.min(frame.width, frame.height * phi);
+      goldenFrame = Rect.fromLTWH(
+        frame.center.dx - width / 2,
+        frame.top,
+        width,
+        frame.height,
       );
-      if (i == 0) {
-        path.moveTo(point.dx, point.dy);
-      } else {
-        path.lineTo(point.dx, point.dy);
-      }
+    } else {
+      final height = math.min(frame.height, frame.width * phi);
+      goldenFrame = Rect.fromLTWH(
+        frame.left,
+        frame.center.dy - height / 2,
+        frame.width,
+        height,
+      );
     }
-    canvas.drawPath(path, paint);
+
+    canvas.drawRect(goldenFrame, paint);
+
+    var remaining = goldenFrame;
+    final squares = <Rect>[];
+    final cuts = <_GoldenCut>[];
+    var direction = landscape ? 0 : 1;
+
+    for (var index = 0; index < 8; index++) {
+      if (remaining.width < 2 || remaining.height < 2) break;
+      final side = math.min(remaining.width, remaining.height);
+      late final Rect square;
+      late final Rect next;
+      switch (direction % 4) {
+        case 0: // left
+          square = Rect.fromLTWH(remaining.left, remaining.top, side, side);
+          next = Rect.fromLTRB(
+            square.right,
+            remaining.top,
+            remaining.right,
+            remaining.bottom,
+          );
+          if (next.width > 0) {
+            canvas.drawLine(
+              Offset(square.right, remaining.top),
+              Offset(square.right, remaining.bottom),
+              paint,
+            );
+          }
+        case 1: // top
+          square = Rect.fromLTWH(remaining.left, remaining.top, side, side);
+          next = Rect.fromLTRB(
+            remaining.left,
+            square.bottom,
+            remaining.right,
+            remaining.bottom,
+          );
+          if (next.height > 0) {
+            canvas.drawLine(
+              Offset(remaining.left, square.bottom),
+              Offset(remaining.right, square.bottom),
+              paint,
+            );
+          }
+        case 2: // right
+          square = Rect.fromLTWH(
+            remaining.right - side,
+            remaining.top,
+            side,
+            side,
+          );
+          next = Rect.fromLTRB(
+            remaining.left,
+            remaining.top,
+            square.left,
+            remaining.bottom,
+          );
+          if (next.width > 0) {
+            canvas.drawLine(
+              Offset(square.left, remaining.top),
+              Offset(square.left, remaining.bottom),
+              paint,
+            );
+          }
+        default: // bottom
+          square = Rect.fromLTWH(
+            remaining.left,
+            remaining.bottom - side,
+            side,
+            side,
+          );
+          next = Rect.fromLTRB(
+            remaining.left,
+            remaining.top,
+            remaining.right,
+            square.top,
+          );
+          if (next.height > 0) {
+            canvas.drawLine(
+              Offset(remaining.left, square.top),
+              Offset(remaining.right, square.top),
+              paint,
+            );
+          }
+      }
+      squares.add(square);
+      cuts.add(_GoldenCut(direction % 4, square));
+      remaining = next;
+      direction++;
+    }
+
+    final spiral = Path();
+    var started = false;
+    for (final cut in cuts) {
+      final square = cut.square;
+      late final Offset start;
+      late final Offset end;
+      late final Offset control;
+      switch (cut.direction) {
+        case 0:
+          start = square.bottomLeft;
+          end = square.topRight;
+          control = square.topLeft;
+        case 1:
+          start = square.topLeft;
+          end = square.bottomRight;
+          control = square.topRight;
+        case 2:
+          start = square.topRight;
+          end = square.bottomLeft;
+          control = square.bottomRight;
+        default:
+          start = square.bottomRight;
+          end = square.topLeft;
+          control = square.bottomLeft;
+      }
+      if (!started) {
+        spiral.moveTo(start.dx, start.dy);
+        started = true;
+      }
+      spiral.quadraticBezierTo(control.dx, control.dy, end.dx, end.dy);
+    }
+    canvas.drawPath(spiral, paint);
   }
 
   @override
@@ -242,4 +360,11 @@ class _CompositionGuidePainter extends CustomPainter {
       oldDelegate.frameAspectRatio != frameAspectRatio ||
       oldDelegate.flipHorizontal != flipHorizontal ||
       oldDelegate.flipVertical != flipVertical;
+}
+
+class _GoldenCut {
+  const _GoldenCut(this.direction, this.square);
+
+  final int direction;
+  final Rect square;
 }
