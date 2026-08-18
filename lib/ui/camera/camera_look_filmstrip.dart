@@ -24,7 +24,7 @@ class CameraLookFilmstripItem {
   final Uint8List? previewBytes;
 }
 
-class CameraLookFilmstrip extends StatelessWidget {
+class CameraLookFilmstrip extends StatefulWidget {
   const CameraLookFilmstrip({
     required this.items,
     required this.selectedId,
@@ -41,29 +41,55 @@ class CameraLookFilmstrip extends StatelessWidget {
   final bool isLoadingPreviews;
 
   @override
-  Widget build(BuildContext context) {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-      unawaited(_LivePreviewSnapshotSource.instance.refresh());
-    }
+  State<CameraLookFilmstrip> createState() => _CameraLookFilmstripState();
+}
 
+class _CameraLookFilmstripState extends State<CameraLookFilmstrip> {
+  static const _liveRefreshInterval = Duration(milliseconds: 300);
+
+  Timer? _liveRefreshTimer;
+
+  bool get _supportsLiveSnapshot =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_supportsLiveSnapshot) {
+      unawaited(_LivePreviewSnapshotSource.instance.refresh());
+      _liveRefreshTimer = Timer.periodic(
+        _liveRefreshInterval,
+        (_) => unawaited(_LivePreviewSnapshotSource.instance.refresh()),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _liveRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox(
       height: 126,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        itemCount: items.length,
+        itemCount: widget.items.length,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
-          final item = items[index];
-          final selected = item.id == selectedId;
+          final item = widget.items[index];
+          final selected = item.id == widget.selectedId;
           return Semantics(
             button: true,
             selected: selected,
             label: item.label,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: enabled ? () => onSelected(item.id) : null,
+              onTap: widget.enabled ? () => widget.onSelected(item.id) : null,
               child: AnimatedScale(
                 duration: const Duration(milliseconds: 160),
                 curve: Curves.easeOutCubic,
@@ -96,7 +122,7 @@ class CameraLookFilmstrip extends StatelessWidget {
                         clipBehavior: Clip.antiAlias,
                         child: _PreviewTile(
                           item: item,
-                          isLoading: isLoadingPreviews,
+                          isLoading: widget.isLoadingPreviews,
                         ),
                       ),
                       const SizedBox(height: 7),
