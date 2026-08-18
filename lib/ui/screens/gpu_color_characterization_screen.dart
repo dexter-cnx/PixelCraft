@@ -105,8 +105,8 @@ class _GpuColorCharacterizationScreenState
 
     try {
       final native = await _diagnosticsBridge.colorSample(rendererId);
-      final photoPath = await _cameraBridge.capturePhoto(rendererId);
-      final cleanBytes = await File(photoPath).readAsBytes();
+      final capture = await _cameraBridge.capturePhoto(rendererId);
+      final cleanBytes = await File(capture.path).readAsBytes();
 
       final loaded = await _engine.loadImageInBackground(cleanBytes, maxEdge: 512);
       final filmPreviews = await _engine.generateFilmProfilePreviews(
