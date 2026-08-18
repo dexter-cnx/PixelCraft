@@ -5,6 +5,22 @@
     "engine_start_failed": "Rust engine could not start",
     "retry": "Retry"
   },
+  "greeting": {
+    "title": "Dextryx Pixels",
+    "subtitle": "A camera-first photo app with fast local looks and full-resolution processing on your device.",
+    "whats_new": "What’s new",
+    "feature_camera_title": "Camera first",
+    "feature_camera_body": "Launch straight into capture with a clean, familiar camera workflow.",
+    "feature_looks_title": "Film, Filter & Adjust",
+    "feature_looks_body": "Preview your look live before pressing the shutter.",
+    "feature_process_title": "Local full-resolution processing",
+    "feature_process_body": "Captured photos are rendered locally and saved back to your Gallery.",
+    "permissions_title": "Ready the camera",
+    "permission_camera": "Camera access",
+    "permission_gallery": "Save photos to Gallery",
+    "retry_permissions": "Ask again",
+    "continue": "Continue to Camera"
+  },
   "camera": {
     "gallery": "Gallery",
     "film": "Film",
