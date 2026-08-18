@@ -156,13 +156,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     await guide.persist();
   }
 
-  String _compositionGuideLabel(CameraCompositionGuide guide) => switch (guide) {
-    CameraCompositionGuide.off => 'camera.guide_off'.tr(),
-    CameraCompositionGuide.thirds => 'camera.guide_thirds'.tr(),
-    CameraCompositionGuide.goldenRatio => 'camera.guide_golden_ratio'.tr(),
-    CameraCompositionGuide.goldenSpiral => 'camera.guide_golden_spiral'.tr(),
-  };
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -912,45 +905,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   const SizedBox(height: 18),
-                  Text(
-                    'camera.composition_guide'.tr(),
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final guide in CameraCompositionGuide.values)
-                        ChoiceChip(
-                          label: Text(_compositionGuideLabel(guide)),
-                          selected: guide == _compositionGuide,
-                          onSelected: _isCapturing
-                              ? null
-                              : (_) => unawaited(
-                                  refresh(() => _setCompositionGuide(guide)),
-                                ),
-                          selectedColor: const Color(0xFFFF6A00),
-                          backgroundColor: const Color(0xFF242424),
-                          side: BorderSide(
-                            color: guide == _compositionGuide
-                                ? const Color(0xFFFF6A00)
-                                : Colors.white24,
-                          ),
-                          labelStyle: TextStyle(
-                            color: guide == _compositionGuide
-                                ? Colors.black
-                                : Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          showCheckmark: false,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'camera.composition_guide_hint'.tr(),
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  CameraCompositionGuideSettingsControl(
+                    value: _compositionGuide,
+                    frameAspectRatio: _imageRatio.aspectRatio,
+                    enabled: !_isCapturing,
+                    onChanged: (guide) => unawaited(
+                      refresh(() => _setCompositionGuide(guide)),
+                    ),
                   ),
                   const SizedBox(height: 18),
                   Text(
