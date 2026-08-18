@@ -22,6 +22,8 @@ class CameraPrimaryControls extends StatelessWidget {
     this.isToolPanelExpanded = true,
     this.filmSummary = '',
     this.filterSummary = '',
+    this.zoomFactor = 1,
+    this.zoomQuarterTurns = 0,
     this.isCapturing = false,
     super.key,
   });
@@ -40,6 +42,8 @@ class CameraPrimaryControls extends StatelessWidget {
   final String filterSummary;
   final String controlsLabel;
   final String shutterSemanticLabel;
+  final double zoomFactor;
+  final int zoomQuarterTurns;
   final bool isCapturing;
 
   @override
@@ -54,10 +58,39 @@ class CameraPrimaryControls extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IgnorePointer(
+              child: RotatedBox(
+                quarterTurns: zoomQuarterTurns,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.62),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      '${zoomFactor.toStringAsFixed(zoomFactor < 2 ? 1 : 1)}×',
+                      key: const Key('camera-zoom-indicator'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
             _ToolSelector(
               selectedTool: selectedTool,
               isExpanded: isToolPanelExpanded,
@@ -68,7 +101,7 @@ class CameraPrimaryControls extends StatelessWidget {
               filmSummary: filmSummary,
               filterSummary: filterSummary,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
