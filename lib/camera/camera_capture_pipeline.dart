@@ -16,6 +16,8 @@ abstract interface class CameraCaptureRenderer {
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
+    CameraCaptureOrientation captureOrientation =
+        CameraCaptureOrientation.portrait,
     int quality = 95,
   });
 }
@@ -43,6 +45,8 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
+    CameraCaptureOrientation captureOrientation =
+        CameraCaptureOrientation.portrait,
     int quality = 95,
   }) {
     final adjustments = <String, double>{
@@ -52,7 +56,10 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
     final filmStrength = look.filmStrength;
     final creativeFilterId = look.creativeFilterId;
     final creativeFilterStrength = look.creativeFilterStrength;
-    final crop = imageRatio.cropForJpeg(sourceJpeg);
+    final crop = imageRatio.cropForJpeg(
+      sourceJpeg,
+      orientation: captureOrientation,
+    );
 
     return Isolate.run(() async {
       await initializeRustBridge();
@@ -124,6 +131,8 @@ class CameraCapturePipeline {
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
+    CameraCaptureOrientation captureOrientation =
+        CameraCaptureOrientation.portrait,
     String? suggestedName,
     void Function(ProcessingJobPhase phase)? onPhase,
   }) async {
@@ -132,6 +141,7 @@ class CameraCapturePipeline {
       sourceJpeg: sourceJpeg,
       look: look,
       imageRatio: imageRatio,
+      captureOrientation: captureOrientation,
     );
 
     onPhase?.call(ProcessingJobPhase.saving);
