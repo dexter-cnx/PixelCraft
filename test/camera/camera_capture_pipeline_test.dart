@@ -7,7 +7,7 @@ import 'package:pixelcraft/camera/camera_image_ratio.dart';
 import 'package:pixelcraft/camera/camera_look_state.dart';
 
 void main() {
-  test('PF3 renders clean capture before saving authoritative JPEG', () async {
+  test('PF3 forwards orientation and zoom before authoritative save', () async {
     final renderer = _FakeRenderer(Uint8List.fromList([9, 8, 7]));
     final saver = _FakeSaveService();
     final phases = <ProcessingJobPhase>[];
@@ -25,7 +25,8 @@ void main() {
           sourceJpeg: source,
           look: look,
           imageRatio: CameraImageRatio.threeTwo,
-          captureOrientation: CameraCaptureOrientation.landscape,
+          captureOrientation: CameraCaptureOrientation.landscapeLeft,
+          zoomFactor: 2.25,
           suggestedName: 'capture.jpg',
           onPhase: phases.add,
         );
@@ -33,7 +34,11 @@ void main() {
     expect(renderer.source, same(source));
     expect(renderer.look, same(look));
     expect(renderer.imageRatio, CameraImageRatio.threeTwo);
-    expect(renderer.captureOrientation, CameraCaptureOrientation.landscape);
+    expect(
+      renderer.captureOrientation,
+      CameraCaptureOrientation.landscapeLeft,
+    );
+    expect(renderer.zoomFactor, 2.25);
     expect(saver.bytes, orderedEquals([9, 8, 7]));
     expect(saver.suggestedName, 'capture.jpg');
     expect(result.savedUri, Uri.parse('media:/gallery/capture.jpg'));
@@ -72,6 +77,7 @@ class _FakeRenderer implements CameraCaptureRenderer {
   CameraLookState? look;
   CameraImageRatio? imageRatio;
   CameraCaptureOrientation? captureOrientation;
+  double? zoomFactor;
 
   @override
   Future<Uint8List> renderJpeg({
@@ -80,12 +86,14 @@ class _FakeRenderer implements CameraCaptureRenderer {
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
         CameraCaptureOrientation.auto,
+    double zoomFactor = 1,
     int quality = 95,
   }) async {
     source = sourceJpeg;
     this.look = look;
     this.imageRatio = imageRatio;
     this.captureOrientation = captureOrientation;
+    this.zoomFactor = zoomFactor;
     return output;
   }
 }
@@ -98,6 +106,7 @@ class _ThrowingRenderer implements CameraCaptureRenderer {
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
         CameraCaptureOrientation.auto,
+    double zoomFactor = 1,
     int quality = 95,
   }) async {
     throw StateError('render failed');
