@@ -6,9 +6,31 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum CameraImageRatio { original, fourThree, threeTwo, square, sixteenNine }
 
 /// `auto` is an internal runtime mode only. It is never exposed as a camera
-/// setting; it resolves the selected ratio from the current device/view or,
-/// for an actual capture, the JPEG's authoritative EXIF orientation.
-enum CameraCaptureOrientation { auto, portrait, landscape }
+/// setting. Directional values are capture-time metadata from the physical
+/// device and let the authoritative Rust pipeline normalize pixels even when a
+/// Camera2 HAL returns a portrait JPEG for a landscape shutter.
+enum CameraCaptureOrientation {
+  auto,
+  portrait,
+  portraitUpsideDown,
+  landscapeLeft,
+  landscapeRight,
+}
+
+extension CameraCaptureOrientationX on CameraCaptureOrientation {
+  bool get isLandscape =>
+      this == CameraCaptureOrientation.landscapeLeft ||
+      this == CameraCaptureOrientation.landscapeRight;
+
+  /// Clockwise quarter turns required when a portrait-oriented source must be
+  /// normalized to the physical shutter orientation.
+  int get clockwiseQuarterTurns => switch (this) {
+    CameraCaptureOrientation.landscapeLeft => 1,
+    CameraCaptureOrientation.portraitUpsideDown => 2,
+    CameraCaptureOrientation.landscapeRight => 3,
+    _ => 0,
+  };
+}
 
 extension CameraImageRatioX on CameraImageRatio {
   static const preferenceKey = 'camera.image_ratio';
@@ -31,9 +53,6 @@ extension CameraImageRatioX on CameraImageRatio {
     CameraImageRatio.sixteenNine => 16 / 9,
   };
 
-  /// UI framing helper. Capture-time auto orientation is resolved separately
-  /// from JPEG EXIF so a portrait-locked Flutter surface cannot corrupt the
-  /// saved crop when the physical device was held landscape.
   double? get aspectRatio => aspectRatioFor(CameraCaptureOrientation.auto);
 
   double? aspectRatioFor(CameraCaptureOrientation orientation) {
@@ -42,9 +61,7 @@ extension CameraImageRatioX on CameraImageRatio {
     final resolved = orientation == CameraCaptureOrientation.auto
         ? _currentCaptureOrientation()
         : orientation;
-    return resolved == CameraCaptureOrientation.landscape
-        ? landscape
-        : 1 / landscape;
+    return resolved.isLandscape ? landscape : 1 / landscape;
   }
 
   static CameraImageRatio parse(String? value) => switch (value) {
@@ -74,20 +91,34 @@ extension CameraImageRatioX on CameraImageRatio {
       throw const FormatException('Unable to read JPEG dimensions for ratio crop');
     }
 
-    final swapsAxes = info.exifOrientation >= 5 && info.exifOrientation <= 8;
-    final orientedWidth = swapsAxes ? info.height : info.width;
-    final orientedHeight = swapsAxes ? info.width : info.height;
-    final resolvedOrientation = orientation == CameraCaptureOrientation.auto
-        ? (orientedWidth >= orientedHeight
-              ? CameraCaptureOrientation.landscape
-              : CameraCaptureOrientation.portrait)
-        : orientation;
+    int orientedWidth;
+    int orientedHeight;
+    CameraCaptureOrientation resolvedOrientation;
+
+    if (orientation != CameraCaptureOrientation.auto) {
+      // Native physical orientation is authoritative. Some Android Camera2
+      // implementations keep portrait JPEG metadata even for a landscape
+      // shutter, so do not let stale EXIF decide the target aspect here.
+      resolvedOrientation = orientation;
+      if (orientation.isLandscape) {
+        orientedWidth = info.width >= info.height ? info.width : info.height;
+        orientedHeight = info.width >= info.height ? info.height : info.width;
+      } else {
+        orientedWidth = info.width <= info.height ? info.width : info.height;
+        orientedHeight = info.width <= info.height ? info.height : info.width;
+      }
+    } else {
+      final swapsAxes = info.exifOrientation >= 5 && info.exifOrientation <= 8;
+      orientedWidth = swapsAxes ? info.height : info.width;
+      orientedHeight = swapsAxes ? info.width : info.height;
+      resolvedOrientation = orientedWidth >= orientedHeight
+          ? CameraCaptureOrientation.landscapeLeft
+          : CameraCaptureOrientation.portrait;
+    }
+
     final target = aspectRatioFor(resolvedOrientation);
     if (target == null) return null;
 
-    // Rust decode normalizes EXIF before replaying edit operations, therefore
-    // these normalized crop coordinates are intentionally calculated in the
-    // same oriented pixel space rather than raw sensor/SOF dimensions.
     final sourceAspect = orientedWidth / orientedHeight;
     if ((sourceAspect - target).abs() < 0.000001) {
       return const NormalizedCrop(x: 0, y: 0, width: 1, height: 1);
@@ -116,7 +147,7 @@ CameraCaptureOrientation _currentCaptureOrientation() {
   if (views.isEmpty) return CameraCaptureOrientation.portrait;
   final size = views.first.physicalSize;
   return size.width > size.height
-      ? CameraCaptureOrientation.landscape
+      ? CameraCaptureOrientation.landscapeLeft
       : CameraCaptureOrientation.portrait;
 }
 
