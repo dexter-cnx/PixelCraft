@@ -9,6 +9,7 @@ public final class PixelcraftGpuPlugin: NSObject, FlutterPlugin {
   public static func register(with registrar: FlutterPluginRegistrar) {
     previewPlugin = GpuPreviewPlugin(registrar: registrar)
     editorPreviewPlugin = GpuEditorPreviewPlugin(registrar: registrar)
+    CameraDeviceOrientationChannel.shared.register(messenger: registrar.messenger())
     GpuFramePacingDiagnostics.shared.register(messenger: registrar.messenger())
     GpuEditorVerificationDiagnostics.shared.register(messenger: registrar.messenger())
   }
