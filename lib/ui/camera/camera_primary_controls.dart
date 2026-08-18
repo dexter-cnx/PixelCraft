@@ -9,6 +9,7 @@ enum CameraPrimaryTool { film, filter, adjust }
 class CameraPrimaryControls extends StatelessWidget {
   const CameraPrimaryControls({
     required this.selectedTool,
+    required this.isToolPanelExpanded,
     required this.onToolSelected,
     required this.onGalleryPressed,
     required this.onShutterPressed,
@@ -17,6 +18,8 @@ class CameraPrimaryControls extends StatelessWidget {
     required this.filmLabel,
     required this.filterLabel,
     required this.adjustLabel,
+    required this.filmSummary,
+    required this.filterSummary,
     required this.controlsLabel,
     required this.shutterSemanticLabel,
     this.isCapturing = false,
@@ -24,6 +27,7 @@ class CameraPrimaryControls extends StatelessWidget {
   });
 
   final CameraPrimaryTool selectedTool;
+  final bool isToolPanelExpanded;
   final ValueChanged<CameraPrimaryTool> onToolSelected;
   final VoidCallback? onGalleryPressed;
   final VoidCallback? onShutterPressed;
@@ -32,6 +36,8 @@ class CameraPrimaryControls extends StatelessWidget {
   final String filmLabel;
   final String filterLabel;
   final String adjustLabel;
+  final String filmSummary;
+  final String filterSummary;
   final String controlsLabel;
   final String shutterSemanticLabel;
   final bool isCapturing;
@@ -53,12 +59,15 @@ class CameraPrimaryControls extends StatelessWidget {
           children: [
             _ToolSelector(
               selectedTool: selectedTool,
+              isExpanded: isToolPanelExpanded,
               onSelected: onToolSelected,
               filmLabel: filmLabel,
               filterLabel: filterLabel,
               adjustLabel: adjustLabel,
+              filmSummary: filmSummary,
+              filterSummary: filterSummary,
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -130,19 +139,25 @@ class CameraPrimaryControls extends StatelessWidget {
 class _ToolSelector extends StatelessWidget {
   const _ToolSelector({
     required this.selectedTool,
+    required this.isExpanded,
     required this.onSelected,
     required this.filmLabel,
     required this.filterLabel,
     required this.adjustLabel,
+    required this.filmSummary,
+    required this.filterSummary,
   });
 
   static const _accent = Color(0xFFFF6A00);
 
   final CameraPrimaryTool selectedTool;
+  final bool isExpanded;
   final ValueChanged<CameraPrimaryTool> onSelected;
   final String filmLabel;
   final String filterLabel;
   final String adjustLabel;
+  final String filmSummary;
+  final String filterSummary;
 
   @override
   Widget build(BuildContext context) {
@@ -150,42 +165,74 @@ class _ToolSelector extends StatelessWidget {
       container: true,
       child: Row(
         key: const Key('camera-tool-selector'),
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _item(CameraPrimaryTool.film, filmLabel),
-          _item(CameraPrimaryTool.filter, filterLabel),
-          _item(CameraPrimaryTool.adjust, adjustLabel),
+          Expanded(
+            child: _item(
+              CameraPrimaryTool.film,
+              filmLabel,
+              summary: filmSummary,
+            ),
+          ),
+          Expanded(
+            child: _item(
+              CameraPrimaryTool.filter,
+              filterLabel,
+              summary: filterSummary,
+            ),
+          ),
+          Expanded(child: _item(CameraPrimaryTool.adjust, adjustLabel)),
         ],
       ),
     );
   }
 
-  Widget _item(CameraPrimaryTool tool, String label) {
-    final selected = selectedTool == tool;
+  Widget _item(CameraPrimaryTool tool, String label, {String? summary}) {
+    final selected = selectedTool == tool && isExpanded;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => onSelected(tool),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: selected ? _accent : Colors.transparent,
-              width: 2.5,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(5, 8, 5, 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              style: TextStyle(
+                color: selected ? _accent : Colors.white,
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+              ),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
-          ),
-        ),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          style: TextStyle(
-            color: selected ? Colors.white : Colors.white60,
-            fontSize: selected ? 15 : 14,
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-          ),
-          child: Text(label),
+            if (summary != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                summary,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: selected ? Colors.white70 : Colors.white54,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ] else
+              const SizedBox(height: 14),
+            const SizedBox(height: 4),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: selected ? 24 : 0,
+              height: 2.5,
+              decoration: BoxDecoration(
+                color: _accent,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ],
         ),
       ),
     );
