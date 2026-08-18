@@ -12,6 +12,7 @@ import '../../app/platform_media_services.dart';
 import '../../camera/camera_capture_save_handoff.dart';
 import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
+import '../../camera/camera_image_ratio.dart';
 import '../../camera/camera_look_preview_coordinator.dart';
 import '../../camera/camera_look_state.dart';
 import '../../core/bridge.dart';
@@ -64,6 +65,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   CameraPrimaryTool _selectedTool = CameraPrimaryTool.film;
   bool _toolPanelExpanded = false;
   CameraLookState _cameraLook = CameraLookState();
+  CameraImageRatio _imageRatio = CameraImageRatio.original;
   Map<String, Uint8List> _filmPreviewBytes = const {};
   Map<String, Uint8List> _filterPreviewBytes = const {};
   bool _isLoadingLookPreviews = false;
@@ -124,7 +126,19 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         unawaited(_handleNativeRuntimeFailure(rendererId, error.toString()));
       }
     };
+    unawaited(_loadImageRatio());
     unawaited(_discoverAndInitialize());
+  }
+
+  Future<void> _loadImageRatio() async {
+    final ratio = await CameraImageRatioX.load();
+    if (mounted) setState(() => _imageRatio = ratio);
+  }
+
+  Future<void> _setImageRatio(CameraImageRatio ratio) async {
+    if (_imageRatio == ratio) return;
+    setState(() => _imageRatio = ratio);
+    await ratio.persist();
   }
 
   @override
@@ -343,20 +357,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     try {
       await controller.setFlashMode(FlashMode.auto);
       hasFlash = true;
-    } on CameraException {
-      // Unsupported auto flash means this fallback camera has no flash capability.
-    }
+    } on CameraException {}
     try {
       await controller.setFlashMode(FlashMode.torch);
       hasTorch = true;
-    } on CameraException {
-      // Unsupported torch means this fallback camera has no torch capability.
-    }
+    } on CameraException {}
     try {
       await controller.setFlashMode(FlashMode.off);
-    } on CameraException {
-      // Best-effort reset after probing; unsupported off mode needs no further action.
-    }
+    } on CameraException {}
     return (hasFlash: hasFlash, hasTorch: hasTorch);
   }
 
@@ -550,11 +558,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final look = _cameraLook;
     final path = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
-
-    // Camera2 still capture uses the existing capture session. Keep the native
-    // preview and GPU renderer alive while PF3 processes/saves in the
-    // background. Tearing Camera2 down for every shutter caused an Android
-    // reopen race where the first post-save CameraLook update could stall.
     await _saveCapture(path, look: look);
   }
 
@@ -595,8 +598,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     required CameraLookState look,
   }) => Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) =>
-          CameraCaptureSaveHandoff(imagePath: imagePath, look: look),
+      builder: (_) => CameraCaptureSaveHandoff(
+        imagePath: imagePath,
+        look: look,
+        imageRatio: _imageRatio,
+      ),
     ),
   );
 
@@ -748,7 +754,6 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         }
       });
     } catch (_) {
-      // Preview thumbnails are optional. Keep the selector usable on failure.
     } finally {
       if (snapshotPath != null) {
         try {
@@ -845,6 +850,47 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                   ),
                   const SizedBox(height: 14),
                   Text(
+                    'camera.image_ratio'.tr(),
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final ratio in CameraImageRatio.values)
+                        ChoiceChip(
+                          label: Text(ratio.label),
+                          selected: ratio == _imageRatio,
+                          onSelected: _isCapturing
+                              ? null
+                              : (_) => unawaited(
+                                  refresh(() => _setImageRatio(ratio)),
+                                ),
+                          selectedColor: const Color(0xFFFF6A00),
+                          backgroundColor: const Color(0xFF242424),
+                          side: BorderSide(
+                            color: ratio == _imageRatio
+                                ? const Color(0xFFFF6A00)
+                                : Colors.white24,
+                          ),
+                          labelStyle: TextStyle(
+                            color: ratio == _imageRatio
+                                ? Colors.black
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          showCheckmark: false,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'camera.image_ratio_hint'.tr(),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
                     'camera.flash'.tr(),
                     style: const TextStyle(color: Colors.white70),
                   ),
@@ -937,6 +983,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           fit: StackFit.expand,
           children: [
             _buildViewfinder(),
+            if (_imageRatio != CameraImageRatio.original)
+              _buildImageRatioGuide(),
             if (_isLookTrayOpen)
               Positioned.fill(
                 child: GestureDetector(
@@ -986,6 +1034,48 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageRatioGuide() {
+    final aspect = _imageRatio.aspectRatio;
+    if (aspect == null) return const SizedBox.shrink();
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: 64,
+      bottom: 150,
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _CameraRatioGuidePainter(aspectRatio: aspect),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.58),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    _imageRatio.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -1467,4 +1557,51 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       ),
     );
   }
+}
+
+class _CameraRatioGuidePainter extends CustomPainter {
+  const _CameraRatioGuidePainter({required this.aspectRatio});
+
+  final double aspectRatio;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0 || aspectRatio <= 0) return;
+
+    final availableAspect = size.width / size.height;
+    final Rect frame;
+    if (availableAspect > aspectRatio) {
+      final width = size.height * aspectRatio;
+      frame = Rect.fromLTWH((size.width - width) / 2, 0, width, size.height);
+    } else {
+      final height = size.width / aspectRatio;
+      frame = Rect.fromLTWH(0, (size.height - height) / 2, size.width, height);
+    }
+
+    final mask = Paint()..color = Colors.black.withValues(alpha: 0.28);
+    if (frame.top > 0) {
+      canvas.drawRect(Rect.fromLTRB(0, 0, size.width, frame.top), mask);
+      canvas.drawRect(
+        Rect.fromLTRB(0, frame.bottom, size.width, size.height),
+        mask,
+      );
+    }
+    if (frame.left > 0) {
+      canvas.drawRect(Rect.fromLTRB(0, 0, frame.left, size.height), mask);
+      canvas.drawRect(
+        Rect.fromLTRB(frame.right, 0, size.width, size.height),
+        mask,
+      );
+    }
+
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = Colors.white.withValues(alpha: 0.78);
+    canvas.drawRect(frame.deflate(0.7), border);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CameraRatioGuidePainter oldDelegate) =>
+      oldDelegate.aspectRatio != aspectRatio;
 }
