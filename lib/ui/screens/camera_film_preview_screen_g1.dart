@@ -68,6 +68,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   Map<String, Uint8List> _filterPreviewBytes = const {};
   bool _isLoadingLookPreviews = false;
   int _lookPreviewRequest = 0;
+  final bool _enableStillCaptureLookPreviews = false;
   String _selectedAdjustmentId = 'exposure';
   double _strength = 1;
   bool _isInitializing = true;
@@ -688,6 +689,19 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       return;
     }
 
+    if (!_enableStillCaptureLookPreviews) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingLookPreviews = false;
+        if (tool == CameraPrimaryTool.film) {
+          _filmPreviewBytes = const {};
+        } else {
+          _filterPreviewBytes = const {};
+        }
+      });
+      return;
+    }
+
     final request = ++_lookPreviewRequest;
     if (mounted) setState(() => _isLoadingLookPreviews = true);
     String? snapshotPath;
@@ -922,13 +936,15 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _isLookTrayOpen
-                  ? () => unawaited(_confirmOpenLookTray())
-                  : null,
-              child: _buildViewfinder(),
-            ),
+            _buildViewfinder(),
+            if (_isLookTrayOpen)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => unawaited(_confirmOpenLookTray()),
+                  child: const ColoredBox(color: Colors.transparent),
+                ),
+              ),
             _buildTopBar(),
             if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.film)
               _buildFilmControls(),
