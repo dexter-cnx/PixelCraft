@@ -20,6 +20,7 @@ import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_editor_screen.dart';
 
 const _launchGpuEditorLab = bool.fromEnvironment('GPU_EDITOR_LAB');
+const _brandOrange = Color(0xFFFF6A00);
 
 bool get _isMobilePlatform =>
     !kIsWeb &&
@@ -28,7 +29,7 @@ bool get _isMobilePlatform =>
 
 ThemeData _cameraTheme() => ThemeData(
   useMaterial3: true,
-  colorSchemeSeed: const Color(0xFF9D8CFF),
+  colorSchemeSeed: _brandOrange,
   brightness: Brightness.dark,
   scaffoldBackgroundColor: Colors.black,
 );
@@ -158,9 +159,9 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
     localizationsDelegates: context.localizationDelegates,
     theme: ThemeData(
       useMaterial3: true,
-      colorSchemeSeed: const Color(0xFF7259E7),
+      colorSchemeSeed: _brandOrange,
       brightness: Brightness.light,
-      scaffoldBackgroundColor: const Color(0xFFF8F7FC),
+      scaffoldBackgroundColor: const Color(0xFFF8F6F3),
     ),
     darkTheme: _cameraTheme(),
     themeMode: ThemeMode.system,
