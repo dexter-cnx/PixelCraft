@@ -121,6 +121,7 @@ class _CompositionGuidePainter extends CustomPainter {
             canvas.drawCircle(Offset(x, y), 2.4, dot);
           }
         }
+        return;
       case CameraCompositionGuide.goldenRatio:
         const minor = 0.3819660112501051;
         const major = 1 - minor;
@@ -138,9 +139,11 @@ class _CompositionGuidePainter extends CustomPainter {
         for (final y in ys) {
           drawSegment(Offset(frame.left, y), Offset(frame.right, y));
         }
+        return;
       case CameraCompositionGuide.goldenSpiral:
         _drawGoldenSpiral(canvas, frame, shadow);
         _drawGoldenSpiral(canvas, frame, line);
+        return;
     }
   }
 
@@ -157,8 +160,6 @@ class _CompositionGuidePainter extends CustomPainter {
   }
 
   void _drawGoldenSpiral(Canvas canvas, Rect frame, Paint paint) {
-    // Logarithmic golden spiral. Its orientation follows the active photo frame
-    // automatically, while remaining only a composition overlay.
     final landscape = frame.width >= frame.height;
     final center = Offset(
       landscape ? frame.left + frame.width * 0.382 : frame.center.dx,
