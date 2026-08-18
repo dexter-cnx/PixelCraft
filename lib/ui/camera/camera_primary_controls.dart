@@ -9,7 +9,6 @@ enum CameraPrimaryTool { film, filter, adjust }
 class CameraPrimaryControls extends StatelessWidget {
   const CameraPrimaryControls({
     required this.selectedTool,
-    required this.isToolPanelExpanded,
     required this.onToolSelected,
     required this.onGalleryPressed,
     required this.onShutterPressed,
@@ -18,10 +17,11 @@ class CameraPrimaryControls extends StatelessWidget {
     required this.filmLabel,
     required this.filterLabel,
     required this.adjustLabel,
-    required this.filmSummary,
-    required this.filterSummary,
     required this.controlsLabel,
     required this.shutterSemanticLabel,
+    this.isToolPanelExpanded = true,
+    this.filmSummary = '',
+    this.filterSummary = '',
     this.isCapturing = false,
     super.key,
   });
@@ -189,6 +189,7 @@ class _ToolSelector extends StatelessWidget {
 
   Widget _item(CameraPrimaryTool tool, String label, {String? summary}) {
     final selected = selectedTool == tool && isExpanded;
+    final hasSummary = summary != null && summary.isNotEmpty;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => onSelected(tool),
@@ -207,7 +208,7 @@ class _ToolSelector extends StatelessWidget {
               ),
               child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
-            if (summary != null) ...[
+            if (hasSummary) ...[
               const SizedBox(height: 2),
               Text(
                 summary,
