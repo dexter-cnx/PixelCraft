@@ -101,7 +101,15 @@ class _GreetingScreenState extends State<GreetingScreen> {
     setState(() => _requesting = true);
     try {
       final camera = await _permissionService.requestCamera();
-      final gallery = await _permissionService.requestGalleryWrite();
+      final galleryRead = await _permissionService.requestGalleryRead();
+      final galleryWrite = await _permissionService.requestGalleryWrite();
+      final gallery = galleryRead == PermissionDecision.granted &&
+              galleryWrite == PermissionDecision.granted
+          ? PermissionDecision.granted
+          : galleryRead == PermissionDecision.restricted ||
+                  galleryWrite == PermissionDecision.restricted
+              ? PermissionDecision.restricted
+              : PermissionDecision.denied;
       if (!mounted) return;
       setState(() {
         _cameraPermission = camera;
