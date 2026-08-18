@@ -30,3 +30,4 @@ jobs:
           git add lib/ui/screens/camera_film_preview_screen_g1.dart
           git commit -m "fix: format compact camera UX"
           git push origin HEAD:feature/pf3-capture-process-save
+# trigger one-shot formatter
