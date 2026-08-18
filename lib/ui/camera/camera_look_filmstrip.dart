@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../camera/camera_film_presets.dart';
+import '../../camera/camera_recent_thumbnail.dart';
 
 const _accent = Color(0xFFFF6A00);
-const _fallbackPreviewAsset = 'assets/samples/sample_1.png';
 
 class CameraLookFilmstripItem {
   const CameraLookFilmstripItem({
@@ -138,58 +138,60 @@ class _PreviewTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final preview = item.previewBytes;
     if (preview != null) {
-      return Image.memory(
-        preview,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.low,
-        cacheWidth: 180,
-        cacheHeight: 180,
-      );
+      return _buildPreviewImage(preview);
     }
 
-    final fallback = Image.asset(
-      _fallbackPreviewAsset,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.low,
-      cacheWidth: 180,
-      cacheHeight: 180,
-      errorBuilder: (_, __, ___) => const ColoredBox(
-        color: Color(0xFF202020),
-        child: Center(
-          child: Icon(
-            Icons.photo_camera_outlined,
-            color: Colors.white38,
-            size: 24,
-          ),
-        ),
-      ),
-    );
-    final filter = _fallbackColorFilter(item.id);
+    return ValueListenableBuilder<Uint8List?>(
+      valueListenable: CameraRecentThumbnail.instance.bytes,
+      builder: (context, recentBytes, _) {
+        final Widget image = recentBytes != null && recentBytes.isNotEmpty
+            ? _buildPreviewImage(recentBytes)
+            : const ColoredBox(
+                color: Color(0xFF202020),
+                child: Center(
+                  child: Icon(
+                    Icons.photo_camera_outlined,
+                    color: Colors.white38,
+                    size: 24,
+                  ),
+                ),
+              );
+        final filter = _fallbackColorFilter(item.id);
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (filter == null)
-          fallback
-        else
-          ColorFiltered(colorFilter: filter, child: fallback),
-        if (isLoading)
-          const ColoredBox(
-            color: Color(0x44000000),
-            child: Center(
-              child: SizedBox.square(
-                dimension: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white70,
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (filter == null)
+              image
+            else
+              ColorFiltered(colorFilter: filter, child: image),
+            if (isLoading)
+              const ColoredBox(
+                color: Color(0x44000000),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white70,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-      ],
+          ],
+        );
+      },
     );
   }
+
+  Widget _buildPreviewImage(Uint8List bytes) => Image.memory(
+    bytes,
+    fit: BoxFit.cover,
+    gaplessPlayback: true,
+    filterQuality: FilterQuality.low,
+    cacheWidth: 180,
+    cacheHeight: 180,
+  );
 }
 
 ColorFilter? _fallbackColorFilter(String id) {
