@@ -533,11 +533,12 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final look = _cameraLook;
     final path = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
-    await _gpuBridge.pause(rendererId);
-    if (!mounted) return;
+
+    // Camera2 still capture uses the existing capture session. Keep the native
+    // preview and GPU renderer alive while PF3 processes/saves in the
+    // background. Tearing Camera2 down for every shutter caused an Android
+    // reopen race where the first post-save CameraLook update could stall.
     await _saveCapture(path, look: look);
-    if (!mounted || rendererId != _gpuRendererId) return;
-    await _gpuBridge.resume(rendererId);
   }
 
   Future<void> _captureFallback() async {
