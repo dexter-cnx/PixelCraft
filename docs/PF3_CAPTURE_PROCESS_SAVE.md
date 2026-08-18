@@ -29,10 +29,13 @@ The previous shutter-backed thumbnail experiment remains disabled. Neither live 
 
 ## Physical validation
 
-Before PF3 is marked complete, validate:
+Validated:
+
+- Android Film/Filter live snapshot follows the current camera scene with no still-capture side effect or camera interruption.
+
+Before PF3 is marked complete, still validate:
 
 - iPhone Film/Filter live snapshot follows the current camera scene with no shutter sound or camera interruption;
-- Android Film/Filter live snapshot follows the current camera scene with no still-capture side effect or camera interruption;
 - Android neutral and combined Film + Filter + Adjust capture/save;
 - iPhone neutral and combined Film + Filter + Adjust capture/save;
 - portrait and landscape shutter orientation both save with the correct final visual orientation on Android and iPhone;
