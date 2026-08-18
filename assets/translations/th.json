@@ -5,6 +5,22 @@
     "engine_start_failed": "ไม่สามารถเริ่มเอนจิน Rust ได้",
     "retry": "ลองอีกครั้ง"
   },
+  "greeting": {
+    "title": "Dextryx Pixels",
+    "subtitle": "แอปถ่ายภาพแบบ Camera-first พร้อมลุคแบบเรียลไทม์และประมวลผลภาพเต็มความละเอียดบนเครื่อง",
+    "whats_new": "มีอะไรใหม่",
+    "feature_camera_title": "เปิดมาก็พร้อมถ่าย",
+    "feature_camera_body": "เข้า Camera ได้ทันทีด้วยหน้าตาและการใช้งานที่คุ้นเคยแบบแอปกล้อง",
+    "feature_looks_title": "Film, Filter และ Adjust",
+    "feature_looks_body": "เห็นลุคแบบเรียลไทม์ก่อนกดชัตเตอร์",
+    "feature_process_title": "ประมวลผลเต็มความละเอียดบนเครื่อง",
+    "feature_process_body": "รูปที่ถ่ายจะถูกประมวลผลในเครื่องแล้วบันทึกกลับลงแกลเลอรี",
+    "permissions_title": "เตรียมกล้องให้พร้อม",
+    "permission_camera": "สิทธิ์ใช้งานกล้อง",
+    "permission_gallery": "สิทธิ์บันทึกรูปลงแกลเลอรี",
+    "retry_permissions": "ขอสิทธิ์อีกครั้ง",
+    "continue": "ไปที่กล้อง"
+  },
   "camera": {
     "gallery": "แกลเลอรี",
     "film": "ฟิล์ม",
