@@ -2,7 +2,6 @@ package dev.pixelcraft.pixelcraft
 
 import android.content.Context
 import android.graphics.SurfaceTexture
-import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -34,36 +33,6 @@ private class GpuCameraPreviewPlatformView(
         isOpaque = true
     }
     private var outputSurface: Surface? = null
-    private var physicalRotation: Int? = null
-    private var lastWidth = 0
-    private var lastHeight = 0
-
-    // The Flutter Activity is deliberately portrait-locked. Capture orientation
-    // therefore must come from the physical sensor rather than Display.rotation.
-    // Use the application context so the listener is not coupled to Flutter's
-    // PlatformView context wrapper or Activity configuration orientation.
-    private val orientationListener = object : OrientationEventListener(context.applicationContext) {
-        override fun onOrientationChanged(orientation: Int) {
-            if (orientation == ORIENTATION_UNKNOWN) return
-            val nextRotation = when {
-                orientation >= 315 || orientation < 45 -> Surface.ROTATION_0
-                orientation < 135 -> Surface.ROTATION_270
-                orientation < 225 -> Surface.ROTATION_180
-                else -> Surface.ROTATION_90
-            }
-            if (nextRotation == physicalRotation) return
-            physicalRotation = nextRotation
-            val surfaceTexture = textureView.surfaceTexture ?: return
-            if (!textureView.isAvailable || lastWidth <= 0 || lastHeight <= 0) return
-            attach(surfaceTexture, lastWidth, lastHeight)
-        }
-    }
-
-    init {
-        if (orientationListener.canDetectOrientation()) {
-            orientationListener.enable()
-        }
-    }
 
     override fun getView(): View = textureView
 
@@ -87,33 +56,24 @@ private class GpuCameraPreviewPlatformView(
         sessions.clearOutputSurface(rendererId)
         outputSurface?.release()
         outputSurface = null
-        lastWidth = 0
-        lastHeight = 0
         return true
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
 
     override fun dispose() {
-        orientationListener.disable()
         textureView.surfaceTextureListener = null
         sessions.clearOutputSurface(rendererId)
         outputSurface?.release()
         outputSurface = null
-        lastWidth = 0
-        lastHeight = 0
     }
 
     private fun attach(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-        lastWidth = width
-        lastHeight = height
         outputSurface?.release()
         val surface = Surface(surfaceTexture)
         outputSurface = surface
-        val rotation = physicalRotation
-            ?: textureView.display?.rotation
-            ?: Surface.ROTATION_0
+        val rotation = textureView.display?.rotation ?: Surface.ROTATION_0
         sessions.attachOutputSurface(
             rendererId,
             surface,
