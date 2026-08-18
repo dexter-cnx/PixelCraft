@@ -74,7 +74,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   Map<String, Uint8List> _filterPreviewBytes = const {};
   bool _isLoadingLookPreviews = false;
   int _lookPreviewRequest = 0;
-  final bool _enableStillCaptureLookPreviews = false;
+  final bool _enableStillCaptureLookPreviews = true;
   String _selectedAdjustmentId = 'exposure';
   double _strength = 1;
   double _zoomFactor = 1;

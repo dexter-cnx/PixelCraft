@@ -155,3 +155,11 @@ Before PF3 can close:
 ## Merge policy
 
 PF2 is merged. PF3 remains Draft until exact-head CI and Android/iOS physical validation pass.
+
+## Film / Filter preview thumbnails
+
+- Film and Filter trays enable the existing Rust-backed still-preview path on native GPU camera sessions.
+- A temporary camera JPEG is used only as the thumbnail render source and is deleted after preview generation.
+- Preview generation runs off the UI isolate and keeps the existing latest-request-wins guard so stale results cannot replace a newer tray request.
+- Thumbnails use the same Rust Film Profile / Creative Filter semantics as the editing pipeline rather than a Flutter-only approximation.
+- Android/iPhone physical validation must confirm no unacceptable camera interruption, shutter side-effects, or live-preview regression before PF3 is complete.
