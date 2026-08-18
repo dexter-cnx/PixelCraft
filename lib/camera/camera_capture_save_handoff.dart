@@ -111,7 +111,10 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
       );
       CameraRecentThumbnail.instance.update(result.jpegBytes);
       await _deleteSourceBestEffort(imagePath);
-      show('camera.capture_saved'.tr());
+      show(
+        'camera.capture_saved'.tr(),
+        duration: const Duration(milliseconds: 1200),
+      );
     } catch (_) {
       show(
         'camera.capture_failed'.tr(),
