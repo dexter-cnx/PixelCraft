@@ -72,6 +72,20 @@ The mobile/tablet visual identity is **orange + black**. Camera/Greeting accents
 - Android 9 and earlier request legacy `WRITE_EXTERNAL_STORAGE`;
 - system permission dialogs therefore occur before the user enters the normal shutter flow.
 
+## iOS Rust bridge bootstrap
+
+The iOS engine plugin builds `pixelcraft_engine` as a static library and force-loads `libpixelcraft_engine.a` into Runner through `packages/dxtr_pixs_engine/ios/dxtr_pixs_engine.podspec`.
+
+FRB's default loader expects to open a dynamic framework on iOS. That is not the packaging model used by this repository, so a bare `RustLib.init()` can fail at runtime while looking for `pixelcraft_engine.framework/pixelcraft_engine` even though the Rust symbols are already linked into the app process.
+
+`lib/core/bridge.dart` therefore supplies a platform-selected external library:
+
+- iOS uses `ExternalLibrary.process(...)` so FRB resolves the statically linked Rust symbols from Runner itself;
+- Android and desktop keep the normal FRB default loader by returning `null`;
+- web remains isolated from `dart:io` through a conditional import.
+
+This is a bootstrap/linkage correction only; it does not change Rust image-processing semantics.
+
 ## Capture processing behavior
 
 `lib/camera/camera_capture_pipeline.dart`
@@ -112,6 +126,7 @@ The canonical CI remains the repository `Pixel Craft CI`; PF3 must not carry tem
 Before PF3 can close:
 
 - exact-head CI/analyze/tests green;
+- verify Rust bridge initialization on the physical iPhone after the static-link bootstrap correction;
 - first-run Greeting and permission flow on Android and iPhone;
 - What's New appears once for `currentWhatsNewId`, then skips on subsequent launch;
 - verify the orange-black launcher icon on Android phone/tablet and iPhone/iPad;
