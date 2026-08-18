@@ -17,53 +17,49 @@ void main() {
   });
 
   test('ratio labels resolve automatically for portrait and landscape capture', () {
-    expect(
-      CameraImageRatio.fourThree.aspectRatioFor(
-        CameraCaptureOrientation.landscape,
-      ),
-      closeTo(4 / 3, 0.000001),
-    );
-    expect(
-      CameraImageRatio.fourThree.aspectRatioFor(
-        CameraCaptureOrientation.portrait,
-      ),
-      closeTo(3 / 4, 0.000001),
-    );
-    expect(
-      CameraImageRatio.threeTwo.aspectRatioFor(
-        CameraCaptureOrientation.landscape,
-      ),
-      closeTo(3 / 2, 0.000001),
-    );
-    expect(
-      CameraImageRatio.threeTwo.aspectRatioFor(
-        CameraCaptureOrientation.portrait,
-      ),
-      closeTo(2 / 3, 0.000001),
-    );
-    expect(
-      CameraImageRatio.sixteenNine.aspectRatioFor(
-        CameraCaptureOrientation.landscape,
-      ),
-      closeTo(16 / 9, 0.000001),
-    );
-    expect(
-      CameraImageRatio.sixteenNine.aspectRatioFor(
-        CameraCaptureOrientation.portrait,
-      ),
-      closeTo(9 / 16, 0.000001),
-    );
-    expect(
-      CameraImageRatio.square.aspectRatioFor(
-        CameraCaptureOrientation.portrait,
-      ),
-      1,
-    );
-    expect(
-      CameraImageRatio.square.aspectRatioFor(
-        CameraCaptureOrientation.landscape,
-      ),
-      1,
-    );
+    for (final landscape in [
+      CameraCaptureOrientation.landscapeLeft,
+      CameraCaptureOrientation.landscapeRight,
+    ]) {
+      expect(
+        CameraImageRatio.fourThree.aspectRatioFor(landscape),
+        closeTo(4 / 3, 0.000001),
+      );
+      expect(
+        CameraImageRatio.threeTwo.aspectRatioFor(landscape),
+        closeTo(3 / 2, 0.000001),
+      );
+      expect(
+        CameraImageRatio.sixteenNine.aspectRatioFor(landscape),
+        closeTo(16 / 9, 0.000001),
+      );
+      expect(CameraImageRatio.square.aspectRatioFor(landscape), 1);
+    }
+
+    for (final portrait in [
+      CameraCaptureOrientation.portrait,
+      CameraCaptureOrientation.portraitUpsideDown,
+    ]) {
+      expect(
+        CameraImageRatio.fourThree.aspectRatioFor(portrait),
+        closeTo(3 / 4, 0.000001),
+      );
+      expect(
+        CameraImageRatio.threeTwo.aspectRatioFor(portrait),
+        closeTo(2 / 3, 0.000001),
+      );
+      expect(
+        CameraImageRatio.sixteenNine.aspectRatioFor(portrait),
+        closeTo(9 / 16, 0.000001),
+      );
+      expect(CameraImageRatio.square.aspectRatioFor(portrait), 1);
+    }
+  });
+
+  test('directional capture orientation maps to Rust quarter turns', () {
+    expect(CameraCaptureOrientation.portrait.clockwiseQuarterTurns, 0);
+    expect(CameraCaptureOrientation.landscapeLeft.clockwiseQuarterTurns, 1);
+    expect(CameraCaptureOrientation.portraitUpsideDown.clockwiseQuarterTurns, 2);
+    expect(CameraCaptureOrientation.landscapeRight.clockwiseQuarterTurns, 3);
   });
 }
