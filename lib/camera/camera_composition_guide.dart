@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -52,10 +54,9 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     );
   }
 
-  /// Compatibility bridge for the current Camera screen while the Settings
-  /// surface migrates to the explicit enabled/style model.
   static Future<CameraCompositionGuide> load() async {
     final settings = await loadSettings();
+    await CameraGoldenSpiralFlipState.instance.ensureLoaded();
     return settings.enabled ? settings.guide : CameraCompositionGuide.off;
   }
 
@@ -70,8 +71,6 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     await prefs.setString(stylePreferenceKey, wireName);
   }
 
-  /// Compatibility bridge matching [load]. Off only toggles the guide off;
-  /// selecting a concrete guide enables it and stores the selected style.
   Future<void> persist() async {
     if (this == CameraCompositionGuide.off) {
       await persistEnabled(false);
@@ -105,34 +104,365 @@ class CameraCompositionGuideSettings {
   final bool flipVertical;
 }
 
+class CameraGoldenSpiralFlip {
+  const CameraGoldenSpiralFlip({
+    required this.horizontal,
+    required this.vertical,
+  });
+
+  final bool horizontal;
+  final bool vertical;
+}
+
+class CameraGoldenSpiralFlipState {
+  CameraGoldenSpiralFlipState._();
+
+  static final instance = CameraGoldenSpiralFlipState._();
+
+  final value = ValueNotifier<CameraGoldenSpiralFlip>(
+    const CameraGoldenSpiralFlip(horizontal: false, vertical: false),
+  );
+  Future<void>? _loading;
+
+  Future<void> ensureLoaded() => _loading ??= _load();
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    value.value = CameraGoldenSpiralFlip(
+      horizontal:
+          prefs.getBool(CameraCompositionGuideX.flipHorizontalPreferenceKey) ??
+          false,
+      vertical:
+          prefs.getBool(CameraCompositionGuideX.flipVerticalPreferenceKey) ??
+          false,
+    );
+  }
+
+  Future<void> set({bool? horizontal, bool? vertical}) async {
+    final current = value.value;
+    final next = CameraGoldenSpiralFlip(
+      horizontal: horizontal ?? current.horizontal,
+      vertical: vertical ?? current.vertical,
+    );
+    value.value = next;
+    await CameraCompositionGuideX.persistGoldenSpiralFlip(
+      horizontal: next.horizontal,
+      vertical: next.vertical,
+    );
+  }
+}
+
+class CameraCompositionGuideSettingsControl extends StatefulWidget {
+  const CameraCompositionGuideSettingsControl({
+    required this.value,
+    required this.onChanged,
+    this.frameAspectRatio,
+    this.enabled = true,
+    super.key,
+  });
+
+  final CameraCompositionGuide value;
+  final ValueChanged<CameraCompositionGuide> onChanged;
+  final double? frameAspectRatio;
+  final bool enabled;
+
+  @override
+  State<CameraCompositionGuideSettingsControl> createState() =>
+      _CameraCompositionGuideSettingsControlState();
+}
+
+class _CameraCompositionGuideSettingsControlState
+    extends State<CameraCompositionGuideSettingsControl> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(CameraGoldenSpiralFlipState.instance.ensureLoaded());
+  }
+
+  bool get _isOn => widget.value != CameraCompositionGuide.off;
+  CameraCompositionGuide get _activeGuide => _isOn
+      ? widget.value
+      : CameraCompositionGuide.thirds;
+
+  void _toggle(bool enabled) {
+    if (!widget.enabled) return;
+    widget.onChanged(
+      enabled ? _activeGuide : CameraCompositionGuide.off,
+    );
+  }
+
+  Future<void> _showGuideDialog() async {
+    if (!widget.enabled || !_isOn) return;
+    var selected = _activeGuide;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF171717),
+            title: Text(
+              'camera.guide_choose'.tr(),
+              style: const TextStyle(color: Colors.white),
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final guide in const [
+                      CameraCompositionGuide.thirds,
+                      CameraCompositionGuide.goldenRatio,
+                      CameraCompositionGuide.goldenSpiral,
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _GuidePreviewCard(
+                          guide: guide,
+                          selected: selected == guide,
+                          frameAspectRatio: widget.frameAspectRatio,
+                          onTap: () {
+                            setDialogState(() => selected = guide);
+                            widget.onChanged(guide);
+                          },
+                        ),
+                      ),
+                    if (selected == CameraCompositionGuide.goldenSpiral)
+                      ValueListenableBuilder<CameraGoldenSpiralFlip>(
+                        valueListenable:
+                            CameraGoldenSpiralFlipState.instance.value,
+                        builder: (context, flip, _) => Column(
+                          children: [
+                            SwitchListTile.adaptive(
+                              value: flip.horizontal,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                'camera.guide_flip_horizontal'.tr(),
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              onChanged: (value) => unawaited(
+                                CameraGoldenSpiralFlipState.instance.set(
+                                  horizontal: value,
+                                ),
+                              ),
+                            ),
+                            SwitchListTile.adaptive(
+                              value: flip.vertical,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                'camera.guide_flip_vertical'.tr(),
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              onChanged: (value) => unawaited(
+                                CameraGoldenSpiralFlipState.instance.set(
+                                  vertical: value,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: _isOn,
+          onChanged: widget.enabled ? _toggle : null,
+          title: Text(
+            'camera.composition_guide'.tr(),
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            _isOn ? 'camera.guide_on'.tr() : 'camera.guide_off'.tr(),
+            style: const TextStyle(color: Colors.white54),
+          ),
+        ),
+        if (_isOn) ...[
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: _showGuideDialog,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              height: 116,
+              decoration: BoxDecoration(
+                color: const Color(0xFF202020),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white24),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CameraCompositionGuideOverlay(
+                    guide: _activeGuide,
+                    frameAspectRatio: widget.frameAspectRatio,
+                  ),
+                  Positioned(
+                    left: 12,
+                    bottom: 9,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.68),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        child: Text(
+                          _guideLabel(_activeGuide),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Positioned(
+                    right: 10,
+                    top: 10,
+                    child: Icon(Icons.edit_outlined, color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'camera.composition_guide_hint'.tr(),
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GuidePreviewCard extends StatelessWidget {
+  const _GuidePreviewCard({
+    required this.guide,
+    required this.selected,
+    required this.frameAspectRatio,
+    required this.onTap,
+  });
+
+  final CameraCompositionGuide guide;
+  final bool selected;
+  final double? frameAspectRatio;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        height: 104,
+        decoration: BoxDecoration(
+          color: const Color(0xFF202020),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? const Color(0xFFFF6A00) : Colors.white24,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CameraCompositionGuideOverlay(
+              guide: guide,
+              frameAspectRatio: frameAspectRatio,
+            ),
+            Positioned(
+              left: 10,
+              bottom: 8,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.68),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    _guideLabel(guide),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _guideLabel(CameraCompositionGuide guide) => switch (guide) {
+  CameraCompositionGuide.off => 'camera.guide_off'.tr(),
+  CameraCompositionGuide.thirds => 'camera.guide_thirds'.tr(),
+  CameraCompositionGuide.goldenRatio => 'camera.guide_golden_ratio'.tr(),
+  CameraCompositionGuide.goldenSpiral => 'camera.guide_golden_spiral'.tr(),
+};
+
 class CameraCompositionGuideOverlay extends StatelessWidget {
   const CameraCompositionGuideOverlay({
     required this.guide,
     this.frameAspectRatio,
-    this.flipHorizontal = false,
-    this.flipVertical = false,
     super.key,
   });
 
   final CameraCompositionGuide guide;
   final double? frameAspectRatio;
-  final bool flipHorizontal;
-  final bool flipVertical;
 
   @override
   Widget build(BuildContext context) {
     if (guide == CameraCompositionGuide.off) {
       return const SizedBox.shrink();
     }
-    return IgnorePointer(
-      child: CustomPaint(
-        painter: _CompositionGuidePainter(
-          guide: guide,
-          frameAspectRatio: frameAspectRatio,
-          flipHorizontal: flipHorizontal,
-          flipVertical: flipVertical,
+    unawaited(CameraGoldenSpiralFlipState.instance.ensureLoaded());
+    return ValueListenableBuilder<CameraGoldenSpiralFlip>(
+      valueListenable: CameraGoldenSpiralFlipState.instance.value,
+      builder: (context, flip, _) => IgnorePointer(
+        child: CustomPaint(
+          painter: _CompositionGuidePainter(
+            guide: guide,
+            frameAspectRatio: frameAspectRatio,
+            flipHorizontal: flip.horizontal,
+            flipVertical: flip.vertical,
+          ),
+          size: Size.infinite,
         ),
-        size: Size.infinite,
       ),
     );
   }
