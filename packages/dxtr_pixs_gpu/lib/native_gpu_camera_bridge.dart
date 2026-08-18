@@ -197,9 +197,17 @@ class NativeGpuCameraBridge {
     if (path == null || path.isEmpty) {
       throw StateError('Native GPU camera capture returned no file path');
     }
+
+    // AVFoundation already writes the correct photo orientation. Keep iOS on
+    // the JPEG/EXIF normalization path to avoid a second forced Rust rotation.
+    // Android carries physical orientation explicitly because some Camera2
+    // HALs ignore JPEG_ORIENTATION and return portrait pixels in landscape.
+    final captureOrientation = defaultTargetPlatform == TargetPlatform.android
+        ? state.deviceOrientation
+        : NativeCameraDeviceOrientation.unknown;
     return NativeCameraCaptureResult(
       path: path,
-      deviceOrientation: state.deviceOrientation,
+      deviceOrientation: captureOrientation,
     );
   }
 
