@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../app/platform_flow_foundation.dart';
 import '../../app/platform_media_services.dart';
 import '../../camera/camera_capture_save_handoff.dart';
+import '../../camera/camera_composition_guide.dart';
 import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
 import '../../camera/camera_image_ratio.dart';
@@ -66,6 +67,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   bool _toolPanelExpanded = false;
   CameraLookState _cameraLook = CameraLookState();
   CameraImageRatio _imageRatio = CameraImageRatio.original;
+  CameraCompositionGuide _compositionGuide = CameraCompositionGuide.off;
   Map<String, Uint8List> _filmPreviewBytes = const {};
   Map<String, Uint8List> _filterPreviewBytes = const {};
   bool _isLoadingLookPreviews = false;
@@ -128,6 +130,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       }
     };
     unawaited(_loadImageRatio());
+    unawaited(_loadCompositionGuide());
     unawaited(_discoverAndInitialize());
   }
 
@@ -141,6 +144,24 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     setState(() => _imageRatio = ratio);
     await ratio.persist();
   }
+
+  Future<void> _loadCompositionGuide() async {
+    final guide = await CameraCompositionGuideX.load();
+    if (mounted) setState(() => _compositionGuide = guide);
+  }
+
+  Future<void> _setCompositionGuide(CameraCompositionGuide guide) async {
+    if (_compositionGuide == guide) return;
+    setState(() => _compositionGuide = guide);
+    await guide.persist();
+  }
+
+  String _compositionGuideLabel(CameraCompositionGuide guide) => switch (guide) {
+    CameraCompositionGuide.off => 'camera.guide_off'.tr(),
+    CameraCompositionGuide.thirds => 'camera.guide_thirds'.tr(),
+    CameraCompositionGuide.goldenRatio => 'camera.guide_golden_ratio'.tr(),
+    CameraCompositionGuide.goldenSpiral => 'camera.guide_golden_spiral'.tr(),
+  };
 
   @override
   void dispose() {
@@ -828,6 +849,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF111111),
+      isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) {
           Future<void> refresh(Future<void> Function() action) async {
@@ -836,7 +858,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           }
 
           return SafeArea(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -887,6 +909,47 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                   const SizedBox(height: 6),
                   Text(
                     'camera.image_ratio_hint'.tr(),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'camera.composition_guide'.tr(),
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final guide in CameraCompositionGuide.values)
+                        ChoiceChip(
+                          label: Text(_compositionGuideLabel(guide)),
+                          selected: guide == _compositionGuide,
+                          onSelected: _isCapturing
+                              ? null
+                              : (_) => unawaited(
+                                  refresh(() => _setCompositionGuide(guide)),
+                                ),
+                          selectedColor: const Color(0xFFFF6A00),
+                          backgroundColor: const Color(0xFF242424),
+                          side: BorderSide(
+                            color: guide == _compositionGuide
+                                ? const Color(0xFFFF6A00)
+                                : Colors.white24,
+                          ),
+                          labelStyle: TextStyle(
+                            color: guide == _compositionGuide
+                                ? Colors.black
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          showCheckmark: false,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'camera.composition_guide_hint'.tr(),
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   const SizedBox(height: 18),
@@ -985,6 +1048,17 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             _buildViewfinder(),
             if (_imageRatio != CameraImageRatio.original)
               _buildImageRatioGuide(),
+            if (_compositionGuide != CameraCompositionGuide.off)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 64,
+                bottom: 150,
+                child: CameraCompositionGuideOverlay(
+                  guide: _compositionGuide,
+                  frameAspectRatio: _imageRatio.aspectRatio,
+                ),
+              ),
             if (_isLookTrayOpen)
               Positioned.fill(
                 child: GestureDetector(
