@@ -50,7 +50,17 @@ Gallery-picked/external sources remain on the normal Editor path and are not rou
 - when `currentWhatsNewId` changes for a future release, What's New appears once again and then remains hidden until the next ID change;
 - normal launches skip this screen when permissions were already prompted and the current What's New ID was already seen.
 
-The initial mobile/tablet visual identity is **orange + black**. Camera/Greeting accents use `#FF6A00` against black/dark surfaces. This replaces the earlier purple visual direction.
+The mobile/tablet visual identity is **orange + black**. Camera/Greeting accents use `#FF6A00` against black/dark surfaces. This replaces the earlier purple visual direction.
+
+## Camera-first launcher icon
+
+`tool/generate_camera_first_icon.py` is the reproducible source for the mobile/tablet launcher icon set.
+
+- the mark is a conventional camera silhouette so the app reads as Camera-first at Home Screen size;
+- no text is embedded in the icon;
+- black is the base surface and `#FF6A00` is the primary camera/accent color;
+- `assets/branding/app_icon.png`, Android mipmap launchers, and the iPhone/iPad AppIcon set are generated from the same mark;
+- temporary generation workflow files are removed after generation and must not remain in the merge diff.
 
 ## Permission behavior
 
@@ -96,6 +106,7 @@ Before PF3 can close:
 - exact-head CI/analyze/tests green;
 - first-run Greeting and permission flow on Android and iPhone;
 - What's New appears once for `currentWhatsNewId`, then skips on subsequent launch;
+- verify the orange-black launcher icon on Android phone/tablet and iPhone/iPad;
 - Android neutral and combined Film + Filter + Adjust capture/save;
 - iPhone neutral and combined Film + Filter + Adjust capture/save;
 - saved JPEG visually corresponds to the committed final CameraLook;
