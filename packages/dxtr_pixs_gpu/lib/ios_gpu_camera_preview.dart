@@ -19,6 +19,7 @@ class IosGpuCameraPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     return UiKitView(
       viewType: iosGpuCameraPreviewViewType,
+      hitTestBehavior: PlatformViewHitTestBehavior.transparent,
       creationParams: <String, Object?>{'rendererId': rendererId},
       creationParamsCodec: const StandardMessageCodec(),
     );
