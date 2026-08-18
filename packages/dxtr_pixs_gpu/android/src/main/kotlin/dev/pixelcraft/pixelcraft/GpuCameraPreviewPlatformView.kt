@@ -38,7 +38,11 @@ private class GpuCameraPreviewPlatformView(
     private var lastWidth = 0
     private var lastHeight = 0
 
-    private val orientationListener = object : OrientationEventListener(context) {
+    // The Flutter Activity is deliberately portrait-locked. Capture orientation
+    // therefore must come from the physical sensor rather than Display.rotation.
+    // Use the application context so the listener is not coupled to Flutter's
+    // PlatformView context wrapper or Activity configuration orientation.
+    private val orientationListener = object : OrientationEventListener(context.applicationContext) {
         override fun onOrientationChanged(orientation: Int) {
             if (orientation == ORIENTATION_UNKNOWN) return
             val nextRotation = when {
@@ -53,8 +57,12 @@ private class GpuCameraPreviewPlatformView(
             if (!textureView.isAvailable || lastWidth <= 0 || lastHeight <= 0) return
             attach(surfaceTexture, lastWidth, lastHeight)
         }
-    }.also { listener ->
-        if (listener.canDetectOrientation()) listener.enable()
+    }
+
+    init {
+        if (orientationListener.canDetectOrientation()) {
+            orientationListener.enable()
+        }
     }
 
     override fun getView(): View = textureView
