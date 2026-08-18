@@ -43,7 +43,7 @@ class CameraPrimaryControls extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Color(0xF2000000)],
+          colors: [Colors.transparent, Color(0xE6000000)],
         ),
       ),
       child: Padding(
@@ -58,7 +58,7 @@ class CameraPrimaryControls extends StatelessWidget {
               filterLabel: filterLabel,
               adjustLabel: adjustLabel,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -136,6 +136,8 @@ class _ToolSelector extends StatelessWidget {
     required this.adjustLabel,
   });
 
+  static const _accent = Color(0xFFFF6A00);
+
   final CameraPrimaryTool selectedTool;
   final ValueChanged<CameraPrimaryTool> onSelected;
   final String filmLabel;
@@ -144,36 +146,47 @@ class _ToolSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SegmentedButton<CameraPrimaryTool>(
-      key: const Key('camera-tool-selector'),
-      segments: [
-        ButtonSegment(value: CameraPrimaryTool.film, label: Text(filmLabel)),
-        ButtonSegment(
-          value: CameraPrimaryTool.filter,
-          label: Text(filterLabel),
+    return Semantics(
+      container: true,
+      child: Row(
+        key: const Key('camera-tool-selector'),
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _item(CameraPrimaryTool.film, filmLabel),
+          _item(CameraPrimaryTool.filter, filterLabel),
+          _item(CameraPrimaryTool.adjust, adjustLabel),
+        ],
+      ),
+    );
+  }
+
+  Widget _item(CameraPrimaryTool tool, String label) {
+    final selected = selectedTool == tool;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onSelected(tool),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? _accent : Colors.transparent,
+              width: 2.5,
+            ),
+          ),
         ),
-        ButtonSegment(
-          value: CameraPrimaryTool.adjust,
-          label: Text(adjustLabel),
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.white60,
+            fontSize: selected ? 15 : 14,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          ),
+          child: Text(label),
         ),
-      ],
-      selected: {selectedTool},
-      onSelectionChanged: (selection) {
-        if (selection.isNotEmpty) onSelected(selection.first);
-      },
-      showSelectedIcon: false,
-      style: ButtonStyle(
-        foregroundColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected)
-              ? Colors.black
-              : Colors.white,
-        ),
-        backgroundColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected)
-              ? Colors.white
-              : Colors.black54,
-        ),
-        side: WidgetStateProperty.all(const BorderSide(color: Colors.white38)),
       ),
     );
   }
