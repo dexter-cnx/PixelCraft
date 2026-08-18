@@ -49,10 +49,11 @@ class _CameraLookFilmstripState extends State<CameraLookFilmstrip> {
 
   Timer? _liveRefreshTimer;
 
-  bool get _supportsLiveSnapshot =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.android);
+  bool get _supportsLiveSnapshot {
+    if (kIsWeb) return false;
+    final platform = defaultTargetPlatform;
+    return platform == TargetPlatform.iOS || platform == TargetPlatform.android;
+  }
 
   @override
   void initState() {
@@ -257,12 +258,14 @@ class _LivePreviewSnapshotSource {
   Future<void>? _pending;
   DateTime? _lastRequestedAt;
 
+  bool get _supportsPlatform {
+    if (kIsWeb) return false;
+    final platform = defaultTargetPlatform;
+    return platform == TargetPlatform.iOS || platform == TargetPlatform.android;
+  }
+
   Future<void> refresh() {
-    if (kIsWeb ||
-        (defaultTargetPlatform != TargetPlatform.iOS &&
-            defaultTargetPlatform != TargetPlatform.android)) {
-      return Future<void>.value();
-    }
+    if (!_supportsPlatform) return Future<void>.value();
     final pending = _pending;
     if (pending != null) return pending;
     final now = DateTime.now();
