@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/app/platform_flow_foundation.dart';
 import 'package:pixelcraft/camera/camera_capture_pipeline.dart';
+import 'package:pixelcraft/camera/camera_image_ratio.dart';
 import 'package:pixelcraft/camera/camera_look_state.dart';
 
 void main() {
@@ -23,12 +24,14 @@ void main() {
         ).processAndSave(
           sourceJpeg: source,
           look: look,
+          imageRatio: CameraImageRatio.threeTwo,
           suggestedName: 'capture.jpg',
           onPhase: phases.add,
         );
 
     expect(renderer.source, same(source));
     expect(renderer.look, same(look));
+    expect(renderer.imageRatio, CameraImageRatio.threeTwo);
     expect(saver.bytes, orderedEquals([9, 8, 7]));
     expect(saver.suggestedName, 'capture.jpg');
     expect(result.savedUri, Uri.parse('media:/gallery/capture.jpg'));
@@ -65,15 +68,18 @@ class _FakeRenderer implements CameraCaptureRenderer {
   final Uint8List output;
   Uint8List? source;
   CameraLookState? look;
+  CameraImageRatio? imageRatio;
 
   @override
   Future<Uint8List> renderJpeg({
     required Uint8List sourceJpeg,
     required CameraLookState look,
+    CameraImageRatio imageRatio = CameraImageRatio.original,
     int quality = 95,
   }) async {
     source = sourceJpeg;
     this.look = look;
+    this.imageRatio = imageRatio;
     return output;
   }
 }
@@ -83,6 +89,7 @@ class _ThrowingRenderer implements CameraCaptureRenderer {
   Future<Uint8List> renderJpeg({
     required Uint8List sourceJpeg,
     required CameraLookState look,
+    CameraImageRatio imageRatio = CameraImageRatio.original,
     int quality = 95,
   }) async {
     throw StateError('render failed');
