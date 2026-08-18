@@ -17,7 +17,7 @@ abstract interface class CameraCaptureRenderer {
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
-        CameraCaptureOrientation.portrait,
+        CameraCaptureOrientation.auto,
     int quality = 95,
   });
 }
@@ -46,7 +46,7 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
-        CameraCaptureOrientation.portrait,
+        CameraCaptureOrientation.auto,
     int quality = 95,
   }) {
     final adjustments = <String, double>{
@@ -132,7 +132,7 @@ class CameraCapturePipeline {
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
-        CameraCaptureOrientation.portrait,
+        CameraCaptureOrientation.auto,
     String? suggestedName,
     void Function(ProcessingJobPhase phase)? onPhase,
   }) async {
