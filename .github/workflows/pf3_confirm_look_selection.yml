@@ -1,4 +1,4 @@
-name: PF3 confirm look selection
+name: PF3 apply look confirmation
 
 on:
   push:
@@ -20,11 +20,12 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: stable
-      - name: Apply confirm-on-exit look UX
+      - name: Patch camera source and self-remove
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+
           path = Path('lib/ui/screens/camera_film_preview_screen_g1.dart')
           text = path.read_text()
 
@@ -46,6 +47,7 @@ jobs:
     }
   }
 '''
+
           new = '''  bool get _isLookTrayOpen =>
       _toolPanelExpanded &&
       (_selectedTool == CameraPrimaryTool.film ||
@@ -66,15 +68,22 @@ jobs:
       return;
     }
 
-    if (_isLookTrayOpen && tool == _selectedTool) {
-      await _confirmOpenLookTray();
-      return;
-    }
-
-    if (_isLookTrayOpen &&
-        (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter)) {
-      await _confirmOpenLookTray();
-      if (!mounted) return;
+    if (_isLookTrayOpen) {
+      if (tool == _selectedTool) {
+        await _confirmOpenLookTray();
+        return;
+      }
+      if (tool == CameraPrimaryTool.film ||
+          tool == CameraPrimaryTool.filter) {
+        await _confirmOpenLookTray();
+        if (!mounted) return;
+        setState(() {
+          _selectedTool = tool;
+          _toolPanelExpanded = true;
+        });
+        unawaited(_refreshLookPreviews(tool));
+        return;
+      }
     }
 
     final willExpand = tool != _selectedTool || !_toolPanelExpanded;
@@ -92,8 +101,9 @@ jobs:
     unawaited(_handleToolSelection(tool));
   }
 '''
+
           if old not in text:
-              raise SystemExit('selectTool block not found')
+              raise SystemExit('selectTool source block not found')
           text = text.replace(old, new, 1)
 
           old_viewfinder = '            _buildViewfinder(),\n'
@@ -106,15 +116,16 @@ jobs:
             ),
 '''
           if old_viewfinder not in text:
-              raise SystemExit('viewfinder stack entry not found')
+              raise SystemExit('viewfinder source block not found')
           text = text.replace(old_viewfinder, new_viewfinder, 1)
 
           path.write_text(text)
           PY
+
           dart format lib/ui/screens/camera_film_preview_screen_g1.dart
           git rm .github/workflows/pf3_confirm_look_selection.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add lib/ui/screens/camera_film_preview_screen_g1.dart
-          git commit -m "feat: confirm camera look tray on exit"
+          git commit -m "feat: confirm film and filter selection"
           git push origin HEAD:feature/pf3-capture-process-save
