@@ -8,9 +8,6 @@ import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 
 /// Final-pixel PF3 renderer contract.
-///
-/// Implementations must render from the clean captured JPEG and must not use
-/// preview framebuffer pixels as saved-output authority.
 abstract interface class CameraCaptureRenderer {
   Future<Uint8List> renderJpeg({
     required Uint8List sourceJpeg,
@@ -18,15 +15,12 @@ abstract interface class CameraCaptureRenderer {
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
         CameraCaptureOrientation.auto,
+    double zoomFactor = 1,
     int quality = 95,
   });
 }
 
 /// Rust-authoritative PF3 renderer.
-///
-/// The complete render executes inside one background isolate so the full
-/// CameraLook is committed to one Rust session in canonical order without
-/// blocking Flutter UI work between individual operations.
 class RustCameraCaptureRenderer implements CameraCaptureRenderer {
   const RustCameraCaptureRenderer();
 
@@ -47,6 +41,7 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
         CameraCaptureOrientation.auto,
+    double zoomFactor = 1,
     int quality = 95,
   }) {
     final adjustments = <String, double>{
@@ -60,14 +55,36 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
       sourceJpeg,
       orientation: captureOrientation,
     );
+    final normalizedZoom = zoomFactor.clamp(1.0, 8.0).toDouble();
+    final turns = captureOrientation == CameraCaptureOrientation.auto
+        ? 0
+        : captureOrientation.clockwiseQuarterTurns;
 
     return Isolate.run(() async {
       await initializeRustBridge();
       rust.loadImage(bytes: sourceJpeg);
 
-      // Ratio is an authoritative framing operation, not a stretched resize.
-      // Apply it before CameraLook so spatial effects such as vignette are
-      // evaluated against the final composition.
+      // Camera2 OEMs do not all honor JPEG_ORIENTATION consistently. When
+      // native capture supplies physical orientation, normalize the actual
+      // pixels here so Gallery output is deterministic across devices.
+      if (turns != 0) {
+        rust.rotateQuarterTurns(turns: turns);
+      }
+
+      // Zoom is authoritative and center-cropped, matching the scaled camera
+      // preview without stretching pixels.
+      if (normalizedZoom > 1.000001) {
+        final size = 1 / normalizedZoom;
+        rust.applyCrop(
+          x: (1 - size) / 2,
+          y: (1 - size) / 2,
+          width: size,
+          height: size,
+        );
+      }
+
+      // Ratio framing follows orientation normalization and zoom so spatial
+      // effects such as vignette are evaluated against the final composition.
       if (crop != null &&
           (crop.x > 0 || crop.y > 0 || crop.width < 1 || crop.height < 1)) {
         rust.applyCrop(
@@ -133,6 +150,7 @@ class CameraCapturePipeline {
     CameraImageRatio imageRatio = CameraImageRatio.original,
     CameraCaptureOrientation captureOrientation =
         CameraCaptureOrientation.auto,
+    double zoomFactor = 1,
     String? suggestedName,
     void Function(ProcessingJobPhase phase)? onPhase,
   }) async {
@@ -142,6 +160,7 @@ class CameraCapturePipeline {
       look: look,
       imageRatio: imageRatio,
       captureOrientation: captureOrientation,
+      zoomFactor: zoomFactor,
     );
 
     onPhase?.call(ProcessingJobPhase.saving);
