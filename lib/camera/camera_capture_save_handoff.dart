@@ -21,6 +21,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
     required this.imagePath,
     required this.look,
     this.imageRatio = CameraImageRatio.original,
+    this.captureOrientation = CameraCaptureOrientation.portrait,
     this.captureRenderer,
     this.mediaSaveService,
   });
@@ -28,6 +29,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
   final String imagePath;
   final CameraLookState look;
   final CameraImageRatio imageRatio;
+  final CameraCaptureOrientation captureOrientation;
   final CameraCaptureRenderer? captureRenderer;
   final MediaSaveService? mediaSaveService;
 
@@ -50,6 +52,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     final imagePath = widget.imagePath;
     final look = widget.look;
     final imageRatio = widget.imageRatio;
+    final captureOrientation = widget.captureOrientation;
     final pipeline = CameraCapturePipeline(
       renderer: widget.captureRenderer ?? const RustCameraCaptureRenderer(),
       saveService: widget.mediaSaveService ?? const GalleryMediaSaveService(),
@@ -64,6 +67,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
           imagePath: imagePath,
           look: look,
           imageRatio: imageRatio,
+          captureOrientation: captureOrientation,
         ),
       );
     });
@@ -75,6 +79,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     required String imagePath,
     required CameraLookState look,
     required CameraImageRatio imageRatio,
+    required CameraCaptureOrientation captureOrientation,
   }) async {
     void show(
       String message, {
@@ -117,6 +122,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         sourceJpeg: sourceBytes,
         look: look,
         imageRatio: imageRatio,
+        captureOrientation: captureOrientation,
         onPhase: (phase) {
           if (phase == ProcessingJobPhase.saving) {
             show(
@@ -142,6 +148,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
               imagePath: imagePath,
               look: look,
               imageRatio: imageRatio,
+              captureOrientation: captureOrientation,
             ),
           ),
         ),
