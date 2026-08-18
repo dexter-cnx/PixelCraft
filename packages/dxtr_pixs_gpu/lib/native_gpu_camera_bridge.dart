@@ -8,6 +8,24 @@ typedef NativeGpuRuntimeFailureHandler =
 
 enum NativeCameraFlashMode { off, auto, on }
 
+enum NativeCameraDeviceOrientation {
+  unknown,
+  portrait,
+  portraitUpsideDown,
+  landscapeLeft,
+  landscapeRight,
+}
+
+extension NativeCameraDeviceOrientationWire on NativeCameraDeviceOrientation {
+  static NativeCameraDeviceOrientation parse(Object? value) => switch (value) {
+    'portrait' => NativeCameraDeviceOrientation.portrait,
+    'portraitUpsideDown' => NativeCameraDeviceOrientation.portraitUpsideDown,
+    'landscapeLeft' => NativeCameraDeviceOrientation.landscapeLeft,
+    'landscapeRight' => NativeCameraDeviceOrientation.landscapeRight,
+    _ => NativeCameraDeviceOrientation.unknown,
+  };
+}
+
 extension NativeCameraFlashModeWire on NativeCameraFlashMode {
   String get wireName => name;
 
@@ -27,6 +45,7 @@ class NativeCameraControlState {
     required this.flashMode,
     required this.torchEnabled,
     required this.mirrorEnabled,
+    this.deviceOrientation = NativeCameraDeviceOrientation.unknown,
   });
 
   factory NativeCameraControlState.fromMap(Map<Object?, Object?>? map) {
@@ -38,6 +57,9 @@ class NativeCameraControlState {
       flashMode: NativeCameraFlashModeWire.parse(value['flashMode']),
       torchEnabled: value['torchEnabled'] as bool? ?? false,
       mirrorEnabled: value['mirrorEnabled'] as bool? ?? false,
+      deviceOrientation: NativeCameraDeviceOrientationWire.parse(
+        value['deviceOrientation'],
+      ),
     );
   }
 
@@ -47,8 +69,20 @@ class NativeCameraControlState {
   final NativeCameraFlashMode flashMode;
   final bool torchEnabled;
   final bool mirrorEnabled;
+  final NativeCameraDeviceOrientation deviceOrientation;
 
   bool get isFront => lensDirection == 'front';
+}
+
+@immutable
+class NativeCameraCaptureResult {
+  const NativeCameraCaptureResult({
+    required this.path,
+    required this.deviceOrientation,
+  });
+
+  final String path;
+  final NativeCameraDeviceOrientation deviceOrientation;
 }
 
 void _traceNativeCamera(String message) {
@@ -149,9 +183,13 @@ class NativeGpuCameraBridge {
     'enabled': enabled,
   });
 
-  Future<String> capturePhoto(String rendererId) async {
+  Future<NativeCameraCaptureResult> capturePhoto(String rendererId) async {
     _traceNativeCamera('capturePhoto START rendererId=$rendererId');
     try {
+      // Snapshot physical orientation immediately before shutter. Android's
+      // Camera2 JPEG_ORIENTATION is not reliable across every OEM, so PF3 also
+      // carries this metadata to Rust for deterministic pixel normalization.
+      final state = await controlState(rendererId);
       final result = await _channel.invokeMapMethod<Object?, Object?>(
         'capturePhoto',
         <String, Object?>{
@@ -163,8 +201,13 @@ class NativeGpuCameraBridge {
       if (path == null || path.isEmpty) {
         throw StateError('Native GPU camera capture returned no file path');
       }
-      _traceNativeCamera('capturePhoto OK rendererId=$rendererId path=$path');
-      return path;
+      _traceNativeCamera(
+        'capturePhoto OK rendererId=$rendererId path=$path orientation=${state.deviceOrientation.name}',
+      );
+      return NativeCameraCaptureResult(
+        path: path,
+        deviceOrientation: state.deviceOrientation,
+      );
     } catch (error, stackTrace) {
       _traceNativeCamera(
         'capturePhoto FAILED rendererId=$rendererId error=$error',
@@ -214,7 +257,8 @@ class NativeGpuCameraBridge {
       final state = NativeCameraControlState.fromMap(result);
       _traceNativeCamera(
         '$method OK lens=${state.lensDirection} flash=${state.flashMode.name} '
-        'torch=${state.torchEnabled} mirror=${state.mirrorEnabled}',
+        'torch=${state.torchEnabled} mirror=${state.mirrorEnabled} '
+        'orientation=${state.deviceOrientation.name}',
       );
       return state;
     } catch (error, stackTrace) {
