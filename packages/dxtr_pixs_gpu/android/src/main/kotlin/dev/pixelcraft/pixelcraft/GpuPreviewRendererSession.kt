@@ -37,15 +37,9 @@ internal class NativeGpuRendererSession(
     var cameraLook: NativeGpuCameraLook = NativeGpuCameraLook(),
     var viewport: NativeGpuViewport? = null,
     var enabled: Boolean = true,
+    var physicalRotation: Int = Surface.ROTATION_0,
 )
 
-/**
- * G1 native renderer/session registry.
- *
- * Each session owns one Camera2/OES renderer. Actual output Surfaces arrive
- * directly from the Android PlatformView; no Surface or frame payload crosses
- * MethodChannel.
- */
 internal class GpuPreviewRendererSessionRegistry(context: Context) {
     private val appContext = context.applicationContext
     private val cameraManager =
@@ -97,6 +91,7 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
                 devicePixelRatio = 1.0,
                 surfaceId = null,
             )
+            physicalRotation = displayRotation
             renderer.configureOutputSurface(surface, width, height, displayRotation)
             state = NativeGpuSessionState.SURFACE_CONFIGURED
         }
@@ -157,19 +152,27 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     }
 
     @Synchronized
-    fun cameraControlState(id: String): Map<String, Any> = session(id).renderer.cameraControlState()
+    fun cameraControlState(id: String): Map<String, Any> {
+        val target = session(id)
+        return target.renderer.cameraControlState() + mapOf(
+            "deviceOrientation" to orientationName(target.physicalRotation),
+        )
+    }
+
+    @Synchronized
+    fun captureOrientation(id: String): String = orientationName(session(id).physicalRotation)
 
     @Synchronized
     fun setFlashMode(id: String, mode: String): Map<String, Any> =
-        session(id).renderer.setFlashMode(mode)
+        session(id).renderer.setFlashMode(mode) + mapOf("deviceOrientation" to captureOrientation(id))
 
     @Synchronized
     fun setTorchEnabled(id: String, enabled: Boolean): Map<String, Any> =
-        session(id).renderer.setTorchEnabled(enabled)
+        session(id).renderer.setTorchEnabled(enabled) + mapOf("deviceOrientation" to captureOrientation(id))
 
     @Synchronized
     fun setMirrorEnabled(id: String, enabled: Boolean): Map<String, Any> =
-        session(id).renderer.setMirrorEnabled(enabled)
+        session(id).renderer.setMirrorEnabled(enabled) + mapOf("deviceOrientation" to captureOrientation(id))
 
     @Synchronized
     fun pause(id: String) {
@@ -216,6 +219,13 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     @Synchronized
     private fun session(id: String): NativeGpuRendererSession =
         sessions[id] ?: throw IllegalStateException("Unknown GPU renderer session: $id")
+
+    private fun orientationName(rotation: Int): String = when (rotation) {
+        Surface.ROTATION_90 -> "landscapeLeft"
+        Surface.ROTATION_180 -> "portraitUpsideDown"
+        Surface.ROTATION_270 -> "landscapeRight"
+        else -> "portrait"
+    }
 
     private fun hasLens(facing: Int): Boolean = cameraManager.cameraIdList.any { id ->
         cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == facing
