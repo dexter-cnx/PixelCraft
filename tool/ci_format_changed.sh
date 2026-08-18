@@ -19,11 +19,16 @@ fi
 
 # Keep this script compatible with the stock Bash 3.2 shipped by macOS.
 # Do not use associative arrays here; de-duplicate with a small linear scan.
+# Bash 3.2 with nounset can reject expanding an empty array, so keep an explicit
+# count and never expand files[@] until at least one entry has been added.
 files=()
+files_count=0
 
 contains_file() {
   local candidate="$1"
   local existing
+
+  (( files_count > 0 )) || return 1
   for existing in "${files[@]}"; do
     [[ "$existing" == "$candidate" ]] && return 0
   done
@@ -36,6 +41,7 @@ add_file() {
   [[ -f "$file" ]] || return 0
   contains_file "$file" && return 0
   files+=("$file")
+  files_count=$((files_count + 1))
 }
 
 add_from_command() {
@@ -74,12 +80,12 @@ else
   add_from_command < <(git ls-files --others --exclude-standard -- '*.dart')
 fi
 
-if (( ${#files[@]} == 0 )); then
+if (( files_count == 0 )); then
   echo "[Pixel Craft] Dart format-${mode}: no changed Dart files"
   exit 0
 fi
 
-printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s)\n' "$mode" "${#files[@]}"
+printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s)\n' "$mode" "$files_count"
 printf '  %s\n' "${files[@]}"
 
 if [[ "$mode" == "write" ]]; then
