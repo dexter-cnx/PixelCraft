@@ -72,6 +72,18 @@ class NativeCameraControlState {
   final NativeCameraDeviceOrientation deviceOrientation;
 
   bool get isFront => lensDirection == 'front';
+
+  NativeCameraControlState withOrientation(
+    NativeCameraDeviceOrientation orientation,
+  ) => NativeCameraControlState(
+    lensDirection: lensDirection,
+    hasFlash: hasFlash,
+    hasTorch: hasTorch,
+    flashMode: flashMode,
+    torchEnabled: torchEnabled,
+    mirrorEnabled: mirrorEnabled,
+    deviceOrientation: orientation,
+  );
 }
 
 @immutable
@@ -94,10 +106,15 @@ void _traceNativeCamera(String message) {
 /// Shared Camera controls for Android Camera2/OpenGL and iOS AVFoundation/Metal.
 /// Live camera frames remain entirely native.
 class NativeGpuCameraBridge {
-  const NativeGpuCameraBridge({MethodChannel? channel})
-    : _channel = channel ?? const MethodChannel(gpuPreviewChannelName);
+  const NativeGpuCameraBridge({
+    MethodChannel? channel,
+    MethodChannel? orientationChannel,
+  }) : _channel = channel ?? const MethodChannel(gpuPreviewChannelName),
+       _orientationChannel = orientationChannel ??
+           const MethodChannel('dev.pixelcraft/camera_orientation_v1');
 
   final MethodChannel _channel;
+  final MethodChannel _orientationChannel;
 
   void setRuntimeFailureHandler(NativeGpuRuntimeFailureHandler? handler) {
     _channel.setMethodCallHandler(
@@ -119,48 +136,32 @@ class NativeGpuCameraBridge {
     );
   }
 
-  Future<bool> requestCameraPermission() async {
-    _traceNativeCamera('requestCameraPermission START');
-    try {
-      final granted =
-          await _channel.invokeMethod<bool>(
-            'requestCameraPermission',
-            const <String, Object?>{
-              'protocolVersion': gpuPreviewProtocolVersion,
-            },
-          ) ??
-          false;
-      _traceNativeCamera('requestCameraPermission OK granted=$granted');
-      return granted;
-    } catch (error, stackTrace) {
-      _traceNativeCamera('requestCameraPermission FAILED error=$error');
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      rethrow;
-    }
-  }
+  Future<bool> requestCameraPermission() async =>
+      await _channel.invokeMethod<bool>(
+        'requestCameraPermission',
+        const <String, Object?>{'protocolVersion': gpuPreviewProtocolVersion},
+      ) ??
+      false;
 
-  Future<List<String>> availableLenses() async {
-    _traceNativeCamera('availableLenses START');
-    try {
-      final lenses =
-          await _channel.invokeListMethod<String>(
-            'availableCameraLenses',
-            const <String, Object?>{
-              'protocolVersion': gpuPreviewProtocolVersion,
-            },
-          ) ??
-          const <String>[];
-      _traceNativeCamera('availableLenses OK lenses=$lenses');
-      return lenses;
-    } catch (error, stackTrace) {
-      _traceNativeCamera('availableLenses FAILED error=$error');
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      rethrow;
-    }
-  }
+  Future<List<String>> availableLenses() async =>
+      await _channel.invokeListMethod<String>(
+        'availableCameraLenses',
+        const <String, Object?>{'protocolVersion': gpuPreviewProtocolVersion},
+      ) ??
+      const <String>[];
 
-  Future<NativeCameraControlState> controlState(String rendererId) =>
-      _control('cameraControlState', rendererId);
+  Future<NativeCameraControlState> controlState(String rendererId) async {
+    var state = await _control('cameraControlState', rendererId);
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final orientation = NativeCameraDeviceOrientationWire.parse(
+          await _orientationChannel.invokeMethod<String>('orientation'),
+        );
+        state = state.withOrientation(orientation);
+      } catch (_) {}
+    }
+    return state;
+  }
 
   Future<NativeCameraControlState> setFlashMode(
     String rendererId,
@@ -184,61 +185,33 @@ class NativeGpuCameraBridge {
   });
 
   Future<NativeCameraCaptureResult> capturePhoto(String rendererId) async {
-    _traceNativeCamera('capturePhoto START rendererId=$rendererId');
-    try {
-      // Snapshot physical orientation immediately before shutter. Android's
-      // Camera2 JPEG_ORIENTATION is not reliable across every OEM, so PF3 also
-      // carries this metadata to Rust for deterministic pixel normalization.
-      final state = await controlState(rendererId);
-      final result = await _channel.invokeMapMethod<Object?, Object?>(
-        'capturePhoto',
-        <String, Object?>{
-          'protocolVersion': gpuPreviewProtocolVersion,
-          'rendererId': rendererId,
-        },
-      );
-      final path = result?['path'] as String?;
-      if (path == null || path.isEmpty) {
-        throw StateError('Native GPU camera capture returned no file path');
-      }
-      _traceNativeCamera(
-        'capturePhoto OK rendererId=$rendererId path=$path orientation=${state.deviceOrientation.name}',
-      );
-      return NativeCameraCaptureResult(
-        path: path,
-        deviceOrientation: state.deviceOrientation,
-      );
-    } catch (error, stackTrace) {
-      _traceNativeCamera(
-        'capturePhoto FAILED rendererId=$rendererId error=$error',
-      );
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      rethrow;
+    final state = await controlState(rendererId);
+    final result = await _channel.invokeMapMethod<Object?, Object?>(
+      'capturePhoto',
+      <String, Object?>{
+        'protocolVersion': gpuPreviewProtocolVersion,
+        'rendererId': rendererId,
+      },
+    );
+    final path = result?['path'] as String?;
+    if (path == null || path.isEmpty) {
+      throw StateError('Native GPU camera capture returned no file path');
     }
+    return NativeCameraCaptureResult(
+      path: path,
+      deviceOrientation: state.deviceOrientation,
+    );
   }
 
   Future<String> switchCamera(String rendererId) async {
-    _traceNativeCamera('switchCamera START rendererId=$rendererId');
-    try {
-      final result = await _channel.invokeMapMethod<Object?, Object?>(
-        'switchCamera',
-        <String, Object?>{
-          'protocolVersion': gpuPreviewProtocolVersion,
-          'rendererId': rendererId,
-        },
-      );
-      final lens = result?['lensDirection'] as String? ?? '';
-      _traceNativeCamera(
-        'switchCamera OK rendererId=$rendererId lensDirection=$lens',
-      );
-      return lens;
-    } catch (error, stackTrace) {
-      _traceNativeCamera(
-        'switchCamera FAILED rendererId=$rendererId error=$error',
-      );
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      rethrow;
-    }
+    final result = await _channel.invokeMapMethod<Object?, Object?>(
+      'switchCamera',
+      <String, Object?>{
+        'protocolVersion': gpuPreviewProtocolVersion,
+        'rendererId': rendererId,
+      },
+    );
+    return result?['lensDirection'] as String? ?? '';
   }
 
   Future<NativeCameraControlState> _control(
@@ -246,25 +219,14 @@ class NativeGpuCameraBridge {
     String rendererId, [
     Map<String, Object?> extra = const <String, Object?>{},
   ]) async {
-    _traceNativeCamera('$method START rendererId=$rendererId');
-    try {
-      final result = await _channel
-          .invokeMapMethod<Object?, Object?>(method, <String, Object?>{
-            'protocolVersion': gpuPreviewProtocolVersion,
-            'rendererId': rendererId,
-            ...extra,
-          });
-      final state = NativeCameraControlState.fromMap(result);
-      _traceNativeCamera(
-        '$method OK lens=${state.lensDirection} flash=${state.flashMode.name} '
-        'torch=${state.torchEnabled} mirror=${state.mirrorEnabled} '
-        'orientation=${state.deviceOrientation.name}',
-      );
-      return state;
-    } catch (error, stackTrace) {
-      _traceNativeCamera('$method FAILED rendererId=$rendererId error=$error');
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      rethrow;
-    }
+    final result = await _channel.invokeMapMethod<Object?, Object?>(
+      method,
+      <String, Object?>{
+        'protocolVersion': gpuPreviewProtocolVersion,
+        'rendererId': rendererId,
+        ...extra,
+      },
+    );
+    return NativeCameraControlState.fromMap(result);
   }
 }
