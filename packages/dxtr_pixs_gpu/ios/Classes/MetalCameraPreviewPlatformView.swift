@@ -445,7 +445,7 @@ struct GpuFramePacingSnapshot {
       "p95FrameMs": p95FrameMs,
       "p99FrameMs": p99FrameMs,
       "maxFrameMs": maxFrameMs,
-      "over40MsFrames": intervalsMs.filter { $0 > 40.0 }.count,
+      "over40MsFrames": over40MsFrames,
       "captureFrameCount": captureFrameCount,
       "captureFps": captureFps,
       "averageCaptureMs": averageCaptureMs,
