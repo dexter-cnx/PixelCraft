@@ -10,6 +10,10 @@ import '../../app/platform_media_services.dart';
 /// Increment this only when a release has user-facing What's New content.
 const currentWhatsNewId = 'camera-first-pf3-2026-08';
 
+const _dxtrOrange = Color(0xFFFF6A00);
+const _dxtrOrangeDeep = Color(0xFFB83D00);
+const _dxtrBlack = Color(0xFF070707);
+
 class GreetingGate extends StatefulWidget {
   const GreetingGate({super.key, required this.child});
 
@@ -55,8 +59,8 @@ class _GreetingGateState extends State<GreetingGate> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: _dxtrBlack,
+        body: Center(child: CircularProgressIndicator(color: _dxtrOrange)),
       );
     }
     if (!_showGreeting) return widget.child;
@@ -124,7 +128,7 @@ class _GreetingScreenState extends State<GreetingScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _dxtrBlack,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -133,7 +137,7 @@ class _GreetingScreenState extends State<GreetingScreen> {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF08070B), Color(0xFF24163E), Color(0xFF090A10)],
+                colors: [_dxtrBlack, Color(0xFF201007), Color(0xFF030303)],
               ),
             ),
           ),
@@ -181,8 +185,8 @@ class _GreetingScreenState extends State<GreetingScreen> {
                       Text(
                         'greeting.whats_new'.tr(),
                         style: theme.textTheme.titleLarge?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
+                          color: _dxtrOrange,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -221,6 +225,10 @@ class _GreetingScreenState extends State<GreetingScreen> {
                             : const Icon(Icons.arrow_forward_rounded),
                         label: Text('greeting.continue'.tr()),
                         style: FilledButton.styleFrom(
+                          backgroundColor: _dxtrOrange,
+                          foregroundColor: Colors.black,
+                          disabledBackgroundColor: const Color(0xFF422114),
+                          disabledForegroundColor: Colors.white38,
                           minimumSize: const Size.fromHeight(54),
                         ),
                       ),
@@ -257,10 +265,11 @@ class _FeatureRow extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.10),
+            color: _dxtrOrange.withValues(alpha: 0.13),
             borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _dxtrOrange.withValues(alpha: 0.28)),
           ),
-          child: Icon(icon, color: Colors.white),
+          child: Icon(icon, color: _dxtrOrange),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -304,9 +313,9 @@ class _PermissionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: Colors.black.withValues(alpha: 0.28),
+      color: Colors.black.withValues(alpha: 0.46),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: Colors.white12),
+      border: Border.all(color: _dxtrOrange.withValues(alpha: 0.22)),
     ),
     child: Padding(
       padding: const EdgeInsets.all(18),
@@ -334,7 +343,7 @@ class _PermissionCard extends StatelessWidget {
           ),
           if (requesting) ...[
             const SizedBox(height: 14),
-            const LinearProgressIndicator(),
+            const LinearProgressIndicator(color: _dxtrOrange),
           ] else if (camera != PermissionDecision.granted ||
               gallery != PermissionDecision.granted) ...[
             const SizedBox(height: 12),
@@ -342,6 +351,7 @@ class _PermissionCard extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded),
               label: Text('greeting.retry_permissions'.tr()),
+              style: TextButton.styleFrom(foregroundColor: _dxtrOrange),
             ),
           ],
         ],
@@ -367,11 +377,14 @@ class _PermissionLine extends StatelessWidget {
     final trailing = decision == null
         ? const SizedBox.square(
             dimension: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: _dxtrOrange,
+            ),
           )
         : Icon(
             granted ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-            color: granted ? Colors.greenAccent : Colors.amberAccent,
+            color: granted ? _dxtrOrange : Colors.amberAccent,
           );
     return Row(
       children: [
@@ -393,14 +406,12 @@ class _CameraMark extends StatelessWidget {
     height: 76,
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(22),
-      gradient: const LinearGradient(
-        colors: [Color(0xFF8F6BFF), Color(0xFF4B2D91)],
-      ),
+      gradient: const LinearGradient(colors: [_dxtrOrange, _dxtrOrangeDeep]),
       boxShadow: const [
-        BoxShadow(color: Color(0x558F6BFF), blurRadius: 28, spreadRadius: 3),
+        BoxShadow(color: Color(0x66FF6A00), blurRadius: 30, spreadRadius: 4),
       ],
     ),
-    child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 38),
+    child: const Icon(Icons.camera_alt_rounded, color: Colors.black, size: 38),
   );
 }
 
@@ -417,8 +428,8 @@ class _LensGlow extends StatelessWidget {
       shape: BoxShape.circle,
       gradient: RadialGradient(
         colors: [
-          const Color(0xFF8F6BFF).withValues(alpha: 0.28),
-          const Color(0xFF8F6BFF).withValues(alpha: 0),
+          _dxtrOrange.withValues(alpha: 0.24),
+          _dxtrOrange.withValues(alpha: 0),
         ],
       ),
     ),
