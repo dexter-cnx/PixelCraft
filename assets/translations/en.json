@@ -64,6 +64,8 @@
     "flash_on": "On",
     "torch": "Torch",
     "mirror": "Mirror front camera",
+    "image_ratio": "Image ratio",
+    "image_ratio_hint": "Crop framing only — the image is never stretched.",
     "processing_photo": "Processing photo…",
     "saving_photo": "Saving to Gallery…",
     "capture_saved": "Saved to Gallery",
