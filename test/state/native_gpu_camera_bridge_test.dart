@@ -44,7 +44,7 @@ void main() {
     );
   });
 
-  test('capture returns only a clean native file path', () async {
+  test('capture returns clean native file path in capture result', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       expect(call.method, 'capturePhoto');
@@ -55,10 +55,10 @@ void main() {
       return <String, Object?>{'path': '/tmp/pixelcraft-camera/capture.jpg'};
     });
 
-    expect(
-      await const NativeGpuCameraBridge().capturePhoto('renderer-1'),
-      '/tmp/pixelcraft-camera/capture.jpg',
+    final capture = await const NativeGpuCameraBridge().capturePhoto(
+      'renderer-1',
     );
+    expect(capture.path, '/tmp/pixelcraft-camera/capture.jpg');
   });
 
   test('switch camera returns native lens direction', () async {
