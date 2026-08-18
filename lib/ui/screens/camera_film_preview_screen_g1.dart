@@ -40,6 +40,8 @@ class CameraFilmPreviewScreen extends StatefulWidget {
 class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     with WidgetsBindingObserver {
   static const _gpuPolicy = GpuPreviewCapabilityPolicy();
+  static const _minZoom = 1.0;
+  static const _maxZoom = 5.0;
   static const _cameraAdjustmentIds = <String>[
     'exposure',
     'temperature',
@@ -75,6 +77,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   final bool _enableStillCaptureLookPreviews = false;
   String _selectedAdjustmentId = 'exposure';
   double _strength = 1;
+  double _zoomFactor = 1;
+  double _zoomStartFactor = 1;
+  Timer? _orientationPollTimer;
   bool _isInitializing = true;
   bool _isCapturing = false;
   String? _error;
@@ -118,6 +123,27 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           _selectedTool == CameraPrimaryTool.filter ||
           _selectedTool == CameraPrimaryTool.adjust);
 
+  CameraCaptureOrientation get _physicalCaptureOrientation =>
+      switch (_cameraControls.deviceOrientation) {
+        NativeCameraDeviceOrientation.portrait =>
+          CameraCaptureOrientation.portrait,
+        NativeCameraDeviceOrientation.portraitUpsideDown =>
+          CameraCaptureOrientation.portraitUpsideDown,
+        NativeCameraDeviceOrientation.landscapeLeft =>
+          CameraCaptureOrientation.landscapeLeft,
+        NativeCameraDeviceOrientation.landscapeRight =>
+          CameraCaptureOrientation.landscapeRight,
+        NativeCameraDeviceOrientation.unknown => CameraCaptureOrientation.auto,
+      };
+
+  int get _zoomIndicatorQuarterTurns =>
+      switch (_cameraControls.deviceOrientation) {
+        NativeCameraDeviceOrientation.landscapeLeft => 1,
+        NativeCameraDeviceOrientation.landscapeRight => 3,
+        NativeCameraDeviceOrientation.portraitUpsideDown => 2,
+        _ => 0,
+      };
+
   @override
   void initState() {
     super.initState();
@@ -129,9 +155,25 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         unawaited(_handleNativeRuntimeFailure(rendererId, error.toString()));
       }
     };
+    _orientationPollTimer = Timer.periodic(
+      const Duration(milliseconds: 300),
+      (_) => unawaited(_pollPhysicalOrientation()),
+    );
     unawaited(_loadImageRatio());
     unawaited(_loadCompositionGuide());
     unawaited(_discoverAndInitialize());
+  }
+
+  Future<void> _pollPhysicalOrientation() async {
+    final rendererId = _gpuRendererId;
+    if (!_useNativeGpu || rendererId == null || _isCapturing) return;
+    try {
+      final state = await _nativeCameraBridge.controlState(rendererId);
+      if (!mounted || rendererId != _gpuRendererId) return;
+      if (state.deviceOrientation != _cameraControls.deviceOrientation) {
+        setState(() => _cameraControls = state);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadImageRatio() async {
@@ -159,6 +201,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _orientationPollTimer?.cancel();
     _nativeCameraBridge.setRuntimeFailureHandler(null);
     _lookCoordinator.onFailure = null;
     _lookCoordinator.detach();
@@ -354,6 +397,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
               : NativeCameraFlashMode.off,
           torchEnabled: false,
           mirrorEnabled: _cameraControls.mirrorEnabled,
+          deviceOrientation: _cameraControls.deviceOrientation,
         );
         _isInitializing = false;
         _error = null;
@@ -433,6 +477,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   Future<void> _switchCamera() async {
     if (_isCapturing || !_canSwitchCamera) return;
+    if (mounted) setState(() => _zoomFactor = 1);
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       await _nativeCameraBridge.switchCamera(rendererId);
@@ -472,6 +517,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         flashMode: mode,
         torchEnabled: false,
         mirrorEnabled: _cameraControls.mirrorEnabled,
+        deviceOrientation: _cameraControls.deviceOrientation,
       );
     });
   }
@@ -511,6 +557,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           flashMode: _cameraControls.flashMode,
           torchEnabled: false,
           mirrorEnabled: _cameraControls.mirrorEnabled,
+          deviceOrientation: _cameraControls.deviceOrientation,
         );
       });
       return;
@@ -526,6 +573,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             : _cameraControls.flashMode,
         torchEnabled: enabled,
         mirrorEnabled: _cameraControls.mirrorEnabled,
+        deviceOrientation: _cameraControls.deviceOrientation,
       );
     });
   }
@@ -550,8 +598,23 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         flashMode: _cameraControls.flashMode,
         torchEnabled: _cameraControls.torchEnabled,
         mirrorEnabled: enabled,
+        deviceOrientation: _cameraControls.deviceOrientation,
       );
     });
+  }
+
+  void _onZoomStart(ScaleStartDetails details) {
+    if (_isCapturing) return;
+    _zoomStartFactor = _zoomFactor;
+  }
+
+  void _onZoomUpdate(ScaleUpdateDetails details) {
+    if (_isCapturing) return;
+    final next = (_zoomStartFactor * details.scale)
+        .clamp(_minZoom, _maxZoom)
+        .toDouble();
+    if ((next - _zoomFactor).abs() < 0.005) return;
+    setState(() => _zoomFactor = next);
   }
 
   Future<void> _capture() async {
@@ -571,9 +634,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   Future<void> _captureNative(String rendererId) async {
     await _lookCoordinator.flush();
     final look = _cameraLook;
-    final path = await _nativeCameraBridge.capturePhoto(rendererId);
+    final capture = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
-    await _saveCapture(path, look: look);
+    _cameraControls = _cameraControls.withOrientation(capture.deviceOrientation);
+    await _saveCapture(
+      capture.path,
+      look: look,
+      captureOrientation: _physicalCaptureOrientation,
+    );
   }
 
   Future<void> _captureFallback() async {
@@ -611,12 +679,15 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   Future<void> _saveCapture(
     String imagePath, {
     required CameraLookState look,
+    CameraCaptureOrientation captureOrientation = CameraCaptureOrientation.auto,
   }) => Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => CameraCaptureSaveHandoff(
         imagePath: imagePath,
         look: look,
         imageRatio: _imageRatio,
+        captureOrientation: captureOrientation,
+        zoomFactor: _zoomFactor,
       ),
     ),
   );
@@ -727,7 +798,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     if (mounted) setState(() => _isLoadingLookPreviews = true);
     String? snapshotPath;
     try {
-      snapshotPath = await _nativeCameraBridge.capturePhoto(_gpuRendererId!);
+      final capture = await _nativeCameraBridge.capturePhoto(_gpuRendererId!);
+      snapshotPath = capture.path;
       final source = await File(snapshotPath).readAsBytes();
       final previews = await Isolate.run(() async {
         await initializeRustBridge();
@@ -1014,10 +1086,19 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 left: 0,
                 right: 0,
                 top: 64,
-                bottom: 150,
+                bottom: 174,
                 child: CameraCompositionGuideOverlay(
                   guide: _compositionGuide,
                   frameAspectRatio: _imageRatio.aspectRatio,
+                ),
+              ),
+            if (!_isCapturing)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onScaleStart: _onZoomStart,
+                  onScaleUpdate: _onZoomUpdate,
+                  child: const ColoredBox(color: Colors.transparent),
                 ),
               ),
             if (_isLookTrayOpen)
@@ -1059,6 +1140,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     : '${'camera.${_cameraLook.creativeFilterId}'.tr()} · ${(_cameraLook.creativeFilterStrength * 100).round()}%',
                 controlsLabel: 'camera.controls'.tr(),
                 shutterSemanticLabel: 'camera.take_photo'.tr(),
+                zoomFactor: _zoomFactor,
+                zoomQuarterTurns: _zoomIndicatorQuarterTurns,
                 isCapturing: _isCapturing,
               ),
             ),
@@ -1075,13 +1158,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   }
 
   Widget _buildImageRatioGuide() {
-    final aspect = _imageRatio.aspectRatio;
+    final aspect = _imageRatio.aspectRatioFor(_physicalCaptureOrientation);
     if (aspect == null) return const SizedBox.shrink();
     return Positioned(
       left: 0,
       right: 0,
       top: 64,
-      bottom: 150,
+      bottom: 174,
       child: IgnorePointer(
         child: CustomPaint(
           painter: _CameraRatioGuidePainter(aspectRatio: aspect),
@@ -1115,6 +1198,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       ),
     );
   }
+
+  Widget _applyZoom(Widget preview) => ClipRect(
+    child: Transform.scale(
+      scale: _zoomFactor,
+      alignment: Alignment.center,
+      child: preview,
+    ),
+  );
 
   Widget _buildViewfinder() {
     if (_error != null) {
@@ -1154,10 +1245,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
-      if (defaultTargetPlatform == TargetPlatform.iOS) {
-        return IosGpuCameraPreview(rendererId: rendererId);
-      }
-      return AndroidGpuCameraPreview(rendererId: rendererId);
+      final preview = defaultTargetPlatform == TargetPlatform.iOS
+          ? IosGpuCameraPreview(rendererId: rendererId)
+          : AndroidGpuCameraPreview(rendererId: rendererId);
+      return _applyZoom(preview);
     }
 
     final controller = _controller;
@@ -1186,7 +1277,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         if (scale < 1) scale = 1 / scale;
         return ClipRect(
           child: Transform.scale(
-            scale: scale,
+            scale: scale * _zoomFactor,
             child: Center(child: preview),
           ),
         );
@@ -1293,7 +1384,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 150,
+      bottom: 174,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
@@ -1377,7 +1468,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 150,
+      bottom: 174,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
@@ -1500,7 +1591,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 150,
+      bottom: 174,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
