@@ -20,29 +20,29 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: stable
-      - name: Apply camera-native Film and Filter UX
+      - name: Apply visual Film and Filter filmstrip
         shell: bash
         run: |
           set -euo pipefail
-          cat > lib/ui/camera/camera_look_carousel.dart <<'DART'
+          cat > lib/ui/camera/camera_look_filmstrip.dart <<'DART'
           import 'package:flutter/material.dart';
 
-          const _dxtrOrange = Color(0xFFFF6A00);
+          const _accent = Color(0xFFFF6A00);
 
-          class CameraLookCarouselItem {
-            const CameraLookCarouselItem({
+          class CameraLookFilmstripItem {
+            const CameraLookFilmstripItem({
               required this.id,
               required this.label,
-              required this.icon,
+              required this.index,
             });
 
             final String id;
             final String label;
-            final IconData icon;
+            final int index;
           }
 
-          class CameraLookCarousel extends StatelessWidget {
-            const CameraLookCarousel({
+          class CameraLookFilmstrip extends StatelessWidget {
+            const CameraLookFilmstrip({
               required this.items,
               required this.selectedId,
               required this.onSelected,
@@ -50,68 +50,109 @@ jobs:
               super.key,
             });
 
-            final List<CameraLookCarouselItem> items;
+            final List<CameraLookFilmstripItem> items;
             final String selectedId;
             final ValueChanged<String> onSelected;
             final bool enabled;
 
+            static const _palettes = <List<Color>>[
+              [Color(0xFF343434), Color(0xFF111111)],
+              [Color(0xFF7E715F), Color(0xFF314450)],
+              [Color(0xFF8C5D34), Color(0xFF44653D)],
+              [Color(0xFF826C65), Color(0xFF53606F)],
+              [Color(0xFF95653C), Color(0xFF24323B)],
+              [Color(0xFF5A6D58), Color(0xFF3C373B)],
+              [Color(0xFF6D5368), Color(0xFF343A4A)],
+              [Color(0xFF8A7656), Color(0xFF485660)],
+            ];
+
             @override
             Widget build(BuildContext context) {
               return SizedBox(
-                height: 82,
+                height: 116,
                 child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
                   itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
                     final item = items[index];
                     final selected = item.id == selectedId;
+                    final palette = _palettes[item.index % _palettes.length];
                     return Semantics(
                       button: true,
                       selected: selected,
                       label: item.label,
                       child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                         onTap: enabled ? () => onSelected(item.id) : null,
                         child: AnimatedScale(
-                          scale: selected ? 1 : 0.94,
-                          duration: const Duration(milliseconds: 150),
+                          duration: const Duration(milliseconds: 160),
                           curve: Curves.easeOutCubic,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            curve: Curves.easeOutCubic,
-                            width: selected ? 92 : 82,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 9,
-                            ),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? Colors.black.withValues(alpha: 0.82)
-                                  : Colors.black.withValues(alpha: 0.56),
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: selected ? _dxtrOrange : Colors.white24,
-                                width: selected ? 2 : 1,
-                              ),
-                              boxShadow: selected
-                                  ? const [
-                                      BoxShadow(
-                                        color: Color(0x55FF6A00),
-                                        blurRadius: 16,
-                                        spreadRadius: 1,
-                                      ),
-                                    ]
-                                  : null,
-                            ),
+                          scale: selected ? 1.0 : 0.94,
+                          child: SizedBox(
+                            width: 88,
                             child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  item.icon,
-                                  size: 22,
-                                  color: selected ? _dxtrOrange : Colors.white70,
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 160),
+                                  width: selected ? 76 : 68,
+                                  height: selected ? 76 : 68,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: selected ? _accent : Colors.white24,
+                                      width: selected ? 2.5 : 1,
+                                    ),
+                                    boxShadow: selected
+                                        ? const [
+                                            BoxShadow(
+                                              color: Color(0x55FF6A00),
+                                              blurRadius: 14,
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: palette,
+                                      ),
+                                    ),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        Positioned(
+                                          left: -12,
+                                          bottom: -18,
+                                          child: Container(
+                                            width: 64,
+                                            height: 64,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: Colors.white.withValues(
+                                                alpha: 0.12,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (item.id.isEmpty ||
+                                            item.id == 'original')
+                                          const Center(
+                                            child: Icon(
+                                              Icons.circle_outlined,
+                                              color: Colors.white70,
+                                              size: 26,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(height: 7),
                                 Text(
@@ -120,11 +161,21 @@ jobs:
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    color: Colors.white,
+                                    color: selected ? Colors.white : Colors.white70,
                                     fontSize: 12,
                                     fontWeight: selected
                                         ? FontWeight.w800
                                         : FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 160),
+                                  width: selected ? 22 : 0,
+                                  height: 2.5,
+                                  decoration: BoxDecoration(
+                                    color: _accent,
+                                    borderRadius: BorderRadius.circular(99),
                                   ),
                                 ),
                               ],
@@ -145,49 +196,38 @@ jobs:
 
           path = Path('lib/ui/screens/camera_film_preview_screen_g1.dart')
           text = path.read_text()
-
-          import_anchor = "import '../camera/camera_primary_controls.dart';\n"
-          carousel_import = "import '../camera/camera_look_carousel.dart';\n"
-          if carousel_import not in text:
-              text = text.replace(import_anchor, carousel_import + import_anchor, 1)
+          old_import = "import '../camera/camera_look_carousel.dart';\n"
+          if old_import in text:
+              text = text.replace(old_import, '')
+          anchor = "import '../camera/camera_primary_controls.dart';\n"
+          new_import = "import '../camera/camera_look_filmstrip.dart';\n"
+          if new_import not in text:
+              text = text.replace(anchor, new_import + anchor, 1)
 
           film_start = text.index('  Widget _buildFilmControls() {')
           adjust_start = text.index('  Widget _buildAdjustControls() {')
 
-          film = r'''  Widget _buildFilmControls() {
-    final items = cameraFilmPresets
-        .map(
-          (preset) => CameraLookCarouselItem(
-            id: preset.id,
-            label: preset.name.replaceAll(' Inspired', ''),
-            icon: preset.isOriginal
-                ? Icons.block_flipped
-                : Icons.local_movies_outlined,
-          ),
-        )
-        .toList(growable: false);
+          replacement = r'''  Widget _buildFilmControls() {
+    final items = <CameraLookFilmstripItem>[
+      for (var index = 0; index < cameraFilmPresets.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraFilmPresets[index].id,
+          label: cameraFilmPresets[index].name.replaceAll(' Inspired', ''),
+          index: index,
+        ),
+    ];
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 150,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 30, 0, 8),
+          padding: const EdgeInsets.fromLTRB(0, 34, 0, 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _preset.name.replaceAll(' Inspired', ''),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.1,
-                ),
-              ),
-              const SizedBox(height: 8),
-              CameraLookCarousel(
+              CameraLookFilmstrip(
                 items: items,
                 selectedId: _preset.id,
                 enabled: !_isCapturing,
@@ -201,18 +241,12 @@ jobs:
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 160),
                 child: _preset.isOriginal
-                    ? const SizedBox(height: 8)
+                    ? const SizedBox(height: 2)
                     : Padding(
                         key: ValueKey('film-strength-${_preset.id}'),
-                        padding: const EdgeInsets.fromLTRB(36, 2, 36, 0),
+                        padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.opacity_rounded,
-                              color: Colors.white54,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 10),
                             Expanded(
                               child: Slider(
                                 value: _strength,
@@ -222,13 +256,13 @@ jobs:
                               ),
                             ),
                             SizedBox(
-                              width: 36,
+                              width: 34,
                               child: Text(
                                 '${(_strength * 100).round()}',
                                 textAlign: TextAlign.end,
                                 style: const TextStyle(
                                   color: Colors.white70,
-                                  fontSize: 12,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -244,48 +278,33 @@ jobs:
     );
   }
 
-'''
-
-          filt = r'''  Widget _buildFilterControls() {
+  Widget _buildFilterControls() {
     final activeId = _cameraLook.creativeFilterId;
-    final items = <CameraLookCarouselItem>[
-      CameraLookCarouselItem(
+    final items = <CameraLookFilmstripItem>[
+      CameraLookFilmstripItem(
         id: '',
         label: 'camera.original'.tr(),
-        icon: Icons.block_flipped,
+        index: 0,
       ),
-      ...cameraCreativeFilters.map(
-        (filter) => CameraLookCarouselItem(
-          id: filter.id,
-          label: 'camera.${filter.id}'.tr(),
-          icon: Icons.auto_awesome_outlined,
+      for (var index = 0; index < cameraCreativeFilters.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraCreativeFilters[index].id,
+          label: 'camera.${cameraCreativeFilters[index].id}'.tr(),
+          index: index + 1,
         ),
-      ),
     ];
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 150,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 30, 0, 8),
+          padding: const EdgeInsets.fromLTRB(0, 34, 0, 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                activeId.isEmpty
-                    ? 'camera.original'.tr()
-                    : 'camera.$activeId'.tr(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.1,
-                ),
-              ),
-              const SizedBox(height: 8),
-              CameraLookCarousel(
+              CameraLookFilmstrip(
                 items: items,
                 selectedId: activeId,
                 enabled: !_isCapturing,
@@ -295,18 +314,12 @@ jobs:
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 160),
                 child: activeId.isEmpty
-                    ? const SizedBox(height: 8)
+                    ? const SizedBox(height: 2)
                     : Padding(
                         key: ValueKey('filter-strength-$activeId'),
-                        padding: const EdgeInsets.fromLTRB(36, 2, 36, 0),
+                        padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.opacity_rounded,
-                              color: Colors.white54,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 10),
                             Expanded(
                               child: Slider(
                                 value: _cameraLook.creativeFilterStrength,
@@ -318,13 +331,13 @@ jobs:
                               ),
                             ),
                             SizedBox(
-                              width: 36,
+                              width: 34,
                               child: Text(
                                 '${(_cameraLook.creativeFilterStrength * 100).round()}',
                                 textAlign: TextAlign.end,
                                 style: const TextStyle(
                                   color: Colors.white70,
-                                  fontSize: 12,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -342,24 +355,26 @@ jobs:
 
 '''
 
-          text = text[:film_start] + film + filt + text[adjust_start:]
+          text = text[:film_start] + replacement + text[adjust_start:]
           path.write_text(text)
+
+          old = Path('lib/ui/camera/camera_look_carousel.dart')
+          if old.exists():
+              old.unlink()
 
           doc = Path('docs/PF3_CAPTURE_PROCESS_SAVE.md')
           if doc.exists():
               d = doc.read_text()
-              marker = '## Camera Look UX polish\n'
+              marker = '## Camera Look visual filmstrip\n'
               if marker not in d:
-                  d += '''\n## Camera Look UX polish\n\n- Film and Filter use a camera-native horizontal carousel instead of compact ChoiceChips.\n- The selected look is visually dominant with the Dextryx orange accent while the full-screen viewfinder remains the authoritative live preview.\n- Strength is a compact contextual control shown only for non-original Film/Filter selections.\n- Adjust remains unchanged in this pass to keep the UX change scoped and avoid destabilizing PF3 capture semantics.\n'''
+                  d += '''\n## Camera Look visual filmstrip\n\n- Film and Filter now use visual swatch cards with captions instead of text pills.\n- The selected look is emphasized by scale, orange outline and a compact orange indicator.\n- Duplicate large preset headings are removed; the live viewfinder remains visually dominant.\n- Film / Filter / Adjust uses a lightweight text selector with an orange underline instead of a filled segmented control.\n- Strength remains contextual and appears only for a non-original Film/Filter look.\n'''
                   doc.write_text(d)
           PY
 
-          dart format lib/ui/camera/camera_look_carousel.dart lib/ui/screens/camera_film_preview_screen_g1.dart
+          dart format lib/ui/camera/camera_look_filmstrip.dart lib/ui/screens/camera_film_preview_screen_g1.dart lib/ui/camera/camera_primary_controls.dart
           git rm .github/workflows/pf3_camera_look_ux.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add lib/ui/camera/camera_look_carousel.dart lib/ui/screens/camera_film_preview_screen_g1.dart docs/PF3_CAPTURE_PROCESS_SAVE.md
-          git commit -m "Polish camera Film and Filter UX"
+          git add -A
+          git commit -m "Redesign camera Film and Filter filmstrip"
           git push origin HEAD:feature/pf3-capture-process-save
-
-# Trigger after workflow exists on branch.
