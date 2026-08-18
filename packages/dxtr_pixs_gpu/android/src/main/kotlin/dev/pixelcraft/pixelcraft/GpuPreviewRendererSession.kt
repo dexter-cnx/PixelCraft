@@ -29,15 +29,18 @@ internal data class NativeGpuViewport(
 
 internal class NativeGpuRendererSession(
     val id: String,
-    val renderer: AndroidGpuCameraOesRenderer,
+    var renderer: AndroidGpuCameraOesRenderer,
     var state: NativeGpuSessionState = NativeGpuSessionState.CREATED,
     var surface: NativeGpuSurfaceConfig? = null,
+    var outputSurface: Surface? = null,
+    var outputWidth: Int = 0,
+    var outputHeight: Int = 0,
+    var displayRotation: Int = Surface.ROTATION_0,
     var profileId: String = "",
     var strength: Double = 0.0,
     var cameraLook: NativeGpuCameraLook = NativeGpuCameraLook(),
     var viewport: NativeGpuViewport? = null,
     var enabled: Boolean = true,
-    var physicalRotation: Int = Surface.ROTATION_0,
 )
 
 internal class GpuPreviewRendererSessionRegistry(context: Context) {
@@ -49,13 +52,18 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     @Volatile
     var runtimeFailureListener: ((rendererId: String, message: String) -> Unit)? = null
 
+    private fun newRenderer(id: String): AndroidGpuCameraOesRenderer =
+        AndroidGpuCameraOesRenderer(appContext) { message ->
+            runtimeFailureListener?.invoke(id, message)
+        }
+
     @Synchronized
     fun create(): NativeGpuRendererSession {
         val id = UUID.randomUUID().toString()
-        val renderer = AndroidGpuCameraOesRenderer(appContext) { message ->
-            runtimeFailureListener?.invoke(id, message)
-        }
-        val session = NativeGpuRendererSession(id = id, renderer = renderer)
+        val session = NativeGpuRendererSession(
+            id = id,
+            renderer = newRenderer(id),
+        )
         sessions[id] = session
         return session
     }
@@ -91,7 +99,10 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
                 devicePixelRatio = 1.0,
                 surfaceId = null,
             )
-            physicalRotation = displayRotation
+            outputSurface = surface
+            outputWidth = width
+            outputHeight = height
+            this.displayRotation = displayRotation
             renderer.configureOutputSurface(surface, width, height, displayRotation)
             state = NativeGpuSessionState.SURFACE_CONFIGURED
         }
@@ -101,6 +112,9 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     fun clearOutputSurface(id: String) {
         sessions[id]?.apply {
             renderer.clearOutputSurface()
+            outputSurface = null
+            outputWidth = 0
+            outputHeight = 0
             surface = null
             if (state != NativeGpuSessionState.DESTROYED) {
                 state = NativeGpuSessionState.CREATED
@@ -152,27 +166,19 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     }
 
     @Synchronized
-    fun cameraControlState(id: String): Map<String, Any> {
-        val target = session(id)
-        return target.renderer.cameraControlState() + mapOf(
-            "deviceOrientation" to orientationName(target.physicalRotation),
-        )
-    }
-
-    @Synchronized
-    fun captureOrientation(id: String): String = orientationName(session(id).physicalRotation)
+    fun cameraControlState(id: String): Map<String, Any> = session(id).renderer.cameraControlState()
 
     @Synchronized
     fun setFlashMode(id: String, mode: String): Map<String, Any> =
-        session(id).renderer.setFlashMode(mode) + mapOf("deviceOrientation" to captureOrientation(id))
+        session(id).renderer.setFlashMode(mode)
 
     @Synchronized
     fun setTorchEnabled(id: String, enabled: Boolean): Map<String, Any> =
-        session(id).renderer.setTorchEnabled(enabled) + mapOf("deviceOrientation" to captureOrientation(id))
+        session(id).renderer.setTorchEnabled(enabled)
 
     @Synchronized
     fun setMirrorEnabled(id: String, enabled: Boolean): Map<String, Any> =
-        session(id).renderer.setMirrorEnabled(enabled) + mapOf("deviceOrientation" to captureOrientation(id))
+        session(id).renderer.setMirrorEnabled(enabled)
 
     @Synchronized
     fun pause(id: String) {
@@ -185,11 +191,29 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     @Synchronized
     fun resume(id: String) {
         val target = session(id)
-        target.renderer.resume()
-        target.state = if (target.surface != null) {
-            NativeGpuSessionState.SURFACE_CONFIGURED
+        if (target.state == NativeGpuSessionState.DESTROYED) return
+
+        // Do not reuse Camera2/EGL state across an external Activity such as
+        // the system Gallery picker. The old renderer has already closed its
+        // camera on pause; release its GL resources and rebuild a clean native
+        // renderer around the still-valid PlatformView Surface.
+        target.renderer.release()
+        val replacement = newRenderer(id)
+        target.renderer = replacement
+        replacement.setEnabled(target.enabled)
+        replacement.setCameraLook(target.cameraLook)
+
+        val output = target.outputSurface
+        if (output != null && target.outputWidth > 0 && target.outputHeight > 0 && output.isValid) {
+            replacement.configureOutputSurface(
+                output,
+                target.outputWidth,
+                target.outputHeight,
+                target.displayRotation,
+            )
+            target.state = NativeGpuSessionState.SURFACE_CONFIGURED
         } else {
-            NativeGpuSessionState.CREATED
+            target.state = NativeGpuSessionState.CREATED
         }
     }
 
@@ -213,19 +237,13 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
         sessions.remove(id)?.apply {
             state = NativeGpuSessionState.DESTROYED
             renderer.release()
+            outputSurface = null
         }
     }
 
     @Synchronized
     private fun session(id: String): NativeGpuRendererSession =
         sessions[id] ?: throw IllegalStateException("Unknown GPU renderer session: $id")
-
-    private fun orientationName(rotation: Int): String = when (rotation) {
-        Surface.ROTATION_90 -> "landscapeLeft"
-        Surface.ROTATION_180 -> "portraitUpsideDown"
-        Surface.ROTATION_270 -> "landscapeRight"
-        else -> "portrait"
-    }
 
     private fun hasLens(facing: Int): Boolean = cameraManager.cameraIdList.any { id ->
         cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == facing
