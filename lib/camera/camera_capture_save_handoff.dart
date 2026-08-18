@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../app/platform_flow_foundation.dart';
 import '../app/platform_media_services.dart';
 import 'camera_capture_pipeline.dart';
+import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 import 'camera_recent_thumbnail.dart';
 
@@ -19,12 +20,14 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
     super.key,
     required this.imagePath,
     required this.look,
+    this.imageRatio = CameraImageRatio.original,
     this.captureRenderer,
     this.mediaSaveService,
   });
 
   final String imagePath;
   final CameraLookState look;
+  final CameraImageRatio imageRatio;
   final CameraCaptureRenderer? captureRenderer;
   final MediaSaveService? mediaSaveService;
 
@@ -46,6 +49,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     final navigator = Navigator.of(context);
     final imagePath = widget.imagePath;
     final look = widget.look;
+    final imageRatio = widget.imageRatio;
     final pipeline = CameraCapturePipeline(
       renderer: widget.captureRenderer ?? const RustCameraCaptureRenderer(),
       saveService: widget.mediaSaveService ?? const GalleryMediaSaveService(),
@@ -59,6 +63,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
           pipeline: pipeline,
           imagePath: imagePath,
           look: look,
+          imageRatio: imageRatio,
         ),
       );
     });
@@ -69,14 +74,13 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     required CameraCapturePipeline pipeline,
     required String imagePath,
     required CameraLookState look,
+    required CameraImageRatio imageRatio,
   }) async {
     void show(
       String message, {
       Duration duration = const Duration(seconds: 2),
       SnackBarAction? action,
     }) {
-      // Camera status is a single live slot, not a Snackbar queue. Removing the
-      // previous entry immediately avoids animated hide + queued display time.
       messenger
         ..removeCurrentSnackBar()
         ..showSnackBar(
@@ -98,8 +102,6 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     void showSaved() {
       const visibleFor = Duration(milliseconds: 900);
       show('camera.capture_saved'.tr(), duration: visibleFor);
-      // Keep success feedback deterministic even if platform accessibility or
-      // animation timing extends the framework Snackbar timer.
       unawaited(
         Future<void>.delayed(visibleFor, () {
           messenger.removeCurrentSnackBar();
@@ -114,6 +116,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
       final result = await pipeline.processAndSave(
         sourceJpeg: sourceBytes,
         look: look,
+        imageRatio: imageRatio,
         onPhase: (phase) {
           if (phase == ProcessingJobPhase.saving) {
             show(
@@ -138,6 +141,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
               pipeline: pipeline,
               imagePath: imagePath,
               look: look,
+              imageRatio: imageRatio,
             ),
           ),
         ),
