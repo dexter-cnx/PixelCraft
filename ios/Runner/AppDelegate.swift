@@ -93,7 +93,7 @@ import UIKit
     } else {
       status = PHPhotoLibrary.authorizationStatus()
     }
-    guard status == .authorized || status == .limited else {
+    guard canReadPhotos(status) else {
       result(nil)
       return
     }
@@ -127,16 +127,26 @@ import UIKit
     }
   }
 
-  private static func permissionDecision(for status: PHAuthorizationStatus) -> String {
-    switch status {
-    case .authorized, .limited:
-      return "granted"
-    case .restricted, .denied:
-      return "restricted"
-    case .notDetermined:
-      return "denied"
-    @unknown default:
-      return "denied"
+  private static func canReadPhotos(_ status: PHAuthorizationStatus) -> Bool {
+    if status == .authorized {
+      return true
     }
+    if #available(iOS 14, *), status == .limited {
+      return true
+    }
+    return false
+  }
+
+  private static func permissionDecision(for status: PHAuthorizationStatus) -> String {
+    if status == .authorized {
+      return "granted"
+    }
+    if #available(iOS 14, *), status == .limited {
+      return "granted"
+    }
+    if status == .restricted || status == .denied {
+      return "restricted"
+    }
+    return "denied"
   }
 }
