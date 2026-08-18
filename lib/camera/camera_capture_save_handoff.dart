@@ -75,8 +75,10 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
       Duration duration = const Duration(seconds: 2),
       SnackBarAction? action,
     }) {
+      // Camera status is a single live slot, not a Snackbar queue. Removing the
+      // previous entry immediately avoids animated hide + queued display time.
       messenger
-        ..hideCurrentSnackBar()
+        ..removeCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
             content: Text(message),
@@ -91,6 +93,18 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
             ),
           ),
         );
+    }
+
+    void showSaved() {
+      const visibleFor = Duration(milliseconds: 900);
+      show('camera.capture_saved'.tr(), duration: visibleFor);
+      // Keep success feedback deterministic even if platform accessibility or
+      // animation timing extends the framework Snackbar timer.
+      unawaited(
+        Future<void>.delayed(visibleFor, () {
+          messenger.removeCurrentSnackBar();
+        }),
+      );
     }
 
     show('camera.processing_photo'.tr(), duration: const Duration(minutes: 2));
@@ -111,10 +125,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
       );
       CameraRecentThumbnail.instance.update(result.jpegBytes);
       await _deleteSourceBestEffort(imagePath);
-      show(
-        'camera.capture_saved'.tr(),
-        duration: const Duration(milliseconds: 1200),
-      );
+      showSaved();
     } catch (_) {
       show(
         'camera.capture_failed'.tr(),
