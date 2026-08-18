@@ -113,7 +113,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   bool get _isLookTrayOpen =>
       _toolPanelExpanded &&
       (_selectedTool == CameraPrimaryTool.film ||
-          _selectedTool == CameraPrimaryTool.filter);
+          _selectedTool == CameraPrimaryTool.filter ||
+          _selectedTool == CameraPrimaryTool.adjust);
 
   @override
   void initState() {
@@ -788,17 +789,16 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         await _confirmOpenLookTray();
         return;
       }
-      if (tool == CameraPrimaryTool.film ||
-          tool == CameraPrimaryTool.filter) {
-        await _confirmOpenLookTray();
-        if (!mounted) return;
-        setState(() {
-          _selectedTool = tool;
-          _toolPanelExpanded = true;
-        });
+      await _confirmOpenLookTray();
+      if (!mounted) return;
+      setState(() {
+        _selectedTool = tool;
+        _toolPanelExpanded = true;
+      });
+      if (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter) {
         unawaited(_refreshLookPreviews(tool));
-        return;
       }
+      return;
     }
 
     final willExpand = tool != _selectedTool || !_toolPanelExpanded;
