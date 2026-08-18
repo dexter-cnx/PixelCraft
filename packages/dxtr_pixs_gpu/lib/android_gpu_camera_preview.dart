@@ -20,6 +20,7 @@ class AndroidGpuCameraPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     return AndroidView(
       viewType: androidGpuCameraPreviewViewType,
+      hitTestBehavior: PlatformViewHitTestBehavior.transparent,
       creationParams: <String, Object?>{'rendererId': rendererId},
       creationParamsCodec: const StandardMessageCodec(),
     );
