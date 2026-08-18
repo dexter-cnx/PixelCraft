@@ -1,0 +1,435 @@
+name: PF3 compact camera look UX
+
+on:
+  push:
+    branches: [feature/pf3-capture-process-save]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/pf3-capture-process-save
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Integrate compact Film Filter Adjust UX
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/ui/screens/camera_film_preview_screen_g1.dart')
+          text = path.read_text()
+
+          text = text.replace(
+              "import 'dart:async';\n",
+              "import 'dart:async';\nimport 'dart:io';\nimport 'dart:isolate';\nimport 'dart:typed_data';\n",
+              1,
+          )
+          bridge_import = "import '../../core/bridge.dart';\n"
+          if bridge_import not in text:
+              text = text.replace(
+                  "import '../../camera/camera_look_state.dart';\n",
+                  "import '../../camera/camera_look_state.dart';\n" + bridge_import + "import '../../src/rust/api.dart' as rust;\n",
+                  1,
+              )
+
+          state_anchor = "  CameraPrimaryTool _selectedTool = CameraPrimaryTool.film;\n  CameraLookState _cameraLook = CameraLookState();\n"
+          state_replacement = """  CameraPrimaryTool _selectedTool = CameraPrimaryTool.film;
+  bool _toolPanelExpanded = false;
+  CameraLookState _cameraLook = CameraLookState();
+  Map<String, Uint8List> _filmPreviewBytes = const {};
+  Map<String, Uint8List> _filterPreviewBytes = const {};
+  bool _isLoadingLookPreviews = false;
+  int _lookPreviewRequest = 0;
+"""
+          if state_anchor not in text:
+              raise SystemExit('state anchor not found')
+          text = text.replace(state_anchor, state_replacement, 1)
+
+          select_start = text.index('  void _selectTool(CameraPrimaryTool tool) {')
+          controls_start = text.index('  Future<void> _showCameraControls() async {', select_start)
+          replacement = r'''  bool _adjustmentChanged(String id) {
+    final spec = cameraAdjustmentSpec(id);
+    return (_cameraLook.adjustmentValue(id) - spec.neutral).abs() > 0.000001;
+  }
+
+  void _resetAdjustment(String id) {
+    if (!_adjustmentChanged(id)) return;
+    setState(() => _cameraLook = _cameraLook.resetAdjustment(id));
+    _submitCameraLook();
+  }
+
+  void _resetAllAdjustments() {
+    setState(() => _cameraLook = _cameraLook.resetAdjustments());
+    _submitCameraLook();
+  }
+
+  Future<void> _refreshLookPreviews(CameraPrimaryTool tool) async {
+    if (_isCapturing || !_useNativeGpu || _gpuRendererId == null) return;
+    if (tool != CameraPrimaryTool.film && tool != CameraPrimaryTool.filter) {
+      return;
+    }
+
+    final request = ++_lookPreviewRequest;
+    if (mounted) setState(() => _isLoadingLookPreviews = true);
+    String? path;
+    try {
+      path = await _nativeCameraBridge.capturePhoto(_gpuRendererId!);
+      final source = await File(path).readAsBytes();
+      final previews = await Isolate.run(() async {
+        await initializeRustBridge();
+        if (tool == CameraPrimaryTool.film) {
+          final ids = cameraFilmPresets
+              .where((preset) => !preset.isOriginal)
+              .map((preset) => preset.id)
+              .toList(growable: false);
+          final generated = rust.generateFilmProfilePreviews(
+            imageBytes: source,
+            profileIds: ids,
+            maxEdge: 180,
+          );
+          return <String, Uint8List>{
+            '': source,
+            for (final preview in generated) preview.id: preview.bytes,
+          };
+        }
+        final ids = cameraCreativeFilters
+            .map((filter) => filter.id)
+            .toList(growable: false);
+        final generated = rust.generateFilterPreviews(
+          imageBytes: source,
+          filterNames: ids,
+          maxEdge: 180,
+        );
+        return <String, Uint8List>{
+          '': source,
+          for (final preview in generated) preview.name: preview.bytes,
+        };
+      });
+      if (!mounted || request != _lookPreviewRequest) return;
+      setState(() {
+        if (tool == CameraPrimaryTool.film) {
+          _filmPreviewBytes = previews;
+        } else {
+          _filterPreviewBytes = previews;
+        }
+      });
+    } catch (_) {
+      // Keep the selector usable if a preview snapshot cannot be generated.
+    } finally {
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      if (mounted && request == _lookPreviewRequest) {
+        setState(() => _isLoadingLookPreviews = false);
+      }
+    }
+  }
+
+  void _selectTool(CameraPrimaryTool tool) {
+    if (tool != CameraPrimaryTool.film && !_useNativeGpu) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('camera.native_look_required'.tr())),
+      );
+      return;
+    }
+    final willExpand = tool != _selectedTool || !_toolPanelExpanded;
+    setState(() {
+      _selectedTool = tool;
+      _toolPanelExpanded = willExpand;
+    });
+    if (willExpand &&
+        (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter)) {
+      unawaited(_refreshLookPreviews(tool));
+    }
+  }
+
+  void _openAdjustment(String id) {
+    setState(() {
+      _selectedAdjustmentId = id;
+      _selectedTool = CameraPrimaryTool.adjust;
+      _toolPanelExpanded = true;
+    });
+  }
+
+'''
+          text = text[:select_start] + replacement + text[controls_start:]
+
+          # Add real preview bytes to Film and Filter selector items.
+          text = text.replace(
+              "          index: index,\n        ),\n    ];\n    return Positioned(\n",
+              "          index: index,\n          previewBytes: _filmPreviewBytes[cameraFilmPresets[index].id],\n        ),\n    ];\n    return Positioned(\n",
+              1,
+          )
+          filmstrip_call = """              CameraLookFilmstrip(
+                items: items,
+                selectedId: _preset.id,
+                enabled: !_isCapturing,
+"""
+          filmstrip_replacement = """              CameraLookFilmstrip(
+                items: items,
+                selectedId: _preset.id,
+                enabled: !_isCapturing,
+                isLoadingPreviews: _isLoadingLookPreviews,
+"""
+          if filmstrip_call not in text:
+              raise SystemExit('film filmstrip anchor not found')
+          text = text.replace(filmstrip_call, filmstrip_replacement, 1)
+
+          filter_item_anchor = """      CameraLookFilmstripItem(id: '', label: 'camera.original'.tr(), index: 0),
+      for (var index = 0; index < cameraCreativeFilters.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraCreativeFilters[index].id,
+          label: 'camera.${cameraCreativeFilters[index].id}'.tr(),
+          index: index + 1,
+        ),
+"""
+          filter_item_replacement = """      CameraLookFilmstripItem(
+        id: '',
+        label: 'camera.original'.tr(),
+        index: 0,
+        previewBytes: _filterPreviewBytes[''],
+      ),
+      for (var index = 0; index < cameraCreativeFilters.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraCreativeFilters[index].id,
+          label: 'camera.${cameraCreativeFilters[index].id}'.tr(),
+          index: index + 1,
+          previewBytes: _filterPreviewBytes[cameraCreativeFilters[index].id],
+        ),
+"""
+          if filter_item_anchor not in text:
+              raise SystemExit('filter items anchor not found')
+          text = text.replace(filter_item_anchor, filter_item_replacement, 1)
+          filterstrip_call = """              CameraLookFilmstrip(
+                items: items,
+                selectedId: activeId,
+                enabled: !_isCapturing,
+"""
+          filterstrip_replacement = """              CameraLookFilmstrip(
+                items: items,
+                selectedId: activeId,
+                enabled: !_isCapturing,
+                isLoadingPreviews: _isLoadingLookPreviews,
+"""
+          if filterstrip_call not in text:
+              raise SystemExit('filter filmstrip anchor not found')
+          text = text.replace(filterstrip_call, filterstrip_replacement, 1)
+
+          # Collapse all tool trays by default and expose summaries in the primary controls.
+          text = text.replace(
+              "            if (_selectedTool == CameraPrimaryTool.film) _buildFilmControls(),\n",
+              "            if (_toolPanelExpanded &&\n                _selectedTool == CameraPrimaryTool.film)\n              _buildFilmControls(),\n",
+              1,
+          )
+          text = text.replace(
+              "            if (_selectedTool == CameraPrimaryTool.filter)\n              _buildFilterControls(),\n",
+              "            if (_toolPanelExpanded &&\n                _selectedTool == CameraPrimaryTool.filter)\n              _buildFilterControls(),\n",
+              1,
+          )
+          text = text.replace(
+              "            if (_selectedTool == CameraPrimaryTool.adjust)\n              _buildAdjustControls(),\n",
+              "            if (_toolPanelExpanded &&\n                _selectedTool == CameraPrimaryTool.adjust)\n              _buildAdjustControls(),\n            _buildActiveAdjustmentIndicators(),\n",
+              1,
+          )
+          controls_anchor = """              child: CameraPrimaryControls(
+                selectedTool: _selectedTool,
+                onToolSelected: _selectTool,
+"""
+          controls_replacement = """              child: CameraPrimaryControls(
+                selectedTool: _selectedTool,
+                isToolPanelExpanded: _toolPanelExpanded,
+                onToolSelected: _selectTool,
+"""
+          if controls_anchor not in text:
+              raise SystemExit('primary controls anchor not found')
+          text = text.replace(controls_anchor, controls_replacement, 1)
+          label_anchor = """                adjustLabel: 'camera.adjust'.tr(),
+                controlsLabel: 'camera.controls'.tr(),
+"""
+          label_replacement = """                adjustLabel: 'camera.adjust'.tr(),
+                filmSummary: _preset.isOriginal
+                    ? 'Original'
+                    : '${_preset.name.replaceAll(' Inspired', '')} · ${(_strength * 100).round()}%',
+                filterSummary: _cameraLook.creativeFilterId.isEmpty
+                    ? 'Original'
+                    : '${'camera.${_cameraLook.creativeFilterId}'.tr()} · ${(_cameraLook.creativeFilterStrength * 100).round()}%',
+                controlsLabel: 'camera.controls'.tr(),
+"""
+          if label_anchor not in text:
+              raise SystemExit('labels anchor not found')
+          text = text.replace(label_anchor, label_replacement, 1)
+
+          # Replace Adjust tray with per-control reset + Reset All.
+          adjust_start = text.index('  Widget _buildAdjustControls() {')
+          class_end = text.rfind('\n}')
+          adjust = r'''  Widget _buildActiveAdjustmentIndicators() {
+    final changed = _cameraAdjustmentIds
+        .where(_adjustmentChanged)
+        .toList(growable: false);
+    if (changed.isEmpty) return const SizedBox.shrink();
+    const shortLabels = <String, String>{
+      'exposure': 'EV',
+      'temperature': 'Temp',
+      'tint': 'Tint',
+      'brightness': 'Bright',
+      'contrast': 'Contrast',
+      'saturation': 'Sat',
+      'vignette': 'Vign',
+    };
+    return Positioned(
+      right: 10,
+      top: 78,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final id in changed)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: GestureDetector(
+                onTap: _isCapturing ? null : () => _openAdjustment(id),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.58),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    child: Text(
+                      '${shortLabels[id]} ${_cameraLook.adjustmentValue(id).toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdjustControls() {
+    final spec = cameraAdjustmentSpec(_selectedAdjustmentId);
+    final value = _cameraLook.adjustmentValue(_selectedAdjustmentId);
+    final selectedChanged = _adjustmentChanged(_selectedAdjustmentId);
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 150,
+      child: DecoratedBox(
+        decoration: _lookPanelDecoration,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 30, 16, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${'camera.$_selectedAdjustmentId'.tr()}  ${value.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Reset',
+                    onPressed: selectedChanged && !_isCapturing
+                        ? () => _resetAdjustment(_selectedAdjustmentId)
+                        : null,
+                    icon: const Icon(Icons.refresh_rounded),
+                    color: Colors.white,
+                    disabledColor: Colors.white24,
+                  ),
+                  TextButton.icon(
+                    onPressed: _isCapturing ? null : _resetAllAdjustments,
+                    icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                    label: const Text('Reset All'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                  ),
+                ],
+              ),
+              Slider(
+                value: value,
+                min: spec.min,
+                max: spec.max,
+                onChanged: _isCapturing ? null : _setAdjustment,
+              ),
+              SizedBox(
+                height: 46,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _cameraAdjustmentIds.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final id = _cameraAdjustmentIds[index];
+                    final selected = id == _selectedAdjustmentId;
+                    final changed = _adjustmentChanged(id);
+                    return InputChip(
+                      selected: selected,
+                      label: Text('camera.$id'.tr()),
+                      onSelected: _isCapturing ? null : (_) => _selectAdjustment(id),
+                      onDeleted: changed && !_isCapturing
+                          ? () => _resetAdjustment(id)
+                          : null,
+                      deleteIcon: const Icon(Icons.refresh_rounded, size: 16),
+                      deleteIconColor: const Color(0xFFFF6A00),
+                      selectedColor: Colors.white,
+                      backgroundColor: Colors.black54,
+                      side: BorderSide(
+                        color: changed
+                            ? const Color(0xFFFF6A00)
+                            : selected
+                            ? Colors.white
+                            : Colors.white38,
+                      ),
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.black : Colors.white,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                      showCheckmark: false,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+'''
+          text = text[:adjust_start] + adjust + text[class_end:]
+          path.write_text(text)
+          PY
+
+          dart format lib/ui/camera/camera_primary_controls.dart lib/ui/camera/camera_look_filmstrip.dart lib/ui/screens/camera_film_preview_screen_g1.dart
+          git rm .github/workflows/pf3_camera_compact_ux.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/ui/camera/camera_primary_controls.dart lib/ui/camera/camera_look_filmstrip.dart lib/ui/screens/camera_film_preview_screen_g1.dart
+          git commit -m "feat: compact camera look controls and previews"
+          git push origin HEAD:feature/pf3-capture-process-save
