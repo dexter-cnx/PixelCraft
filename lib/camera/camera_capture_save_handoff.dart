@@ -21,7 +21,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
     required this.imagePath,
     required this.look,
     this.imageRatio = CameraImageRatio.original,
-    this.captureOrientation = CameraCaptureOrientation.portrait,
+    this.captureOrientation = CameraCaptureOrientation.auto,
     this.captureRenderer,
     this.mediaSaveService,
   });
