@@ -49,11 +49,12 @@ class CameraPrimaryControls extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Color(0xE6000000)],
+          stops: [0, 0.30, 1],
+          colors: [Color(0x33000000), Color(0xCC000000), Color(0xFA000000)],
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -94,7 +95,7 @@ class CameraPrimaryControls extends StatelessWidget {
                             color: Colors.white,
                             border: Border.all(color: Colors.white70, width: 4),
                             boxShadow: const [
-                              BoxShadow(color: Colors.black45, blurRadius: 12),
+                              BoxShadow(color: Colors.black87, blurRadius: 14),
                             ],
                           ),
                           child: Center(
@@ -149,6 +150,10 @@ class _ToolSelector extends StatelessWidget {
   });
 
   static const _accent = Color(0xFFFF6A00);
+  static const _textShadow = [
+    Shadow(color: Colors.black, blurRadius: 5),
+    Shadow(color: Colors.black87, offset: Offset(0, 1), blurRadius: 2),
+  ];
 
   final CameraPrimaryTool selectedTool;
   final bool isExpanded;
@@ -205,6 +210,7 @@ class _ToolSelector extends StatelessWidget {
                 color: selected ? _accent : Colors.white,
                 fontSize: 14,
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                shadows: _textShadow,
               ),
               child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
@@ -216,9 +222,10 @@ class _ToolSelector extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: selected ? Colors.white70 : Colors.white54,
+                  color: selected ? Colors.white : Colors.white70,
                   fontSize: 10.5,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
+                  shadows: _textShadow,
                 ),
               ),
             ] else
@@ -231,6 +238,9 @@ class _ToolSelector extends StatelessWidget {
               decoration: BoxDecoration(
                 color: _accent,
                 borderRadius: BorderRadius.circular(99),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black87, blurRadius: 3),
+                ],
               ),
             ),
           ],
@@ -288,7 +298,15 @@ class _GalleryActionState extends State<_GalleryAction> {
             },
           ),
           const SizedBox(height: 4),
-          Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            widget.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+            ),
+          ),
         ],
       ),
     );
@@ -314,9 +332,19 @@ class _SideAction extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 26),
+          const Icon(Icons.tune, size: 26, shadows: [
+            Shadow(color: Colors.black, blurRadius: 4),
+          ]),
           const SizedBox(height: 4),
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+            ),
+          ),
         ],
       ),
     );
