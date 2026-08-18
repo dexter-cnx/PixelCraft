@@ -2,7 +2,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../camera/camera_film_presets.dart';
+
 const _accent = Color(0xFFFF6A00);
+const _fallbackPreviewAsset = 'assets/samples/sample_1.png';
 
 class CameraLookFilmstripItem {
   const CameraLookFilmstripItem({
@@ -85,7 +88,7 @@ class CameraLookFilmstrip extends StatelessWidget {
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: _PreviewTile(
-                          bytes: item.previewBytes,
+                          item: item,
                           isLoading: isLoadingPreviews,
                         ),
                       ),
@@ -126,14 +129,14 @@ class CameraLookFilmstrip extends StatelessWidget {
 }
 
 class _PreviewTile extends StatelessWidget {
-  const _PreviewTile({required this.bytes, required this.isLoading});
+  const _PreviewTile({required this.item, required this.isLoading});
 
-  final Uint8List? bytes;
+  final CameraLookFilmstripItem item;
   final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
-    final preview = bytes;
+    final preview = item.previewBytes;
     if (preview != null) {
       return Image.memory(
         preview,
@@ -145,26 +148,70 @@ class _PreviewTile extends StatelessWidget {
       );
     }
 
+    final fallback = Image.asset(
+      _fallbackPreviewAsset,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      cacheWidth: 180,
+      cacheHeight: 180,
+      errorBuilder: (_, __, ___) => const ColoredBox(
+        color: Color(0xFF202020),
+        child: Center(
+          child: Icon(
+            Icons.photo_camera_outlined,
+            color: Colors.white38,
+            size: 24,
+          ),
+        ),
+      ),
+    );
+    final filter = _fallbackColorFilter(item.id);
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: Color(0xFF202020)),
-        Center(
-          child: isLoading
-              ? const SizedBox.square(
-                  dimension: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white54,
-                  ),
-                )
-              : const Icon(
-                  Icons.photo_camera_outlined,
-                  color: Colors.white38,
-                  size: 24,
+        if (filter == null)
+          fallback
+        else
+          ColorFiltered(colorFilter: filter, child: fallback),
+        if (isLoading)
+          const ColoredBox(
+            color: Color(0x44000000),
+            child: Center(
+              child: SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white70,
                 ),
-        ),
+              ),
+            ),
+          ),
       ],
     );
   }
+}
+
+ColorFilter? _fallbackColorFilter(String id) {
+  for (final preset in cameraFilmPresets) {
+    if (preset.id == id) {
+      return preset.isOriginal ? null : preset.colorFilter(1);
+    }
+  }
+
+  return switch (id) {
+    'grayscale' => const ColorFilter.matrix(<double>[
+      0.3333, 0.3333, 0.3333, 0, 0,
+      0.3333, 0.3333, 0.3333, 0, 0,
+      0.3333, 0.3333, 0.3333, 0, 0,
+      0, 0, 0, 1, 0,
+    ]),
+    'invert' => const ColorFilter.matrix(<double>[
+      -1, 0, 0, 0, 255,
+      0, -1, 0, 0, 255,
+      0, 0, -1, 0, 255,
+      0, 0, 0, 1, 0,
+    ]),
+    _ => null,
+  };
 }
