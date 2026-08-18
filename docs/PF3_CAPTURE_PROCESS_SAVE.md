@@ -123,6 +123,10 @@ This is a bootstrap/linkage correction only; it does not change Rust image-proce
 - before the first successful save in a session, the Gallery control falls back to the standard Gallery icon;
 - Greeting is non-scrollable; it uses responsive scale-down within the available SafeArea instead of `SingleChildScrollView`.
 
+## Known PF3 capture issues / required fixes
+
+- **Landscape capture orientation is currently incorrect on physical-device testing.** Rotating the phone to landscape and pressing Shutter can still produce a portrait-oriented saved result. PF3 must propagate the active device/capture orientation correctly through native capture, JPEG/EXIF normalization, Rust processing, ratio crop, and Gallery save. The final saved JPEG must visually match the orientation used at shutter time on both Android and iOS; do not fix this by stretching pixels or by relying on preview orientation alone.
+
 ## Automated coverage
 
 `test/camera/camera_capture_pipeline_test.dart` covers authoritative source/render/save ordering and ensures render failure never reaches Gallery persistence.
@@ -140,6 +144,7 @@ Before PF3 can close:
 - verify the orange-black launcher icon on Android phone/tablet and iPhone/iPad;
 - Android neutral and combined Film + Filter + Adjust capture/save;
 - iPhone neutral and combined Film + Filter + Adjust capture/save;
+- portrait and landscape shutter orientation both save with the correct final visual orientation on Android and iPhone;
 - saved JPEG visually corresponds to the committed final CameraLook;
 - capture processing/saving feedback remains on Camera via SnackBars;
 - failure/Retry preserves the clean temporary source where practical;
