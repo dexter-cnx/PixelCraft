@@ -3,78 +3,123 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum CameraCompositionGuide { off, thirds, goldenRatio, goldenSpiral }
+enum CameraCompositionGuide { thirds, goldenRatio, goldenSpiral }
 
 extension CameraCompositionGuideX on CameraCompositionGuide {
-  static const preferenceKey = 'camera.composition_guide';
+  static const enabledPreferenceKey = 'camera.composition_guide.enabled';
+  static const stylePreferenceKey = 'camera.composition_guide.style';
+  static const legacyPreferenceKey = 'camera.composition_guide';
+  static const flipHorizontalPreferenceKey =
+      'camera.composition_guide.golden_spiral.flip_horizontal';
+  static const flipVerticalPreferenceKey =
+      'camera.composition_guide.golden_spiral.flip_vertical';
 
   String get wireName => switch (this) {
-    CameraCompositionGuide.off => 'off',
     CameraCompositionGuide.thirds => 'thirds',
     CameraCompositionGuide.goldenRatio => 'golden_ratio',
     CameraCompositionGuide.goldenSpiral => 'golden_spiral',
   };
 
   String get label => switch (this) {
-    CameraCompositionGuide.off => 'Off',
     CameraCompositionGuide.thirds => 'Thirds / Nines',
     CameraCompositionGuide.goldenRatio => 'Golden Ratio',
     CameraCompositionGuide.goldenSpiral => 'Golden Spiral',
   };
 
   static CameraCompositionGuide parse(String? value) => switch (value) {
-    'thirds' => CameraCompositionGuide.thirds,
     'golden_ratio' => CameraCompositionGuide.goldenRatio,
     'golden_spiral' => CameraCompositionGuide.goldenSpiral,
-    _ => CameraCompositionGuide.off,
+    _ => CameraCompositionGuide.thirds,
   };
 
-  Future<void> persist() async {
+  static Future<CameraCompositionGuideSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(preferenceKey, wireName);
+    final legacy = prefs.getString(legacyPreferenceKey);
+    final explicitEnabled = prefs.getBool(enabledPreferenceKey);
+    final enabled = explicitEnabled ?? (legacy != null && legacy != 'off');
+    final guide = parse(prefs.getString(stylePreferenceKey) ?? legacy);
+    return CameraCompositionGuideSettings(
+      enabled: enabled,
+      guide: guide,
+      flipHorizontal: prefs.getBool(flipHorizontalPreferenceKey) ?? false,
+      flipVertical: prefs.getBool(flipVerticalPreferenceKey) ?? false,
+    );
   }
 
-  static Future<CameraCompositionGuide> load() async {
+  static Future<void> persistEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
-    return parse(prefs.getString(preferenceKey));
+    await prefs.setBool(enabledPreferenceKey, enabled);
   }
+
+  Future<void> persistStyle() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(stylePreferenceKey, wireName);
+  }
+
+  static Future<void> persistGoldenSpiralFlip({
+    required bool horizontal,
+    required bool vertical,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(flipHorizontalPreferenceKey, horizontal);
+    await prefs.setBool(flipVerticalPreferenceKey, vertical);
+  }
+}
+
+class CameraCompositionGuideSettings {
+  const CameraCompositionGuideSettings({
+    required this.enabled,
+    required this.guide,
+    required this.flipHorizontal,
+    required this.flipVertical,
+  });
+
+  final bool enabled;
+  final CameraCompositionGuide guide;
+  final bool flipHorizontal;
+  final bool flipVertical;
 }
 
 class CameraCompositionGuideOverlay extends StatelessWidget {
   const CameraCompositionGuideOverlay({
     required this.guide,
     this.frameAspectRatio,
+    this.flipHorizontal = false,
+    this.flipVertical = false,
     super.key,
   });
 
   final CameraCompositionGuide guide;
   final double? frameAspectRatio;
+  final bool flipHorizontal;
+  final bool flipVertical;
 
   @override
-  Widget build(BuildContext context) {
-    if (guide == CameraCompositionGuide.off) {
-      return const SizedBox.shrink();
-    }
-    return IgnorePointer(
-      child: CustomPaint(
-        painter: _CompositionGuidePainter(
-          guide: guide,
-          frameAspectRatio: frameAspectRatio,
-        ),
-        size: Size.infinite,
+  Widget build(BuildContext context) => IgnorePointer(
+    child: CustomPaint(
+      painter: _CompositionGuidePainter(
+        guide: guide,
+        frameAspectRatio: frameAspectRatio,
+        flipHorizontal: flipHorizontal,
+        flipVertical: flipVertical,
       ),
-    );
-  }
+      size: Size.infinite,
+    ),
+  );
 }
 
 class _CompositionGuidePainter extends CustomPainter {
   const _CompositionGuidePainter({
     required this.guide,
     required this.frameAspectRatio,
+    required this.flipHorizontal,
+    required this.flipVertical,
   });
 
   final CameraCompositionGuide guide;
   final double? frameAspectRatio;
+  final bool flipHorizontal;
+  final bool flipVertical;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -96,8 +141,6 @@ class _CompositionGuidePainter extends CustomPainter {
     }
 
     switch (guide) {
-      case CameraCompositionGuide.off:
-        return;
       case CameraCompositionGuide.thirds:
         final xs = <double>[
           frame.left + frame.width / 3,
@@ -121,7 +164,6 @@ class _CompositionGuidePainter extends CustomPainter {
             canvas.drawCircle(Offset(x, y), 2.4, dot);
           }
         }
-        return;
       case CameraCompositionGuide.goldenRatio:
         const minor = 0.3819660112501051;
         const major = 1 - minor;
@@ -139,11 +181,15 @@ class _CompositionGuidePainter extends CustomPainter {
         for (final y in ys) {
           drawSegment(Offset(frame.left, y), Offset(frame.right, y));
         }
-        return;
       case CameraCompositionGuide.goldenSpiral:
+        canvas.save();
+        canvas.clipRect(frame);
+        canvas.translate(frame.center.dx, frame.center.dy);
+        canvas.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
+        canvas.translate(-frame.center.dx, -frame.center.dy);
         _drawGoldenSpiral(canvas, frame, shadow);
         _drawGoldenSpiral(canvas, frame, line);
-        return;
+        canvas.restore();
     }
   }
 
@@ -187,14 +233,13 @@ class _CompositionGuidePainter extends CustomPainter {
         path.lineTo(point.dx, point.dy);
       }
     }
-    canvas.save();
-    canvas.clipRect(frame);
     canvas.drawPath(path, paint);
-    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _CompositionGuidePainter oldDelegate) =>
       oldDelegate.guide != guide ||
-      oldDelegate.frameAspectRatio != frameAspectRatio;
+      oldDelegate.frameAspectRatio != frameAspectRatio ||
+      oldDelegate.flipHorizontal != flipHorizontal ||
+      oldDelegate.flipVertical != flipVertical;
 }
