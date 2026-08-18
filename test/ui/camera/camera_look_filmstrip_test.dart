@@ -3,15 +3,22 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pixelcraft/camera/camera_recent_thumbnail.dart';
 import 'package:pixelcraft/ui/camera/camera_look_filmstrip.dart';
 
 void main() {
-  testWidgets('renders preview bytes and dispatches selection', (tester) async {
-    final previewBytes = Uint8List.fromList(
+  late Uint8List previewBytes;
+
+  setUp(() {
+    previewBytes = Uint8List.fromList(
       base64Decode(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       ),
     );
+    CameraRecentThumbnail.instance.update(previewBytes);
+  });
+
+  testWidgets('renders preview bytes and dispatches selection', (tester) async {
     String? selected;
 
     await tester.pumpWidget(
@@ -42,19 +49,13 @@ void main() {
       find.byWidgetPredicate(
         (widget) => widget is Image && widget.image is MemoryImage,
       ),
-      findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is Image && widget.image is AssetImage,
-      ),
-      findsOneWidget,
+      findsNWidgets(2),
     );
     await tester.tap(find.text('Film A'));
     expect(selected, 'film-a');
   });
 
-  testWidgets('shows asset fallback and loading indicator', (tester) async {
+  testWidgets('applies film fallback and loading indicator', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -75,6 +76,12 @@ void main() {
     );
 
     expect(find.byType(ColorFiltered), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Image && widget.image is MemoryImage,
+      ),
+      findsOneWidget,
+    );
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }
