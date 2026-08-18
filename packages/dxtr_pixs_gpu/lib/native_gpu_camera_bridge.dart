@@ -188,6 +188,9 @@ class NativeGpuCameraBridge {
   });
 
   Future<NativeCameraCaptureResult> capturePhoto(String rendererId) async {
+    // Snapshot physical orientation immediately before shutter. Preview remains
+    // portrait-locked; this metadata is used only if the resulting JPEG/EXIF
+    // shape disagrees with the physical device orientation.
     final state = await controlState(rendererId);
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'capturePhoto',
@@ -201,16 +204,14 @@ class NativeGpuCameraBridge {
       throw StateError('Native GPU camera capture returned no file path');
     }
 
-    // AVFoundation already writes the correct photo orientation. Keep iOS on
-    // the JPEG/EXIF normalization path to avoid a second forced Rust rotation.
-    // Android carries physical orientation explicitly because some Camera2
-    // HALs ignore JPEG_ORIENTATION and return portrait pixels in landscape.
-    final captureOrientation = defaultTargetPlatform == TargetPlatform.android
-        ? state.deviceOrientation
-        : NativeCameraDeviceOrientation.unknown;
+    final carriesPhysicalOrientation =
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
     return NativeCameraCaptureResult(
       path: path,
-      deviceOrientation: captureOrientation,
+      deviceOrientation: carriesPhysicalOrientation
+          ? state.deviceOrientation
+          : NativeCameraDeviceOrientation.unknown,
     );
   }
 
