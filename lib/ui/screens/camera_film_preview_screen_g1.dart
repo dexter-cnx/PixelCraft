@@ -107,6 +107,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   bool get _mirrorEnabled => _cameraControls.mirrorEnabled;
 
+  bool get _isLookTrayOpen =>
+      _toolPanelExpanded &&
+      (_selectedTool == CameraPrimaryTool.film ||
+          _selectedTool == CameraPrimaryTool.filter);
+
   @override
   void initState() {
     super.initState();
@@ -742,13 +747,41 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
   }
 
-  void _selectTool(CameraPrimaryTool tool) {
+  Future<void> _confirmOpenLookTray() async {
+    if (!_isLookTrayOpen) return;
+    if (_useNativeGpu && _gpuRendererId != null) {
+      await _lookCoordinator.flush();
+    }
+    if (!mounted) return;
+    setState(() => _toolPanelExpanded = false);
+  }
+
+  Future<void> _handleToolSelection(CameraPrimaryTool tool) async {
     if (tool != CameraPrimaryTool.film && !_useNativeGpu) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('camera.native_look_required'.tr())),
       );
       return;
     }
+
+    if (_isLookTrayOpen) {
+      if (tool == _selectedTool) {
+        await _confirmOpenLookTray();
+        return;
+      }
+      if (tool == CameraPrimaryTool.film ||
+          tool == CameraPrimaryTool.filter) {
+        await _confirmOpenLookTray();
+        if (!mounted) return;
+        setState(() {
+          _selectedTool = tool;
+          _toolPanelExpanded = true;
+        });
+        unawaited(_refreshLookPreviews(tool));
+        return;
+      }
+    }
+
     final willExpand = tool != _selectedTool || !_toolPanelExpanded;
     setState(() {
       _selectedTool = tool;
@@ -758,6 +791,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter)) {
       unawaited(_refreshLookPreviews(tool));
     }
+  }
+
+  void _selectTool(CameraPrimaryTool tool) {
+    unawaited(_handleToolSelection(tool));
   }
 
   void _openAdjustment(String id) {
@@ -885,7 +922,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _buildViewfinder(),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _isLookTrayOpen
+                  ? () => unawaited(_confirmOpenLookTray())
+                  : null,
+              child: _buildViewfinder(),
+            ),
             _buildTopBar(),
             if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.film)
               _buildFilmControls(),
@@ -1123,6 +1166,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 enabled: !_isCapturing,
                 isLoadingPreviews: _isLoadingLookPreviews,
                 onSelected: (id) {
+                  if (id == _preset.id) {
+                    unawaited(_confirmOpenLookTray());
+                    return;
+                  }
                   final preset = cameraFilmPresets.firstWhere(
                     (candidate) => candidate.id == id,
                   );
@@ -1202,8 +1249,13 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 selectedId: activeId,
                 enabled: !_isCapturing,
                 isLoadingPreviews: _isLoadingLookPreviews,
-                onSelected: (id) =>
-                    _selectCreativeFilter(id.isEmpty ? null : id),
+                onSelected: (id) {
+                  if (id == activeId) {
+                    unawaited(_confirmOpenLookTray());
+                    return;
+                  }
+                  _selectCreativeFilter(id.isEmpty ? null : id);
+                },
               ),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 160),
