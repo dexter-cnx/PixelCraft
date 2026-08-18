@@ -152,7 +152,6 @@ jobs:
               text = text.replace(import_anchor, carousel_import + import_anchor, 1)
 
           film_start = text.index('  Widget _buildFilmControls() {')
-          filter_start = text.index('  Widget _buildFilterControls() {')
           adjust_start = text.index('  Widget _buildAdjustControls() {')
 
           film = r'''  Widget _buildFilmControls() {
@@ -362,3 +361,5 @@ jobs:
           git add lib/ui/camera/camera_look_carousel.dart lib/ui/screens/camera_film_preview_screen_g1.dart docs/PF3_CAPTURE_PROCESS_SAVE.md
           git commit -m "Polish camera Film and Filter UX"
           git push origin HEAD:feature/pf3-capture-process-save
+
+# Trigger after workflow exists on branch.
