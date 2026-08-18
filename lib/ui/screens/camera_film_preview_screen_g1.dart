@@ -18,6 +18,7 @@ import '../../gpu/ios_gpu_camera_preview.dart';
 import '../../gpu/native_gpu_camera_bridge.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
 import '../camera/camera_primary_controls.dart';
+import 'about_screen.dart';
 
 class CameraFilmPreviewScreen extends StatefulWidget {
   const CameraFilmPreviewScreen({super.key, this.mediaPickerService});
@@ -576,10 +577,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     required CameraLookState look,
   }) => Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => CameraCaptureSaveHandoff(
-        imagePath: imagePath,
-        look: look,
-      ),
+      builder: (_) =>
+          CameraCaptureSaveHandoff(imagePath: imagePath, look: look),
     ),
   );
 
@@ -745,6 +744,20 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                             if (sheetContext.mounted) setSheetState(() {});
                           }
                         : null,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.info_outline_rounded),
+                    iconColor: Colors.white,
+                    textColor: Colors.white,
+                    title: Text('about.title'.tr()),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AboutScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

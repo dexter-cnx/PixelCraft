@@ -16,15 +16,16 @@ void main() {
         .withCreative('vintage', 0.6);
     final source = Uint8List.fromList([1, 2, 3, 4]);
 
-    final result = await CameraCapturePipeline(
-      renderer: renderer,
-      saveService: saver,
-    ).processAndSave(
-      sourceJpeg: source,
-      look: look,
-      suggestedName: 'capture.jpg',
-      onPhase: phases.add,
-    );
+    final result =
+        await CameraCapturePipeline(
+          renderer: renderer,
+          saveService: saver,
+        ).processAndSave(
+          sourceJpeg: source,
+          look: look,
+          suggestedName: 'capture.jpg',
+          onPhase: phases.add,
+        );
 
     expect(renderer.source, same(source));
     expect(renderer.look, same(look));
@@ -32,14 +33,11 @@ void main() {
     expect(saver.suggestedName, 'capture.jpg');
     expect(result.savedUri, Uri.parse('media:/gallery/capture.jpg'));
     expect(result.jpegBytes, orderedEquals([9, 8, 7]));
-    expect(
-      phases,
-      [
-        ProcessingJobPhase.processing,
-        ProcessingJobPhase.saving,
-        ProcessingJobPhase.completed,
-      ],
-    );
+    expect(phases, [
+      ProcessingJobPhase.processing,
+      ProcessingJobPhase.saving,
+      ProcessingJobPhase.completed,
+    ]);
   });
 
   test('PF3 never saves when authoritative render fails', () async {

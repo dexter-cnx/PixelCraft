@@ -9,7 +9,8 @@ import 'package:saver_gallery/saver_gallery.dart';
 import 'platform_flow_foundation.dart';
 
 class ImagePickerMediaService implements MediaPickerService {
-  ImagePickerMediaService({ImagePicker? picker}) : _picker = picker ?? ImagePicker();
+  ImagePickerMediaService({ImagePicker? picker})
+    : _picker = picker ?? ImagePicker();
 
   final ImagePicker _picker;
 
@@ -33,7 +34,8 @@ class GalleryMediaSaveService implements MediaSaveService {
     required Uint8List bytes,
     String? suggestedName,
   }) async {
-    final fileName = suggestedName ??
+    final fileName =
+        suggestedName ??
         'dxtr-pixs-${DateTime.now().toUtc().toIso8601String().replaceAll(':', '-')}.jpg';
     final result = await SaverGallery.saveImage(
       bytes,

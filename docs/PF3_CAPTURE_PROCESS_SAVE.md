@@ -93,6 +93,14 @@ The mobile/tablet visual identity is **orange + black**. Camera/Greeting accents
 - native and fallback camera captures use the PF3 capture-save path;
 - Gallery selection continues to open `CameraFilmEditorHandoff` with a neutral `CameraLookState`.
 
+## Settings / About / What’s New
+
+- Camera Controls acts as the current mobile Settings surface.
+- Settings includes **About**.
+- About shows a **What’s New** entry whenever `currentWhatsNewId` is non-empty.
+- Opening What’s New from About is always allowed and does not modify the one-time Greeting seen-state.
+- The About What’s New page reuses the same localized feature copy as the release Greeting so release notes do not drift.
+
 ## Automated coverage
 
 `test/camera/camera_capture_pipeline_test.dart` covers authoritative source/render/save ordering and ensures render failure never reaches Gallery persistence.

@@ -42,8 +42,7 @@ class _GreetingGateState extends State<GreetingGate> {
     final seenWhatsNew = prefs.getString(_whatsNewSeenKey);
     if (!mounted) return;
     setState(() {
-      _showGreeting =
-          !permissionsPrompted || seenWhatsNew != currentWhatsNewId;
+      _showGreeting = !permissionsPrompted || seenWhatsNew != currentWhatsNewId;
       _loading = false;
     });
   }
@@ -78,7 +77,8 @@ class GreetingScreen extends StatefulWidget {
 }
 
 class _GreetingScreenState extends State<GreetingScreen> {
-  final PermissionService _permissionService = const PlatformPermissionService();
+  final PermissionService _permissionService =
+      const PlatformPermissionService();
 
   PermissionDecision? _cameraPermission;
   PermissionDecision? _galleryPermission;
@@ -141,11 +141,7 @@ class _GreetingScreenState extends State<GreetingScreen> {
               ),
             ),
           ),
-          const Positioned(
-            right: -90,
-            top: -80,
-            child: _LensGlow(size: 290),
-          ),
+          const Positioned(right: -90, top: -80, child: _LensGlow(size: 290)),
           const Positioned(
             left: -130,
             bottom: 120,
@@ -220,7 +216,9 @@ class _GreetingScreenState extends State<GreetingScreen> {
                         icon: _continuing
                             ? const SizedBox.square(
                                 dimension: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.arrow_forward_rounded),
                         label: Text('greeting.continue'.tr()),
@@ -390,7 +388,9 @@ class _PermissionLine extends StatelessWidget {
       children: [
         Icon(icon, color: Colors.white70),
         const SizedBox(width: 10),
-        Expanded(child: Text(label, style: const TextStyle(color: Colors.white70))),
+        Expanded(
+          child: Text(label, style: const TextStyle(color: Colors.white70)),
+        ),
         trailing,
       ],
     );

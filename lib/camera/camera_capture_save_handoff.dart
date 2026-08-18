@@ -81,10 +81,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         );
     }
 
-    show(
-      'camera.processing_photo'.tr(),
-      duration: const Duration(minutes: 2),
-    );
+    show('camera.processing_photo'.tr(), duration: const Duration(minutes: 2));
 
     try {
       final sourceBytes = await File(imagePath).readAsBytes();
@@ -131,8 +128,6 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
   }
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-    backgroundColor: Colors.black,
-    body: SizedBox.expand(),
-  );
+  Widget build(BuildContext context) =>
+      const Scaffold(backgroundColor: Colors.black, body: SizedBox.expand());
 }

@@ -85,10 +85,7 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
 }
 
 class CameraCaptureResult {
-  const CameraCaptureResult({
-    required this.savedUri,
-    required this.jpegBytes,
-  });
+  const CameraCaptureResult({required this.savedUri, required this.jpegBytes});
 
   final Uri savedUri;
   final Uint8List jpegBytes;

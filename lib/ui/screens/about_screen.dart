@@ -22,11 +22,7 @@ class AboutScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
         children: [
-          const Icon(
-            Icons.camera_alt_rounded,
-            color: _aboutOrange,
-            size: 54,
-          ),
+          const Icon(Icons.camera_alt_rounded, color: _aboutOrange, size: 54),
           const SizedBox(height: 14),
           Text(
             'app.title'.tr(),
@@ -47,9 +43,7 @@ class AboutScreen extends StatelessWidget {
             ListTile(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                  color: _aboutOrange.withValues(alpha: 0.28),
-                ),
+                side: BorderSide(color: _aboutOrange.withValues(alpha: 0.28)),
               ),
               tileColor: _aboutOrange.withValues(alpha: 0.08),
               leading: const Icon(Icons.auto_awesome_rounded),
@@ -62,9 +56,7 @@ class AboutScreen extends StatelessWidget {
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WhatsNewScreen(),
-                ),
+                MaterialPageRoute<void>(builder: (_) => const WhatsNewScreen()),
               ),
             ),
           ],
@@ -141,9 +133,7 @@ class _WhatsNewItem extends StatelessWidget {
           decoration: BoxDecoration(
             color: _aboutOrange.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: _aboutOrange.withValues(alpha: 0.28),
-            ),
+            border: Border.all(color: _aboutOrange.withValues(alpha: 0.28)),
           ),
           child: Icon(icon, color: _aboutOrange),
         ),

@@ -21,6 +21,11 @@
     "retry_permissions": "Ask again",
     "continue": "Continue to Camera"
   },
+  "about": {
+    "title": "About",
+    "tagline": "Camera-first photography with fast local processing.",
+    "whats_new": "What’s New"
+  },
   "camera": {
     "gallery": "Gallery",
     "film": "Film",
