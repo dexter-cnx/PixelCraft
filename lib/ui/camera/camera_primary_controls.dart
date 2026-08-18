@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../camera/camera_recent_thumbnail.dart';
+
 enum CameraPrimaryTool { film, filter, adjust }
 
 class CameraPrimaryControls extends StatelessWidget {
@@ -62,8 +64,7 @@ class CameraPrimaryControls extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: _SideAction(
-                    icon: Icons.photo_library_outlined,
+                  child: _GalleryAction(
                     label: galleryLabel,
                     onPressed: isCapturing ? null : onGalleryPressed,
                   ),
@@ -174,6 +175,50 @@ class _ToolSelector extends StatelessWidget {
               : Colors.black54,
         ),
         side: WidgetStateProperty.all(const BorderSide(color: Colors.white38)),
+      ),
+    );
+  }
+}
+
+class _GalleryAction extends StatelessWidget {
+  const _GalleryAction({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(foregroundColor: Colors.white),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ValueListenableBuilder(
+            valueListenable: CameraRecentThumbnail.instance.bytes,
+            builder: (context, bytes, _) {
+              if (bytes == null) {
+                return const Icon(Icons.photo_library_outlined, size: 26);
+              }
+              return Container(
+                width: 34,
+                height: 34,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: Colors.white70, width: 1.5),
+                ),
+                child: Image.memory(
+                  bytes,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
       ),
     );
   }

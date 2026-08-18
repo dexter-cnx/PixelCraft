@@ -8,6 +8,7 @@ import '../app/platform_flow_foundation.dart';
 import '../app/platform_media_services.dart';
 import 'camera_capture_pipeline.dart';
 import 'camera_look_state.dart';
+import 'camera_recent_thumbnail.dart';
 
 /// PF3 transient camera-capture trigger.
 ///
@@ -77,7 +78,18 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(content: Text(message), duration: duration, action: action),
+          SnackBar(
+            content: Text(message),
+            duration: duration,
+            action: action,
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.black.withValues(alpha: 0.72),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+          ),
         );
     }
 
@@ -85,7 +97,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
 
     try {
       final sourceBytes = await File(imagePath).readAsBytes();
-      await pipeline.processAndSave(
+      final result = await pipeline.processAndSave(
         sourceJpeg: sourceBytes,
         look: look,
         onPhase: (phase) {

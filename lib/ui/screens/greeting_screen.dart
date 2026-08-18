@@ -148,89 +148,97 @@ class _GreetingScreenState extends State<GreetingScreen> {
             child: _LensGlow(size: 330),
           ),
           SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 34, 24, 28),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 560),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: _CameraMark(),
+            child: LayoutBuilder(
+              builder: (context, constraints) => Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.center,
+                    child: SizedBox(
+                      width: constraints.maxWidth > 560
+                          ? 560
+                          : constraints.maxWidth,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: _CameraMark(),
+                          ),
+                          const SizedBox(height: 28),
+                          Text(
+                            'greeting.title'.tr(),
+                            style: theme.textTheme.displaySmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'greeting.subtitle'.tr(),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: Colors.white70,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 34),
+                          Text(
+                            'greeting.whats_new'.tr(),
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: _dxtrOrange,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _FeatureRow(
+                            icon: Icons.camera_alt_rounded,
+                            title: 'greeting.feature_camera_title'.tr(),
+                            body: 'greeting.feature_camera_body'.tr(),
+                          ),
+                          _FeatureRow(
+                            icon: Icons.auto_awesome_rounded,
+                            title: 'greeting.feature_looks_title'.tr(),
+                            body: 'greeting.feature_looks_body'.tr(),
+                          ),
+                          _FeatureRow(
+                            icon: Icons.speed_rounded,
+                            title: 'greeting.feature_process_title'.tr(),
+                            body: 'greeting.feature_process_body'.tr(),
+                          ),
+                          const SizedBox(height: 22),
+                          _PermissionCard(
+                            camera: _cameraPermission,
+                            gallery: _galleryPermission,
+                            requesting: _requesting,
+                            onRetry: _requestPermissions,
+                          ),
+                          const SizedBox(height: 22),
+                          FilledButton.icon(
+                            onPressed: _permissionsSettled && !_continuing
+                                ? _continue
+                                : null,
+                            icon: _continuing
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.arrow_forward_rounded),
+                            label: Text('greeting.continue'.tr()),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _dxtrOrange,
+                              foregroundColor: Colors.black,
+                              disabledBackgroundColor: const Color(0xFF422114),
+                              disabledForegroundColor: Colors.white38,
+                              minimumSize: const Size.fromHeight(54),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 28),
-                      Text(
-                        'greeting.title'.tr(),
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1.1,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'greeting.subtitle'.tr(),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.white70,
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 34),
-                      Text(
-                        'greeting.whats_new'.tr(),
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          color: _dxtrOrange,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _FeatureRow(
-                        icon: Icons.camera_alt_rounded,
-                        title: 'greeting.feature_camera_title'.tr(),
-                        body: 'greeting.feature_camera_body'.tr(),
-                      ),
-                      _FeatureRow(
-                        icon: Icons.auto_awesome_rounded,
-                        title: 'greeting.feature_looks_title'.tr(),
-                        body: 'greeting.feature_looks_body'.tr(),
-                      ),
-                      _FeatureRow(
-                        icon: Icons.speed_rounded,
-                        title: 'greeting.feature_process_title'.tr(),
-                        body: 'greeting.feature_process_body'.tr(),
-                      ),
-                      const SizedBox(height: 22),
-                      _PermissionCard(
-                        camera: _cameraPermission,
-                        gallery: _galleryPermission,
-                        requesting: _requesting,
-                        onRetry: _requestPermissions,
-                      ),
-                      const SizedBox(height: 22),
-                      FilledButton.icon(
-                        onPressed: _permissionsSettled && !_continuing
-                            ? _continue
-                            : null,
-                        icon: _continuing
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.arrow_forward_rounded),
-                        label: Text('greeting.continue'.tr()),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _dxtrOrange,
-                          foregroundColor: Colors.black,
-                          disabledBackgroundColor: const Color(0xFF422114),
-                          disabledForegroundColor: Colors.white38,
-                          minimumSize: const Size.fromHeight(54),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),

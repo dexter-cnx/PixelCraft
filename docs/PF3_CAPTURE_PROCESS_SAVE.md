@@ -115,6 +115,14 @@ This is a bootstrap/linkage correction only; it does not change Rust image-proce
 - Opening What’s New from About is always allowed and does not modify the one-time Greeting seen-state.
 - The About What’s New page reuses the same localized feature copy as the release Greeting so release notes do not drift.
 
+## Camera UX polish
+
+- capture process/save SnackBars are floating with a semi-transparent black surface so they do not visually block the camera preview;
+- after a processed JPEG is saved successfully, the Gallery control shows that latest saved image as its thumbnail for the current app session;
+- the thumbnail intentionally uses PixelCraft's own processed output and does not broaden Photo Library read permission just for decoration;
+- before the first successful save in a session, the Gallery control falls back to the standard Gallery icon;
+- Greeting is non-scrollable; it uses responsive scale-down within the available SafeArea instead of `SingleChildScrollView`.
+
 ## Automated coverage
 
 `test/camera/camera_capture_pipeline_test.dart` covers authoritative source/render/save ordering and ensures render failure never reaches Gallery persistence.
