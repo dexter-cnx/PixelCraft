@@ -22,16 +22,24 @@ class NativeCameraLookPreviewSink implements CameraLookPreviewSink {
 /// Serializes PF2 live-camera look updates and collapses rapid slider events.
 ///
 /// Only the newest pending state is sent after an in-flight native update.
+/// A short latest-value confirmation resend protects Android renderer resume
+/// races where the first post-capture control update can be accepted before the
+/// resumed camera pipeline is actually ready to render it. The confirmation is
+/// always latest-value-wins and is cancelled by [flush] before capture.
 /// Failures are reported to the caller but never mutate the canonical camera
 /// look state. Native camera frames remain outside Dart.
 class CameraLookPreviewCoordinator {
   CameraLookPreviewCoordinator({CameraLookPreviewSink? sink})
     : _sink = sink ?? const NativeCameraLookPreviewSink();
 
+  static const _confirmationDelay = Duration(milliseconds: 120);
+
   final CameraLookPreviewSink _sink;
 
   String? _rendererId;
   CameraLookState? _pending;
+  CameraLookState? _latest;
+  Timer? _confirmationTimer;
   bool _draining = false;
   int _generation = 0;
   void Function(Object error)? onFailure;
@@ -44,20 +52,30 @@ class CameraLookPreviewCoordinator {
   }
 
   void detach() {
+    _confirmationTimer?.cancel();
+    _confirmationTimer = null;
     _rendererId = null;
     _pending = null;
+    _latest = null;
     _generation++;
   }
 
   void submit(CameraLookState state) {
     if (_rendererId == null) return;
+    _latest = state;
     _pending = state;
+    _scheduleConfirmation();
     if (!_draining) {
       unawaited(_drain());
     }
   }
 
   Future<void> flush() async {
+    _confirmationTimer?.cancel();
+    _confirmationTimer = null;
+    if (_rendererId != null && _latest != null) {
+      _pending = _latest;
+    }
     while (_draining || _pending != null) {
       if (!_draining && _pending != null) {
         await _drain();
@@ -65,6 +83,21 @@ class CameraLookPreviewCoordinator {
         await Future<void>.delayed(Duration.zero);
       }
     }
+  }
+
+  void _scheduleConfirmation() {
+    _confirmationTimer?.cancel();
+    final generation = _generation;
+    _confirmationTimer = Timer(_confirmationDelay, () {
+      _confirmationTimer = null;
+      if (generation != _generation || _rendererId == null || _latest == null) {
+        return;
+      }
+      _pending = _latest;
+      if (!_draining) {
+        unawaited(_drain());
+      }
+    });
   }
 
   Future<void> _drain() async {
