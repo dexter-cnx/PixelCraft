@@ -1,10 +1,14 @@
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum CameraImageRatio { original, fourThree, threeTwo, square, sixteenNine }
 
-enum CameraCaptureOrientation { portrait, landscape }
+/// `auto` is an internal runtime mode only. It is never exposed as a camera
+/// setting; it resolves the selected ratio from the current device/view
+/// orientation so a 4:3 setting becomes 3:4 in portrait automatically.
+enum CameraCaptureOrientation { auto, portrait, landscape }
 
 extension CameraImageRatioX on CameraImageRatio {
   static const preferenceKey = 'camera.image_ratio';
@@ -27,10 +31,18 @@ extension CameraImageRatioX on CameraImageRatio {
     CameraImageRatio.sixteenNine => 16 / 9,
   };
 
+  /// Compatibility/UI getter used by the viewfinder framing guide. It is
+  /// deliberately orientation-aware even though the visible setting label is
+  /// kept stable (for example `4:3`).
+  double? get aspectRatio => aspectRatioFor(CameraCaptureOrientation.auto);
+
   double? aspectRatioFor(CameraCaptureOrientation orientation) {
     final landscape = landscapeAspectRatio;
     if (landscape == null || landscape == 1) return landscape;
-    return orientation == CameraCaptureOrientation.landscape
+    final resolved = orientation == CameraCaptureOrientation.auto
+        ? _currentCaptureOrientation()
+        : orientation;
+    return resolved == CameraCaptureOrientation.landscape
         ? landscape
         : 1 / landscape;
   }
@@ -55,7 +67,7 @@ extension CameraImageRatioX on CameraImageRatio {
 
   NormalizedCrop? cropForJpeg(
     Uint8List jpegBytes, {
-    required CameraCaptureOrientation orientation,
+    CameraCaptureOrientation orientation = CameraCaptureOrientation.auto,
   }) {
     final target = aspectRatioFor(orientation);
     if (target == null) return null;
@@ -84,6 +96,15 @@ extension CameraImageRatioX on CameraImageRatio {
       height: height,
     );
   }
+}
+
+CameraCaptureOrientation _currentCaptureOrientation() {
+  final views = PlatformDispatcher.instance.views;
+  if (views.isEmpty) return CameraCaptureOrientation.portrait;
+  final size = views.first.physicalSize;
+  return size.width > size.height
+      ? CameraCaptureOrientation.landscape
+      : CameraCaptureOrientation.portrait;
 }
 
 class NormalizedCrop {
