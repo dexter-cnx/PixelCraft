@@ -52,6 +52,13 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     );
   }
 
+  /// Compatibility bridge for the current Camera screen while the Settings
+  /// surface migrates to the explicit enabled/style model.
+  static Future<CameraCompositionGuide> load() async {
+    final settings = await loadSettings();
+    return settings.enabled ? settings.guide : CameraCompositionGuide.off;
+  }
+
   static Future<void> persistEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(enabledPreferenceKey, enabled);
@@ -61,6 +68,17 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     if (this == CameraCompositionGuide.off) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(stylePreferenceKey, wireName);
+  }
+
+  /// Compatibility bridge matching [load]. Off only toggles the guide off;
+  /// selecting a concrete guide enables it and stores the selected style.
+  Future<void> persist() async {
+    if (this == CameraCompositionGuide.off) {
+      await persistEnabled(false);
+      return;
+    }
+    await persistStyle();
+    await persistEnabled(true);
   }
 
   static Future<void> persistGoldenSpiralFlip({
