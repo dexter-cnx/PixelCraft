@@ -38,26 +38,35 @@ void main() {
       ),
     );
 
-    expect(find.byType(Image), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Image && widget.image is MemoryImage,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Image && widget.image is AssetImage,
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Film A'));
     expect(selected, 'film-a');
   });
 
-  testWidgets('shows loading fallback while previews are generated', (
-    tester,
-  ) async {
+  testWidgets('shows asset fallback and loading indicator', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: CameraLookFilmstrip(
             items: const [
               CameraLookFilmstripItem(
-                id: 'film-a',
-                label: 'Film A',
+                id: 'provia_inspired',
+                label: 'Provia',
                 index: 0,
               ),
             ],
-            selectedId: 'film-a',
+            selectedId: 'provia_inspired',
             isLoadingPreviews: true,
             onSelected: (_) {},
           ),
@@ -65,6 +74,7 @@ void main() {
       ),
     );
 
+    expect(find.byType(ColorFiltered), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }
