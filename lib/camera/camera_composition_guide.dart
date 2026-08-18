@@ -23,13 +23,6 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     CameraCompositionGuide.goldenSpiral => 'golden_spiral',
   };
 
-  String get label => switch (this) {
-    CameraCompositionGuide.off => 'Off',
-    CameraCompositionGuide.thirds => 'Thirds / Nines',
-    CameraCompositionGuide.goldenRatio => 'Golden Ratio',
-    CameraCompositionGuide.goldenSpiral => 'Golden Spiral',
-  };
-
   static CameraCompositionGuide parse(String? value) => switch (value) {
     'golden_ratio' => CameraCompositionGuide.goldenRatio,
     'golden_spiral' => CameraCompositionGuide.goldenSpiral,
@@ -122,6 +115,7 @@ class CameraGoldenSpiralFlipState {
   final value = ValueNotifier<CameraGoldenSpiralFlip>(
     const CameraGoldenSpiralFlip(horizontal: false, vertical: false),
   );
+
   Future<void>? _loading;
 
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -180,15 +174,13 @@ class _CameraCompositionGuideSettingsControlState
   }
 
   bool get _isOn => widget.value != CameraCompositionGuide.off;
-  CameraCompositionGuide get _activeGuide => _isOn
-      ? widget.value
-      : CameraCompositionGuide.thirds;
+
+  CameraCompositionGuide get _activeGuide =>
+      _isOn ? widget.value : CameraCompositionGuide.thirds;
 
   void _toggle(bool enabled) {
     if (!widget.enabled) return;
-    widget.onChanged(
-      enabled ? _activeGuide : CameraCompositionGuide.off,
-    );
+    widget.onChanged(enabled ? _activeGuide : CameraCompositionGuide.off);
   }
 
   Future<void> _showGuideDialog() async {
@@ -197,83 +189,80 @@ class _CameraCompositionGuideSettingsControlState
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF171717),
-            title: Text(
-              'camera.guide_choose'.tr(),
-              style: const TextStyle(color: Colors.white),
-            ),
-            content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final guide in const [
-                      CameraCompositionGuide.thirds,
-                      CameraCompositionGuide.goldenRatio,
-                      CameraCompositionGuide.goldenSpiral,
-                    ])
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _GuidePreviewCard(
-                          guide: guide,
-                          selected: selected == guide,
-                          frameAspectRatio: widget.frameAspectRatio,
-                          onTap: () {
-                            setDialogState(() => selected = guide);
-                            widget.onChanged(guide);
-                          },
-                        ),
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF171717),
+          title: Text(
+            'camera.guide_choose'.tr(),
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final guide in const [
+                    CameraCompositionGuide.thirds,
+                    CameraCompositionGuide.goldenRatio,
+                    CameraCompositionGuide.goldenSpiral,
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _GuidePreviewCard(
+                        guide: guide,
+                        selected: selected == guide,
+                        frameAspectRatio: widget.frameAspectRatio,
+                        onTap: () {
+                          setDialogState(() => selected = guide);
+                          widget.onChanged(guide);
+                        },
                       ),
-                    if (selected == CameraCompositionGuide.goldenSpiral)
-                      ValueListenableBuilder<CameraGoldenSpiralFlip>(
-                        valueListenable:
-                            CameraGoldenSpiralFlipState.instance.value,
-                        builder: (context, flip, _) => Column(
-                          children: [
-                            SwitchListTile.adaptive(
-                              value: flip.horizontal,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                'camera.guide_flip_horizontal'.tr(),
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                              onChanged: (value) => unawaited(
-                                CameraGoldenSpiralFlipState.instance.set(
-                                  horizontal: value,
-                                ),
+                    ),
+                  if (selected == CameraCompositionGuide.goldenSpiral)
+                    ValueListenableBuilder<CameraGoldenSpiralFlip>(
+                      valueListenable: CameraGoldenSpiralFlipState.instance.value,
+                      builder: (context, flip, _) => Column(
+                        children: [
+                          SwitchListTile.adaptive(
+                            value: flip.horizontal,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              'camera.guide_flip_horizontal'.tr(),
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            onChanged: (value) => unawaited(
+                              CameraGoldenSpiralFlipState.instance.set(
+                                horizontal: value,
                               ),
                             ),
-                            SwitchListTile.adaptive(
-                              value: flip.vertical,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                'camera.guide_flip_vertical'.tr(),
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                              onChanged: (value) => unawaited(
-                                CameraGoldenSpiralFlipState.instance.set(
-                                  vertical: value,
-                                ),
+                          ),
+                          SwitchListTile.adaptive(
+                            value: flip.vertical,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              'camera.guide_flip_vertical'.tr(),
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            onChanged: (value) => unawaited(
+                              CameraGoldenSpiralFlipState.instance.set(
+                                vertical: value,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -319,26 +308,7 @@ class _CameraCompositionGuideSettingsControlState
                   Positioned(
                     left: 12,
                     bottom: 9,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.68),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 5,
-                        ),
-                        child: Text(
-                          _guideLabel(_activeGuide),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
+                    child: _GuideLabel(guide: _activeGuide),
                   ),
                   const Positioned(
                     right: 10,
@@ -400,28 +370,36 @@ class _GuidePreviewCard extends StatelessWidget {
             Positioned(
               left: 10,
               bottom: 8,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.68),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 4,
-                  ),
-                  child: Text(
-                    _guideLabel(guide),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
+              child: _GuideLabel(guide: guide),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GuideLabel extends StatelessWidget {
+  const _GuideLabel({required this.guide});
+
+  final CameraCompositionGuide guide;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        child: Text(
+          _guideLabel(guide),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -504,11 +482,11 @@ class _CompositionGuidePainter extends CustomPainter {
       case CameraCompositionGuide.off:
         return;
       case CameraCompositionGuide.thirds:
-        final xs = <double>[
+        final xs = [
           frame.left + frame.width / 3,
           frame.left + frame.width * 2 / 3,
         ];
-        final ys = <double>[
+        final ys = [
           frame.top + frame.height / 3,
           frame.top + frame.height * 2 / 3,
         ];
@@ -530,11 +508,11 @@ class _CompositionGuidePainter extends CustomPainter {
       case CameraCompositionGuide.goldenRatio:
         const minor = 0.3819660112501051;
         const major = 1 - minor;
-        final xs = <double>[
+        final xs = [
           frame.left + frame.width * minor,
           frame.left + frame.width * major,
         ];
-        final ys = <double>[
+        final ys = [
           frame.top + frame.height * minor,
           frame.top + frame.height * major,
         ];
@@ -546,13 +524,14 @@ class _CompositionGuidePainter extends CustomPainter {
         }
         return;
       case CameraCompositionGuide.goldenSpiral:
+        final goldenFrame = _inscribedGoldenRect(frame);
         canvas.save();
         canvas.clipRect(frame);
-        canvas.translate(frame.center.dx, frame.center.dy);
+        canvas.translate(goldenFrame.center.dx, goldenFrame.center.dy);
         canvas.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
-        canvas.translate(-frame.center.dx, -frame.center.dy);
-        _drawGoldenRectangleGuide(canvas, frame, shadow);
-        _drawGoldenRectangleGuide(canvas, frame, line);
+        canvas.translate(-goldenFrame.center.dx, -goldenFrame.center.dy);
+        _drawGoldenRectangleGuide(canvas, goldenFrame, shadow);
+        _drawGoldenRectangleGuide(canvas, goldenFrame, line);
         canvas.restore();
         return;
     }
@@ -570,35 +549,44 @@ class _CompositionGuidePainter extends CustomPainter {
     return Rect.fromLTWH(0, (size.height - height) / 2, size.width, height);
   }
 
-  void _drawGoldenRectangleGuide(Canvas canvas, Rect frame, Paint paint) {
+  Rect _inscribedGoldenRect(Rect frame) {
     const phi = 1.618033988749895;
     final landscape = frame.width >= frame.height;
-    final Rect goldenFrame;
     if (landscape) {
-      final width = math.min(frame.width, frame.height * phi);
-      goldenFrame = Rect.fromLTWH(
-        frame.center.dx - width / 2,
-        frame.top,
-        width,
-        frame.height,
-      );
-    } else {
-      final height = math.min(frame.height, frame.width * phi);
-      goldenFrame = Rect.fromLTWH(
-        frame.left,
-        frame.center.dy - height / 2,
-        frame.width,
-        height,
+      var width = frame.height * phi;
+      var height = frame.height;
+      if (width > frame.width) {
+        width = frame.width;
+        height = width / phi;
+      }
+      return Rect.fromCenter(
+        center: frame.center,
+        width: width,
+        height: height,
       );
     }
 
-    canvas.drawRect(goldenFrame, paint);
+    var width = frame.width;
+    var height = width * phi;
+    if (height > frame.height) {
+      height = frame.height;
+      width = height / phi;
+    }
+    return Rect.fromCenter(
+      center: frame.center,
+      width: width,
+      height: height,
+    );
+  }
 
-    var remaining = goldenFrame;
+  void _drawGoldenRectangleGuide(Canvas canvas, Rect frame, Paint paint) {
+    canvas.drawRect(frame, paint);
+
+    var remaining = frame;
     final cuts = <_GoldenCut>[];
-    var direction = landscape ? 0 : 1;
+    var direction = frame.width >= frame.height ? 0 : 1;
 
-    for (var index = 0; index < 8; index++) {
+    for (var index = 0; index < 9; index++) {
       if (remaining.width < 2 || remaining.height < 2) break;
       final side = math.min(remaining.width, remaining.height);
       late final Rect square;
