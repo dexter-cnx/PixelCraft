@@ -25,6 +25,7 @@ void main() {
           sourceJpeg: source,
           look: look,
           imageRatio: CameraImageRatio.threeTwo,
+          captureOrientation: CameraCaptureOrientation.landscape,
           suggestedName: 'capture.jpg',
           onPhase: phases.add,
         );
@@ -32,6 +33,7 @@ void main() {
     expect(renderer.source, same(source));
     expect(renderer.look, same(look));
     expect(renderer.imageRatio, CameraImageRatio.threeTwo);
+    expect(renderer.captureOrientation, CameraCaptureOrientation.landscape);
     expect(saver.bytes, orderedEquals([9, 8, 7]));
     expect(saver.suggestedName, 'capture.jpg');
     expect(result.savedUri, Uri.parse('media:/gallery/capture.jpg'));
@@ -69,17 +71,21 @@ class _FakeRenderer implements CameraCaptureRenderer {
   Uint8List? source;
   CameraLookState? look;
   CameraImageRatio? imageRatio;
+  CameraCaptureOrientation? captureOrientation;
 
   @override
   Future<Uint8List> renderJpeg({
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
+    CameraCaptureOrientation captureOrientation =
+        CameraCaptureOrientation.auto,
     int quality = 95,
   }) async {
     source = sourceJpeg;
     this.look = look;
     this.imageRatio = imageRatio;
+    this.captureOrientation = captureOrientation;
     return output;
   }
 }
@@ -90,6 +96,8 @@ class _ThrowingRenderer implements CameraCaptureRenderer {
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
+    CameraCaptureOrientation captureOrientation =
+        CameraCaptureOrientation.auto,
     int quality = 95,
   }) async {
     throw StateError('render failed');
