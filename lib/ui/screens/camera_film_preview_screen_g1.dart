@@ -17,6 +17,7 @@ import '../../gpu/gpu_preview_capability.dart';
 import '../../gpu/ios_gpu_camera_preview.dart';
 import '../../gpu/native_gpu_camera_bridge.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
+import '../camera/camera_look_filmstrip.dart';
 import '../camera/camera_primary_controls.dart';
 import 'about_screen.dart';
 
@@ -975,73 +976,73 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     gradient: LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: [Colors.transparent, Color(0xB3000000)],
+      colors: [Colors.transparent, Color(0xA6000000)],
     ),
   );
 
   Widget _buildFilmControls() {
+    final items = <CameraLookFilmstripItem>[
+      for (var index = 0; index < cameraFilmPresets.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraFilmPresets[index].id,
+          label: cameraFilmPresets[index].name.replaceAll(' Inspired', ''),
+          index: index,
+        ),
+    ];
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 150,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 40, 0, 4),
+          padding: const EdgeInsets.fromLTRB(0, 34, 0, 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _preset.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              CameraLookFilmstrip(
+                items: items,
+                selectedId: _preset.id,
+                enabled: !_isCapturing,
+                onSelected: (id) {
+                  final preset = cameraFilmPresets.firstWhere(
+                    (candidate) => candidate.id == id,
+                  );
+                  _selectPreset(preset);
+                },
               ),
-              if (!_preset.isOriginal)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 44),
-                  child: Slider(
-                    value: _strength,
-                    min: 0,
-                    max: 1,
-                    onChanged: _isCapturing ? null : _setStrength,
-                  ),
-                )
-              else
-                const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: cameraFilmPresets.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final preset = cameraFilmPresets[index];
-                    final selected = preset.id == _preset.id;
-                    return ChoiceChip(
-                      selected: selected,
-                      label: Text(preset.name.replaceAll(' Inspired', '')),
-                      onSelected: _isCapturing
-                          ? null
-                          : (_) => _selectPreset(preset),
-                      selectedColor: Colors.white,
-                      backgroundColor: Colors.black54,
-                      side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: _preset.isOriginal
+                    ? const SizedBox(height: 2)
+                    : Padding(
+                        key: ValueKey('film-strength-${_preset.id}'),
+                        padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Slider(
+                                value: _strength,
+                                min: 0,
+                                max: 1,
+                                onChanged: _isCapturing ? null : _setStrength,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 34,
+                              child: Text(
+                                '${(_strength * 100).round()}',
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      labelStyle: TextStyle(
-                        color: selected ? Colors.black : Colors.white,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                      showCheckmark: false,
-                    );
-                  },
-                ),
               ),
             ],
           ),
@@ -1052,77 +1053,71 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   Widget _buildFilterControls() {
     final activeId = _cameraLook.creativeFilterId;
+    final items = <CameraLookFilmstripItem>[
+      CameraLookFilmstripItem(
+        id: '',
+        label: 'camera.original'.tr(),
+        index: 0,
+      ),
+      for (var index = 0; index < cameraCreativeFilters.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraCreativeFilters[index].id,
+          label: 'camera.${cameraCreativeFilters[index].id}'.tr(),
+          index: index + 1,
+        ),
+    ];
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 150,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 40, 0, 4),
+          padding: const EdgeInsets.fromLTRB(0, 34, 0, 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                activeId.isEmpty
-                    ? 'camera.original'.tr()
-                    : 'camera.$activeId'.tr(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              CameraLookFilmstrip(
+                items: items,
+                selectedId: activeId,
+                enabled: !_isCapturing,
+                onSelected: (id) =>
+                    _selectCreativeFilter(id.isEmpty ? null : id),
               ),
-              if (activeId.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 44),
-                  child: Slider(
-                    value: _cameraLook.creativeFilterStrength,
-                    min: 0,
-                    max: 1,
-                    onChanged: _isCapturing ? null : _setCreativeStrength,
-                  ),
-                )
-              else
-                const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: cameraCreativeFilters.length + 1,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final filter = index == 0
-                        ? null
-                        : cameraCreativeFilters[index - 1];
-                    final id = filter?.id ?? '';
-                    final selected = id == activeId;
-                    return ChoiceChip(
-                      selected: selected,
-                      label: Text(
-                        filter == null
-                            ? 'camera.original'.tr()
-                            : 'camera.${filter.id}'.tr(),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: activeId.isEmpty
+                    ? const SizedBox(height: 2)
+                    : Padding(
+                        key: ValueKey('filter-strength-$activeId'),
+                        padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Slider(
+                                value: _cameraLook.creativeFilterStrength,
+                                min: 0,
+                                max: 1,
+                                onChanged: _isCapturing
+                                    ? null
+                                    : _setCreativeStrength,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 34,
+                              child: Text(
+                                '${(_cameraLook.creativeFilterStrength * 100).round()}',
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      onSelected: _isCapturing
-                          ? null
-                          : (_) => _selectCreativeFilter(filter?.id),
-                      selectedColor: Colors.white,
-                      backgroundColor: Colors.black54,
-                      side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
-                      ),
-                      labelStyle: TextStyle(
-                        color: selected ? Colors.black : Colors.white,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                      showCheckmark: false,
-                    );
-                  },
-                ),
               ),
             ],
           ),
