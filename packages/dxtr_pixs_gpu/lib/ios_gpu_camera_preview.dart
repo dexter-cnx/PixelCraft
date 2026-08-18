@@ -18,11 +18,13 @@ class IosGpuCameraPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return UiKitView(
-      viewType: iosGpuCameraPreviewViewType,
-      hitTestBehavior: PlatformViewHitTestBehavior.transparent,
-      creationParams: <String, Object?>{'rendererId': rendererId},
-      creationParamsCodec: const StandardMessageCodec(),
+    return IgnorePointer(
+      child: UiKitView(
+        viewType: iosGpuCameraPreviewViewType,
+        hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+        creationParams: <String, Object?>{'rendererId': rendererId},
+        creationParamsCodec: const StandardMessageCodec(),
+      ),
     );
   }
 }
