@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum CameraCompositionGuide { thirds, goldenRatio, goldenSpiral }
+enum CameraCompositionGuide { off, thirds, goldenRatio, goldenSpiral }
 
 extension CameraCompositionGuideX on CameraCompositionGuide {
   static const enabledPreferenceKey = 'camera.composition_guide.enabled';
@@ -15,12 +15,14 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
       'camera.composition_guide.golden_spiral.flip_vertical';
 
   String get wireName => switch (this) {
+    CameraCompositionGuide.off => 'off',
     CameraCompositionGuide.thirds => 'thirds',
     CameraCompositionGuide.goldenRatio => 'golden_ratio',
     CameraCompositionGuide.goldenSpiral => 'golden_spiral',
   };
 
   String get label => switch (this) {
+    CameraCompositionGuide.off => 'Off',
     CameraCompositionGuide.thirds => 'Thirds / Nines',
     CameraCompositionGuide.goldenRatio => 'Golden Ratio',
     CameraCompositionGuide.goldenSpiral => 'Golden Spiral',
@@ -29,6 +31,7 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
   static CameraCompositionGuide parse(String? value) => switch (value) {
     'golden_ratio' => CameraCompositionGuide.goldenRatio,
     'golden_spiral' => CameraCompositionGuide.goldenSpiral,
+    'off' => CameraCompositionGuide.off,
     _ => CameraCompositionGuide.thirds,
   };
 
@@ -37,7 +40,10 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     final legacy = prefs.getString(legacyPreferenceKey);
     final explicitEnabled = prefs.getBool(enabledPreferenceKey);
     final enabled = explicitEnabled ?? (legacy != null && legacy != 'off');
-    final guide = parse(prefs.getString(stylePreferenceKey) ?? legacy);
+    var guide = parse(prefs.getString(stylePreferenceKey) ?? legacy);
+    if (guide == CameraCompositionGuide.off) {
+      guide = CameraCompositionGuide.thirds;
+    }
     return CameraCompositionGuideSettings(
       enabled: enabled,
       guide: guide,
@@ -52,6 +58,7 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
   }
 
   Future<void> persistStyle() async {
+    if (this == CameraCompositionGuide.off) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(stylePreferenceKey, wireName);
   }
@@ -95,17 +102,22 @@ class CameraCompositionGuideOverlay extends StatelessWidget {
   final bool flipVertical;
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: CustomPaint(
-      painter: _CompositionGuidePainter(
-        guide: guide,
-        frameAspectRatio: frameAspectRatio,
-        flipHorizontal: flipHorizontal,
-        flipVertical: flipVertical,
+  Widget build(BuildContext context) {
+    if (guide == CameraCompositionGuide.off) {
+      return const SizedBox.shrink();
+    }
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _CompositionGuidePainter(
+          guide: guide,
+          frameAspectRatio: frameAspectRatio,
+          flipHorizontal: flipHorizontal,
+          flipVertical: flipVertical,
+        ),
+        size: Size.infinite,
       ),
-      size: Size.infinite,
-    ),
-  );
+    );
+  }
 }
 
 class _CompositionGuidePainter extends CustomPainter {
@@ -141,6 +153,8 @@ class _CompositionGuidePainter extends CustomPainter {
     }
 
     switch (guide) {
+      case CameraCompositionGuide.off:
+        return;
       case CameraCompositionGuide.thirds:
         final xs = <double>[
           frame.left + frame.width / 3,
@@ -233,7 +247,6 @@ class _CompositionGuidePainter extends CustomPainter {
     canvas.drawRect(goldenFrame, paint);
 
     var remaining = goldenFrame;
-    final squares = <Rect>[];
     final cuts = <_GoldenCut>[];
     var direction = landscape ? 0 : 1;
 
@@ -242,80 +255,81 @@ class _CompositionGuidePainter extends CustomPainter {
       final side = math.min(remaining.width, remaining.height);
       late final Rect square;
       late final Rect next;
-      switch (direction % 4) {
-        case 0: // left
-          square = Rect.fromLTWH(remaining.left, remaining.top, side, side);
-          next = Rect.fromLTRB(
-            square.right,
-            remaining.top,
-            remaining.right,
-            remaining.bottom,
+      final cutDirection = direction % 4;
+
+      if (cutDirection == 0) {
+        square = Rect.fromLTWH(remaining.left, remaining.top, side, side);
+        next = Rect.fromLTRB(
+          square.right,
+          remaining.top,
+          remaining.right,
+          remaining.bottom,
+        );
+        if (next.width > 0) {
+          canvas.drawLine(
+            Offset(square.right, remaining.top),
+            Offset(square.right, remaining.bottom),
+            paint,
           );
-          if (next.width > 0) {
-            canvas.drawLine(
-              Offset(square.right, remaining.top),
-              Offset(square.right, remaining.bottom),
-              paint,
-            );
-          }
-        case 1: // top
-          square = Rect.fromLTWH(remaining.left, remaining.top, side, side);
-          next = Rect.fromLTRB(
-            remaining.left,
-            square.bottom,
-            remaining.right,
-            remaining.bottom,
+        }
+      } else if (cutDirection == 1) {
+        square = Rect.fromLTWH(remaining.left, remaining.top, side, side);
+        next = Rect.fromLTRB(
+          remaining.left,
+          square.bottom,
+          remaining.right,
+          remaining.bottom,
+        );
+        if (next.height > 0) {
+          canvas.drawLine(
+            Offset(remaining.left, square.bottom),
+            Offset(remaining.right, square.bottom),
+            paint,
           );
-          if (next.height > 0) {
-            canvas.drawLine(
-              Offset(remaining.left, square.bottom),
-              Offset(remaining.right, square.bottom),
-              paint,
-            );
-          }
-        case 2: // right
-          square = Rect.fromLTWH(
-            remaining.right - side,
-            remaining.top,
-            side,
-            side,
+        }
+      } else if (cutDirection == 2) {
+        square = Rect.fromLTWH(
+          remaining.right - side,
+          remaining.top,
+          side,
+          side,
+        );
+        next = Rect.fromLTRB(
+          remaining.left,
+          remaining.top,
+          square.left,
+          remaining.bottom,
+        );
+        if (next.width > 0) {
+          canvas.drawLine(
+            Offset(square.left, remaining.top),
+            Offset(square.left, remaining.bottom),
+            paint,
           );
-          next = Rect.fromLTRB(
-            remaining.left,
-            remaining.top,
-            square.left,
-            remaining.bottom,
+        }
+      } else {
+        square = Rect.fromLTWH(
+          remaining.left,
+          remaining.bottom - side,
+          side,
+          side,
+        );
+        next = Rect.fromLTRB(
+          remaining.left,
+          remaining.top,
+          remaining.right,
+          square.top,
+        );
+        if (next.height > 0) {
+          canvas.drawLine(
+            Offset(remaining.left, square.top),
+            Offset(remaining.right, square.top),
+            paint,
           );
-          if (next.width > 0) {
-            canvas.drawLine(
-              Offset(square.left, remaining.top),
-              Offset(square.left, remaining.bottom),
-              paint,
-            );
-          }
-        default: // bottom
-          square = Rect.fromLTWH(
-            remaining.left,
-            remaining.bottom - side,
-            side,
-            side,
-          );
-          next = Rect.fromLTRB(
-            remaining.left,
-            remaining.top,
-            remaining.right,
-            square.top,
-          );
-          if (next.height > 0) {
-            canvas.drawLine(
-              Offset(remaining.left, square.top),
-              Offset(remaining.right, square.top),
-              paint,
-            );
-          }
+        }
       }
-      squares.add(square);
-      cuts.add(_GoldenCut(direction % 4, square));
+
+      cuts.add(_GoldenCut(cutDirection, square));
       remaining = next;
       direction++;
     }
@@ -327,23 +341,22 @@ class _CompositionGuidePainter extends CustomPainter {
       late final Offset start;
       late final Offset end;
       late final Offset control;
-      switch (cut.direction) {
-        case 0:
-          start = square.bottomLeft;
-          end = square.topRight;
-          control = square.topLeft;
-        case 1:
-          start = square.topLeft;
-          end = square.bottomRight;
-          control = square.topRight;
-        case 2:
-          start = square.topRight;
-          end = square.bottomLeft;
-          control = square.bottomRight;
-        default:
-          start = square.bottomRight;
-          end = square.topLeft;
-          control = square.bottomLeft;
+      if (cut.direction == 0) {
+        start = square.bottomLeft;
+        end = square.topRight;
+        control = square.topLeft;
+      } else if (cut.direction == 1) {
+        start = square.topLeft;
+        end = square.bottomRight;
+        control = square.topRight;
+      } else if (cut.direction == 2) {
+        start = square.topRight;
+        end = square.bottomLeft;
+        control = square.bottomRight;
+      } else {
+        start = square.bottomRight;
+        end = square.topLeft;
+        control = square.bottomLeft;
       }
       if (!started) {
         spiral.moveTo(start.dx, start.dy);
