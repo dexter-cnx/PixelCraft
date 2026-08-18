@@ -432,7 +432,7 @@ struct GpuFramePacingSnapshot {
       "averageCommandCompletionMs": averageCommandCompletionMs,
       "p95CommandCompletionMs": p95CommandCompletionMs,
       "p99CommandCompletionMs": p99CommandCompletionMs,
-      "maxCommandCompletionMs": completionSorted.last ?? 0,
+      "maxCommandCompletionMs": maxCommandCompletionMs,
       "source": "mtkView+avcapture+metalCompletion",
     ]
   }
