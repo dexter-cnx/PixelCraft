@@ -40,9 +40,11 @@ public final class PixelcraftGpuPlugin: NSObject, FlutterPlugin {
     case .portraitUpsideDown:
       return "portraitUpsideDown"
     case .landscapeLeft:
-      return "landscapeLeft"
-    case .landscapeRight:
+      // UIDevice and capture/image orientation use opposite landscape naming.
+      // Keep the preview portrait-locked; this value is only capture metadata.
       return "landscapeRight"
+    case .landscapeRight:
+      return "landscapeLeft"
     default:
       return "unknown"
     }
