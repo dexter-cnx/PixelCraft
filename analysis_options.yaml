@@ -12,3 +12,7 @@ analyzer:
 linter:
   rules:
     prefer_final_locals: true
+    # Camera capability probes intentionally swallow CameraException when a
+    # flash mode is unsupported; the result is represented by the capability
+    # flags instead of an error path.
+    empty_catches: false
