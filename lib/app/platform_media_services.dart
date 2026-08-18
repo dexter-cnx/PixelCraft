@@ -62,8 +62,8 @@ class PlatformPermissionService implements PermissionService {
       _request('requestGalleryWrite');
 
   @override
-  Future<PermissionDecision> requestGalleryRead() async =>
-      PermissionDecision.denied;
+  Future<PermissionDecision> requestGalleryRead() =>
+      _request('requestGalleryRead');
 
   Future<PermissionDecision> _request(String method) async {
     if (kIsWeb ||
