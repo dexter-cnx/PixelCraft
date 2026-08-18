@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../camera/camera_recent_thumbnail.dart';
@@ -45,9 +47,6 @@ class CameraPrimaryControls extends StatelessWidget {
         ),
       ),
       child: Padding(
-        // Keep the primary control strip below the PF2 Film/Filter/Adjust
-        // panels. The previous 42px top padding made this widget overlap the
-        // look panel ChoiceChips and intercept their pointer events.
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -180,16 +179,27 @@ class _ToolSelector extends StatelessWidget {
   }
 }
 
-class _GalleryAction extends StatelessWidget {
+class _GalleryAction extends StatefulWidget {
   const _GalleryAction({required this.label, required this.onPressed});
 
   final String label;
   final VoidCallback? onPressed;
 
   @override
+  State<_GalleryAction> createState() => _GalleryActionState();
+}
+
+class _GalleryActionState extends State<_GalleryAction> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(CameraRecentThumbnail.instance.ensureLoaded());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return TextButton(
-      onPressed: onPressed,
+      onPressed: widget.onPressed,
       style: TextButton.styleFrom(foregroundColor: Colors.white),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -217,7 +227,7 @@ class _GalleryAction extends StatelessWidget {
             },
           ),
           const SizedBox(height: 4),
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
     );
