@@ -152,16 +152,9 @@ class NativeGpuCameraBridge {
 
   Future<NativeCameraControlState> controlState(String rendererId) async {
     var state = await _control('cameraControlState', rendererId);
-    if (defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS) {
-      try {
-        final orientation = NativeCameraDeviceOrientationWire.parse(
-          await _orientationChannel.invokeMethod<String>('orientation'),
-        );
-        if (orientation != NativeCameraDeviceOrientation.unknown) {
-          state = state.withOrientation(orientation);
-        }
-      } catch (_) {}
+    final orientation = await _physicalOrientation();
+    if (orientation != NativeCameraDeviceOrientation.unknown) {
+      state = state.withOrientation(_displayOrientation(orientation));
     }
     return state;
   }
@@ -188,10 +181,10 @@ class NativeGpuCameraBridge {
   });
 
   Future<NativeCameraCaptureResult> capturePhoto(String rendererId) async {
-    // Snapshot physical orientation immediately before shutter. Preview remains
-    // portrait-locked; this metadata is used only if the resulting JPEG/EXIF
-    // shape disagrees with the physical device orientation.
-    final state = await controlState(rendererId);
+    // Snapshot the raw physical/capture orientation immediately before shutter.
+    // This deliberately bypasses controlState(), whose landscape direction is
+    // transformed for portrait-locked UI overlays such as the zoom indicator.
+    final captureOrientation = await _physicalOrientation();
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'capturePhoto',
       <String, Object?>{
@@ -204,14 +197,9 @@ class NativeGpuCameraBridge {
       throw StateError('Native GPU camera capture returned no file path');
     }
 
-    final carriesPhysicalOrientation =
-        defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS;
     return NativeCameraCaptureResult(
       path: path,
-      deviceOrientation: carriesPhysicalOrientation
-          ? state.deviceOrientation
-          : NativeCameraDeviceOrientation.unknown,
+      deviceOrientation: captureOrientation,
     );
   }
 
@@ -225,6 +213,33 @@ class NativeGpuCameraBridge {
     );
     return result?['lensDirection'] as String? ?? '';
   }
+
+  Future<NativeCameraDeviceOrientation> _physicalOrientation() async {
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return NativeCameraDeviceOrientation.unknown;
+    }
+    try {
+      return NativeCameraDeviceOrientationWire.parse(
+        await _orientationChannel.invokeMethod<String>('orientation'),
+      );
+    } catch (_) {
+      return NativeCameraDeviceOrientation.unknown;
+    }
+  }
+
+  NativeCameraDeviceOrientation _displayOrientation(
+    NativeCameraDeviceOrientation orientation,
+  ) => switch (orientation) {
+    // Capture/image semantics and the portrait-locked overlay's readable
+    // rotation use opposite landscape naming. Keep them separate so fixing the
+    // zoom label cannot regress the already-validated saved-photo orientation.
+    NativeCameraDeviceOrientation.landscapeLeft =>
+      NativeCameraDeviceOrientation.landscapeRight,
+    NativeCameraDeviceOrientation.landscapeRight =>
+      NativeCameraDeviceOrientation.landscapeLeft,
+    _ => orientation,
+  };
 
   Future<NativeCameraControlState> _control(
     String method,
