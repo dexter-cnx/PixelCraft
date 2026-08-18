@@ -107,11 +107,16 @@ class PixelcraftGpuPlugin : FlutterPlugin,
         orientationListener = object : OrientationEventListener(context.applicationContext) {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
+                // OrientationEventListener reports the clockwise rotation of the
+                // device from its natural portrait position. Name the physical
+                // side consistently with the corrective pixel rotation used by
+                // the shared capture pipeline: ~90° needs +90° clockwise, while
+                // ~270° needs -90°/+270°.
                 physicalOrientation = when {
                     orientation >= 315 || orientation < 45 -> "portrait"
-                    orientation < 135 -> "landscapeRight"
+                    orientation < 135 -> "landscapeLeft"
                     orientation < 225 -> "portraitUpsideDown"
-                    else -> "landscapeLeft"
+                    else -> "landscapeRight"
                 }
             }
         }.also { listener ->
