@@ -1,12 +1,14 @@
 package dev.pixelcraft.pixelcraft
 
 import android.Manifest
-import android.app.Activity
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.OrientationEventListener
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
 
 /**
@@ -20,19 +22,24 @@ class PixelcraftGpuPlugin : FlutterPlugin,
     PluginRegistry.RequestPermissionsResultListener {
     companion object {
         private const val CAMERA_PERMISSION_REQUEST = 2401
+        private const val ORIENTATION_CHANNEL = "dev.pixelcraft/camera_orientation_v1"
     }
 
     private var activityBinding: ActivityPluginBinding? = null
     private var pendingCameraPermission: ((Boolean) -> Unit)? = null
     private var channel: GpuPreviewChannel? = null
     private var sessions: GpuPreviewRendererSessionRegistry? = null
+    private var orientationChannel: MethodChannel? = null
+    private var orientationListener: OrientationEventListener? = null
+    @Volatile private var physicalOrientation: String = "portrait"
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        val registry = GpuPreviewRendererSessionRegistry(binding.applicationContext)
+        val appContext = binding.applicationContext
+        val registry = GpuPreviewRendererSessionRegistry(appContext)
         sessions = registry
         channel = GpuPreviewChannel(
             messenger = binding.binaryMessenger,
-            context = binding.applicationContext,
+            context = appContext,
             sessions = registry,
             requestCameraPermission = ::requestCameraPermission,
         )
@@ -40,11 +47,16 @@ class PixelcraftGpuPlugin : FlutterPlugin,
             GPU_CAMERA_PREVIEW_VIEW_TYPE,
             GpuCameraPreviewViewFactory(registry),
         )
+        registerOrientationChannel(binding, appContext)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         pendingCameraPermission?.invoke(false)
         pendingCameraPermission = null
+        orientationListener?.disable()
+        orientationListener = null
+        orientationChannel?.setMethodCallHandler(null)
+        orientationChannel = null
         channel?.dispose()
         channel = null
         sessions = null
@@ -77,6 +89,34 @@ class PixelcraftGpuPlugin : FlutterPlugin,
         pendingCameraPermission?.invoke(granted)
         pendingCameraPermission = null
         return true
+    }
+
+    private fun registerOrientationChannel(
+        binding: FlutterPlugin.FlutterPluginBinding,
+        context: Context,
+    ) {
+        orientationChannel = MethodChannel(binding.binaryMessenger, ORIENTATION_CHANNEL).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method == "orientation") {
+                    result.success(physicalOrientation)
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
+        orientationListener = object : OrientationEventListener(context.applicationContext) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                physicalOrientation = when {
+                    orientation >= 315 || orientation < 45 -> "portrait"
+                    orientation < 135 -> "landscapeRight"
+                    orientation < 225 -> "portraitUpsideDown"
+                    else -> "landscapeLeft"
+                }
+            }
+        }.also { listener ->
+            if (listener.canDetectOrientation()) listener.enable()
+        }
     }
 
     private fun requestCameraPermission(callback: (Boolean) -> Unit) {
