@@ -15,7 +15,8 @@ import io.flutter.plugin.common.PluginRegistry
  * Native registration boundary for PixelCraft's preview-only Android GPU path.
  *
  * Camera frames stay in Camera2/OpenGL native memory. Dart receives only
- * control/state messages and clean capture paths.
+ * control/state messages, bounded on-demand preview snapshots, and clean
+ * capture paths.
  */
 class PixelcraftGpuPlugin : FlutterPlugin,
     ActivityAware,
@@ -23,6 +24,7 @@ class PixelcraftGpuPlugin : FlutterPlugin,
     companion object {
         private const val CAMERA_PERMISSION_REQUEST = 2401
         private const val ORIENTATION_CHANNEL = "dev.pixelcraft/camera_orientation_v1"
+        private const val PREVIEW_SNAPSHOT_CHANNEL = "dev.pixelcraft/gpu_preview_snapshot_v1"
     }
 
     private var activityBinding: ActivityPluginBinding? = null
@@ -30,6 +32,7 @@ class PixelcraftGpuPlugin : FlutterPlugin,
     private var channel: GpuPreviewChannel? = null
     private var sessions: GpuPreviewRendererSessionRegistry? = null
     private var orientationChannel: MethodChannel? = null
+    private var previewSnapshotChannel: MethodChannel? = null
     private var orientationListener: OrientationEventListener? = null
     @Volatile private var physicalOrientation: String = "portrait"
 
@@ -48,6 +51,7 @@ class PixelcraftGpuPlugin : FlutterPlugin,
             GpuCameraPreviewViewFactory(registry),
         )
         registerOrientationChannel(binding, appContext)
+        registerPreviewSnapshotChannel(binding)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -57,6 +61,8 @@ class PixelcraftGpuPlugin : FlutterPlugin,
         orientationListener = null
         orientationChannel?.setMethodCallHandler(null)
         orientationChannel = null
+        previewSnapshotChannel?.setMethodCallHandler(null)
+        previewSnapshotChannel = null
         channel?.dispose()
         channel = null
         sessions = null
@@ -91,6 +97,38 @@ class PixelcraftGpuPlugin : FlutterPlugin,
         return true
     }
 
+    private fun registerPreviewSnapshotChannel(binding: FlutterPlugin.FlutterPluginBinding) {
+        previewSnapshotChannel = MethodChannel(
+            binding.binaryMessenger,
+            PREVIEW_SNAPSHOT_CHANNEL,
+        ).also { snapshotChannel ->
+            snapshotChannel.setMethodCallHandler { call, result ->
+                if (call.method != "snapshot") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val maxEdge = (call.argument<Number>("maxEdge")?.toInt() ?: 180)
+                    .coerceIn(96, 512)
+                val qualityValue = call.argument<Number>("jpegQuality")?.toDouble() ?: 0.72
+                val jpegQuality = (qualityValue.coerceIn(0.4, 0.95) * 100.0).toInt()
+                try {
+                    result.success(
+                        GpuCameraPreviewSnapshotSource.snapshot(
+                            maxEdge = maxEdge,
+                            jpegQuality = jpegQuality,
+                        ),
+                    )
+                } catch (error: Throwable) {
+                    result.error(
+                        "gpu_preview_snapshot_failed",
+                        error.message ?: "Android live preview snapshot failed",
+                        null,
+                    )
+                }
+            }
+        }
+    }
+
     private fun registerOrientationChannel(
         binding: FlutterPlugin.FlutterPluginBinding,
         context: Context,
@@ -107,11 +145,6 @@ class PixelcraftGpuPlugin : FlutterPlugin,
         orientationListener = object : OrientationEventListener(context.applicationContext) {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
-                // OrientationEventListener reports the clockwise rotation of the
-                // device from its natural portrait position. Name the physical
-                // side consistently with the corrective pixel rotation used by
-                // the shared capture pipeline: ~90° needs +90° clockwise, while
-                // ~270° needs -90°/+270°.
                 physicalOrientation = when {
                     orientation >= 315 || orientation < 45 -> "portrait"
                     orientation < 135 -> "landscapeLeft"
