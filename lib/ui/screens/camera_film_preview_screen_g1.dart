@@ -888,14 +888,11 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           children: [
             _buildViewfinder(),
             _buildTopBar(),
-            if (_toolPanelExpanded &&
-                _selectedTool == CameraPrimaryTool.film)
+            if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.film)
               _buildFilmControls(),
-            if (_toolPanelExpanded &&
-                _selectedTool == CameraPrimaryTool.filter)
+            if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.filter)
               _buildFilterControls(),
-            if (_toolPanelExpanded &&
-                _selectedTool == CameraPrimaryTool.adjust)
+            if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.adjust)
               _buildAdjustControls(),
             _buildActiveAdjustmentIndicators(),
             Positioned(
@@ -1344,7 +1341,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     onPressed: _isCapturing ? null : _resetAllAdjustments,
                     icon: const Icon(Icons.restart_alt_rounded, size: 18),
                     label: const Text('Reset All'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                    ),
                   ),
                 ],
               ),
