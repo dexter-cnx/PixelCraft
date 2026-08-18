@@ -22,14 +22,39 @@ extension CameraCaptureOrientationX on CameraCaptureOrientation {
       this == CameraCaptureOrientation.landscapeLeft ||
       this == CameraCaptureOrientation.landscapeRight;
 
-  /// Clockwise quarter turns required when a portrait-oriented source must be
-  /// normalized to the physical shutter orientation.
   int get clockwiseQuarterTurns => switch (this) {
     CameraCaptureOrientation.landscapeLeft => 1,
     CameraCaptureOrientation.portraitUpsideDown => 2,
     CameraCaptureOrientation.landscapeRight => 3,
     _ => 0,
   };
+
+  /// Returns a corrective pixel rotation only when the JPEG's actual oriented
+  /// shape disagrees with the physical shutter orientation. This prevents the
+  /// previous unconditional Android correction from double-rotating JPEGs that
+  /// Camera2/EXIF already made landscape.
+  int correctiveQuarterTurnsForJpeg(Uint8List jpegBytes) {
+    if (this == CameraCaptureOrientation.auto) return 0;
+    final info = _readJpegInfo(jpegBytes);
+    if (info == null) return 0;
+    final swapsAxes = info.exifOrientation >= 5 && info.exifOrientation <= 8;
+    final orientedWidth = swapsAxes ? info.height : info.width;
+    final orientedHeight = swapsAxes ? info.width : info.height;
+    final sourceIsLandscape = orientedWidth >= orientedHeight;
+    if (sourceIsLandscape == isLandscape) return 0;
+
+    // The problematic physical-device case is a portrait-oriented JPEG from a
+    // landscape shutter. Directional physical orientation tells Rust which way
+    // to turn after its normal JPEG/EXIF decode normalization.
+    if (!sourceIsLandscape && isLandscape) {
+      return this == CameraCaptureOrientation.landscapeRight ? 3 : 1;
+    }
+
+    // Do not guess a portrait correction from a landscape source. Camera2 and
+    // AVFoundation normally describe portrait stills correctly through EXIF;
+    // leaving it unchanged is safer than manufacturing a second rotation.
+    return 0;
+  }
 }
 
 extension CameraImageRatioX on CameraImageRatio {
@@ -96,9 +121,6 @@ extension CameraImageRatioX on CameraImageRatio {
     CameraCaptureOrientation resolvedOrientation;
 
     if (orientation != CameraCaptureOrientation.auto) {
-      // Native physical orientation is authoritative. Some Android Camera2
-      // implementations keep portrait JPEG metadata even for a landscape
-      // shutter, so do not let stale EXIF decide the target aspect here.
       resolvedOrientation = orientation;
       if (orientation.isLandscape) {
         orientedWidth = info.width >= info.height ? info.width : info.height;
