@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../app/platform_flow_foundation.dart';
 import '../core/bridge.dart';
 import '../src/rust/api.dart' as rust;
+import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 
 /// Final-pixel PF3 renderer contract.
@@ -14,6 +15,7 @@ abstract interface class CameraCaptureRenderer {
   Future<Uint8List> renderJpeg({
     required Uint8List sourceJpeg,
     required CameraLookState look,
+    CameraImageRatio imageRatio = CameraImageRatio.original,
     int quality = 95,
   });
 }
@@ -40,6 +42,7 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
   Future<Uint8List> renderJpeg({
     required Uint8List sourceJpeg,
     required CameraLookState look,
+    CameraImageRatio imageRatio = CameraImageRatio.original,
     int quality = 95,
   }) {
     final adjustments = <String, double>{
@@ -49,10 +52,24 @@ class RustCameraCaptureRenderer implements CameraCaptureRenderer {
     final filmStrength = look.filmStrength;
     final creativeFilterId = look.creativeFilterId;
     final creativeFilterStrength = look.creativeFilterStrength;
+    final crop = imageRatio.cropForJpeg(sourceJpeg);
 
     return Isolate.run(() async {
       await initializeRustBridge();
       rust.loadImage(bytes: sourceJpeg);
+
+      // Ratio is an authoritative framing operation, not a stretched resize.
+      // Apply it before CameraLook so spatial effects such as vignette are
+      // evaluated against the final composition.
+      if (crop != null &&
+          (crop.x > 0 || crop.y > 0 || crop.width < 1 || crop.height < 1)) {
+        rust.applyCrop(
+          x: crop.x,
+          y: crop.y,
+          width: crop.width,
+          height: crop.height,
+        );
+      }
 
       for (final id in _adjustmentOrder) {
         final value = adjustments[id]!;
@@ -106,6 +123,7 @@ class CameraCapturePipeline {
   Future<CameraCaptureResult> processAndSave({
     required Uint8List sourceJpeg,
     required CameraLookState look,
+    CameraImageRatio imageRatio = CameraImageRatio.original,
     String? suggestedName,
     void Function(ProcessingJobPhase phase)? onPhase,
   }) async {
@@ -113,6 +131,7 @@ class CameraCapturePipeline {
     final rendered = await _renderer.renderJpeg(
       sourceJpeg: sourceJpeg,
       look: look,
+      imageRatio: imageRatio,
     );
 
     onPhase?.call(ProcessingJobPhase.saving);
