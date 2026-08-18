@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../camera/camera_film_presets.dart';
 import '../../camera/camera_recent_thumbnail.dart';
@@ -39,6 +42,10 @@ class CameraLookFilmstrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      unawaited(_LivePreviewSnapshotSource.instance.refresh());
+    }
+
     return SizedBox(
       height: 126,
       child: ListView.separated(
@@ -142,45 +149,60 @@ class _PreviewTile extends StatelessWidget {
     }
 
     return ValueListenableBuilder<Uint8List?>(
-      valueListenable: CameraRecentThumbnail.instance.bytes,
-      builder: (context, recentBytes, _) {
-        final Widget image = recentBytes != null && recentBytes.isNotEmpty
-            ? _buildPreviewImage(recentBytes)
-            : const ColoredBox(
-                color: Color(0xFF202020),
-                child: Center(
-                  child: Icon(
-                    Icons.photo_camera_outlined,
-                    color: Colors.white38,
-                    size: 24,
-                  ),
-                ),
-              );
-        final filter = _fallbackColorFilter(item.id);
-
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            if (filter == null)
-              image
-            else
-              ColorFiltered(colorFilter: filter, child: image),
-            if (isLoading)
-              const ColoredBox(
-                color: Color(0x44000000),
-                child: Center(
-                  child: SizedBox.square(
-                    dimension: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ),
-              ),
-          ],
+      valueListenable: _LivePreviewSnapshotSource.instance.bytes,
+      builder: (context, liveBytes, _) {
+        if (liveBytes != null && liveBytes.isNotEmpty) {
+          return _buildFallbackPreview(liveBytes);
+        }
+        return ValueListenableBuilder<Uint8List?>(
+          valueListenable: CameraRecentThumbnail.instance.bytes,
+          builder: (context, recentBytes, _) {
+            if (recentBytes != null && recentBytes.isNotEmpty) {
+              return _buildFallbackPreview(recentBytes);
+            }
+            return _buildFallbackPreview(null);
+          },
         );
       },
+    );
+  }
+
+  Widget _buildFallbackPreview(Uint8List? sourceBytes) {
+    final Widget image = sourceBytes != null && sourceBytes.isNotEmpty
+        ? _buildPreviewImage(sourceBytes)
+        : const ColoredBox(
+            color: Color(0xFF202020),
+            child: Center(
+              child: Icon(
+                Icons.photo_camera_outlined,
+                color: Colors.white38,
+                size: 24,
+              ),
+            ),
+          );
+    final filter = _fallbackColorFilter(item.id);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (filter == null)
+          image
+        else
+          ColorFiltered(colorFilter: filter, child: image),
+        if (isLoading)
+          const ColoredBox(
+            color: Color(0x44000000),
+            child: Center(
+              child: SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -192,6 +214,61 @@ class _PreviewTile extends StatelessWidget {
     cacheWidth: 180,
     cacheHeight: 180,
   );
+}
+
+class _LivePreviewSnapshotSource {
+  _LivePreviewSnapshotSource._();
+
+  static final instance = _LivePreviewSnapshotSource._();
+  static const _channel = MethodChannel('dev.pixelcraft/gpu_preview_snapshot_v1');
+  static const _minimumRefreshInterval = Duration(milliseconds: 180);
+
+  final ValueNotifier<Uint8List?> bytes = ValueNotifier<Uint8List?>(null);
+  Future<void>? _pending;
+  DateTime? _lastRequestedAt;
+
+  Future<void> refresh() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+      return Future<void>.value();
+    }
+    final pending = _pending;
+    if (pending != null) return pending;
+    final now = DateTime.now();
+    final lastRequestedAt = _lastRequestedAt;
+    if (lastRequestedAt != null &&
+        now.difference(lastRequestedAt) < _minimumRefreshInterval) {
+      return Future<void>.value();
+    }
+    _lastRequestedAt = now;
+    final future = _request();
+    _pending = future;
+    return future.whenComplete(() {
+      if (identical(_pending, future)) _pending = null;
+    });
+  }
+
+  Future<void> _request() async {
+    try {
+      final snapshot = await _channel.invokeMethod<Uint8List>(
+        'snapshot',
+        const <String, Object?>{
+          'maxEdge': 180,
+          'jpegQuality': 0.72,
+        },
+      );
+      if (snapshot != null && snapshot.isNotEmpty) {
+        bytes.value = Uint8List.fromList(snapshot);
+      }
+    } on PlatformException catch (error) {
+      if (kDebugMode) {
+        debugPrint('[PF3][LookPreview] live snapshot unavailable: $error');
+      }
+    } on MissingPluginException catch (error) {
+      if (kDebugMode) {
+        debugPrint('[PF3][LookPreview] live snapshot channel unavailable: $error');
+      }
+    }
+  }
 }
 
 ColorFilter? _fallbackColorFilter(String id) {
