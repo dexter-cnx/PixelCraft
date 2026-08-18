@@ -6,20 +6,22 @@ Branch: `feature/pf3-capture-process-save`
 
 Base: `main`
 
-UX refinement in progress on this branch: request Gallery-write permission during Camera startup, and keep capture processing/saving feedback on the Camera screen through SnackBars instead of navigating to a processing page.
+PF3 UX now follows the camera-first mobile direction: permissions are handled before Camera use, capture processing stays on the Camera screen, and the mobile/tablet visual identity uses an orange-black palette rather than the previous purple accents.
 
 ## Goal
 
 PF3 replaces the temporary PF2 camera capture → Editor handoff with the product capture flow:
 
 ```text
-clean camera JPEG
-+ final CameraLookState
+Greeting / What's New when required
+ -> permissions settled
+ -> Camera
+ -> clean camera JPEG + final CameraLookState
  -> Rust authoritative full-resolution render
  -> JPEG
  -> MediaSaveService
  -> system Gallery
- -> return/remain in Camera
+ -> remain in Camera
 ```
 
 Gallery-picked/external sources remain on the normal Editor path and are not routed through the camera capture-save pipeline.
@@ -28,93 +30,81 @@ Gallery-picked/external sources remain on the normal Editor path and are not rou
 
 1. Camera/GPU preview pixels are never final-output authority.
 2. Native camera capture remains a clean JPEG input.
-3. The final CameraLook is rendered by Rust in deterministic order:
-   - Exposure
-   - Temperature
-   - Tint
-   - Brightness
-   - Contrast
-   - Saturation
-   - Vignette
-   - Film
-   - Creative Filter
+3. The final CameraLook is rendered by Rust in deterministic order: Adjust → Film → Creative Filter.
 4. Flutter/MethodChannel never receives live camera frame buffers.
 5. Processed camera output is JPEG.
 6. `GalleryMediaSaveService` owns only platform Gallery persistence; it does not own image semantics.
 7. A render failure must never save clean or partially processed bytes as if PF3 succeeded.
 8. Temporary clean capture remains available on failure so Retry can use the exact same source.
 9. Gallery-picked/external sources remain neutral and unchanged by the active CameraLook.
-10. A neutral camera capture is still a camera capture; capture-vs-Gallery routing must never be inferred from whether `CameraLookState` is neutral.
+10. A neutral camera capture is still a camera capture; routing is explicit and never inferred from look neutrality.
 
-## Current implementation
+## Greeting / What's New gate
+
+`lib/ui/screens/greeting_screen.dart`
+
+- first run shows a branded Greeting screen before Camera;
+- Camera and Gallery-write permission are requested from this flow rather than after shutter;
+- the screen contains app title, key feature highlights, permission status, and a Continue-to-Camera action;
+- the gate persists `permissions_prompted` and the latest `currentWhatsNewId` with SharedPreferences;
+- when `currentWhatsNewId` changes for a future release, What's New appears once again and then remains hidden until the next ID change;
+- normal launches skip this screen when permissions were already prompted and the current What's New ID was already seen.
+
+The initial mobile/tablet visual identity is **orange + black**. Camera/Greeting accents use `#FF6A00` against black/dark surfaces. This replaces the earlier purple visual direction.
+
+## Permission behavior
+
+`lib/app/platform_media_services.dart` provides `PlatformPermissionService` through a small platform MethodChannel.
+
+- iOS requests Camera and Photo Library add-only access;
+- Android requests Camera access;
+- Android 10+ Gallery write resolves without a storage prompt because PF3 adds new MediaStore items;
+- Android 9 and earlier request legacy `WRITE_EXTERNAL_STORAGE`;
+- system permission dialogs therefore occur before the user enters the normal shutter flow.
+
+## Capture processing behavior
 
 `lib/camera/camera_capture_pipeline.dart`
 
-- `CameraCaptureRenderer` isolates final-pixel rendering from platform persistence.
-- `RustCameraCaptureRenderer` executes the complete CameraLook inside one background isolate.
-- `CameraCapturePipeline` enforces render-before-save sequencing.
-- output is exported as JPEG from Rust before reaching `MediaSaveService`.
-
-`lib/app/platform_media_services.dart`
-
-- `GalleryMediaSaveService` saves the Rust-generated JPEG to the system Gallery.
-- Android relative path remains `Pictures/Dxtr Pixs`.
+- `CameraCaptureRenderer` isolates final-pixel rendering from platform persistence;
+- `RustCameraCaptureRenderer` executes the complete CameraLook inside one background isolate;
+- `CameraCapturePipeline` enforces render-before-save sequencing;
+- Rust-exported JPEG bytes, never preview pixels, are passed to Gallery save.
 
 `lib/camera/camera_capture_save_handoff.dart`
 
-- camera-only PF3 processing/save destination;
-- reads the clean capture, invokes PF3 render/save, deletes the temporary source after success, and returns to Camera;
-- failure keeps the temporary source so Retry can rerun the same clean capture;
-- Cancel cleans up the temporary source.
-
-`lib/camera/camera_film_editor_handoff.dart`
-
-- remains the PF2 Editor handoff for Gallery/external sources;
-- PF3 does not repurpose it.
+- the capture handoff is now transient rather than a processing destination;
+- it immediately returns visual focus to Camera;
+- processing, Gallery save, success, and failure/Retry feedback are presented with Camera-level SnackBars;
+- no standalone processing screen is shown after shutter.
 
 `lib/ui/screens/camera_film_preview_screen_g1.dart`
 
-- shutter/native capture routes to `CameraCaptureSaveHandoff`;
-- fallback camera capture routes to `CameraCaptureSaveHandoff`;
-- Gallery selection continues to route to `CameraFilmEditorHandoff` with a neutral `CameraLookState`.
-
-## Current UI behavior
-
-During camera-capture processing the user sees a short processing/saving state. After Gallery save succeeds the flow returns to Camera and shows a localized saved confirmation.
-
-PF3 does not automatically open the Editor after shutter. Gallery selection still opens the Editor.
+- native and fallback camera captures use the PF3 capture-save path;
+- Gallery selection continues to open `CameraFilmEditorHandoff` with a neutral `CameraLookState`.
 
 ## Automated coverage
 
-`test/camera/camera_capture_pipeline_test.dart`
+`test/camera/camera_capture_pipeline_test.dart` covers authoritative source/render/save ordering and ensures render failure never reaches Gallery persistence.
 
-Covers:
-
-- clean source bytes are passed to the authoritative renderer;
-- rendered JPEG bytes, not source bytes, are passed to Gallery save;
-- phase order is `processing -> saving -> completed`;
-- render failure prevents Gallery save.
-
-CI also runs `flutter test test/camera` as a dedicated camera gate.
+The canonical CI remains the repository `Pixel Craft CI`; PF3 must not carry temporary workflow files into merge.
 
 ## Remaining validation
 
 Before PF3 can close:
 
-- CI/analyze/tests green on exact head;
-- physical Android capture with neutral look;
-- physical Android combined Film + Filter + Adjust capture;
-- physical iOS neutral capture;
-- physical iOS combined Film + Filter + Adjust capture;
-- verify saved item appears in system Gallery;
-- verify saved JPEG visually corresponds to final CameraLook;
-- verify shutter after a final slider movement uses the committed final value;
-- verify repeated captures do not navigate into Editor;
-- verify Gallery still opens the normal Editor path;
-- verify Camera resumes correctly after each save;
-- verify failure/retry and temporary-source cleanup where practical;
-- update `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, and README only after the verified final head is known.
+- exact-head CI/analyze/tests green;
+- first-run Greeting and permission flow on Android and iPhone;
+- What's New appears once for `currentWhatsNewId`, then skips on subsequent launch;
+- Android neutral and combined Film + Filter + Adjust capture/save;
+- iPhone neutral and combined Film + Filter + Adjust capture/save;
+- saved JPEG visually corresponds to the committed final CameraLook;
+- capture processing/saving feedback remains on Camera via SnackBars;
+- failure/Retry preserves the clean temporary source where practical;
+- Gallery still opens the normal Editor path;
+- Camera remains responsive/resumes correctly after save;
+- update `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, and README after the verified final head is known.
 
 ## Merge policy
 
-PF2 is merged. PF3 is now rebased directly onto `main`, and the diff has been reduced to PF3-only files. The PR remains Draft until exact-head CI and Android/iOS physical validation pass.
+PF2 is merged. PF3 remains Draft until exact-head CI and Android/iOS physical validation pass.
