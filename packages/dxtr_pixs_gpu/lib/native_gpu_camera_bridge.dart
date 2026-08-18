@@ -152,12 +152,15 @@ class NativeGpuCameraBridge {
 
   Future<NativeCameraControlState> controlState(String rendererId) async {
     var state = await _control('cameraControlState', rendererId);
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
+    if (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) {
       try {
         final orientation = NativeCameraDeviceOrientationWire.parse(
           await _orientationChannel.invokeMethod<String>('orientation'),
         );
-        state = state.withOrientation(orientation);
+        if (orientation != NativeCameraDeviceOrientation.unknown) {
+          state = state.withOrientation(orientation);
+        }
       } catch (_) {}
     }
     return state;
