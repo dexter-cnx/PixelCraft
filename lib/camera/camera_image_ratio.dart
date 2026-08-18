@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum CameraImageRatio { original, fourThree, threeTwo, square, sixteenNine }
 
+enum CameraCaptureOrientation { portrait, landscape }
+
 extension CameraImageRatioX on CameraImageRatio {
   static const preferenceKey = 'camera.image_ratio';
 
@@ -17,13 +19,21 @@ extension CameraImageRatioX on CameraImageRatio {
 
   String get label => wireName == 'original' ? 'Original' : wireName;
 
-  double? get aspectRatio => switch (this) {
+  double? get landscapeAspectRatio => switch (this) {
     CameraImageRatio.original => null,
     CameraImageRatio.fourThree => 4 / 3,
     CameraImageRatio.threeTwo => 3 / 2,
     CameraImageRatio.square => 1,
     CameraImageRatio.sixteenNine => 16 / 9,
   };
+
+  double? aspectRatioFor(CameraCaptureOrientation orientation) {
+    final landscape = landscapeAspectRatio;
+    if (landscape == null || landscape == 1) return landscape;
+    return orientation == CameraCaptureOrientation.landscape
+        ? landscape
+        : 1 / landscape;
+  }
 
   static CameraImageRatio parse(String? value) => switch (value) {
     '4:3' => CameraImageRatio.fourThree,
@@ -43,8 +53,11 @@ extension CameraImageRatioX on CameraImageRatio {
     return parse(prefs.getString(preferenceKey));
   }
 
-  NormalizedCrop? cropForJpeg(Uint8List jpegBytes) {
-    final target = aspectRatio;
+  NormalizedCrop? cropForJpeg(
+    Uint8List jpegBytes, {
+    required CameraCaptureOrientation orientation,
+  }) {
+    final target = aspectRatioFor(orientation);
     if (target == null) return null;
     final dimensions = _readJpegDimensions(jpegBytes);
     if (dimensions == null) {
