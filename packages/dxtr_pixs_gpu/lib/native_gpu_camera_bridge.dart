@@ -110,7 +110,8 @@ class NativeGpuCameraBridge {
     MethodChannel? channel,
     MethodChannel? orientationChannel,
   }) : _channel = channel ?? const MethodChannel(gpuPreviewChannelName),
-       _orientationChannel = orientationChannel ??
+       _orientationChannel =
+           orientationChannel ??
            const MethodChannel('dev.pixelcraft/camera_orientation_v1');
 
   final MethodChannel _channel;
@@ -246,14 +247,12 @@ class NativeGpuCameraBridge {
     String rendererId, [
     Map<String, Object?> extra = const <String, Object?>{},
   ]) async {
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      method,
-      <String, Object?>{
-        'protocolVersion': gpuPreviewProtocolVersion,
-        'rendererId': rendererId,
-        ...extra,
-      },
-    );
+    final result = await _channel
+        .invokeMapMethod<Object?, Object?>(method, <String, Object?>{
+          'protocolVersion': gpuPreviewProtocolVersion,
+          'rendererId': rendererId,
+          ...extra,
+        });
     return NativeCameraControlState.fromMap(result);
   }
 }

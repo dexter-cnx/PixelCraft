@@ -365,9 +365,11 @@ class _SideAction extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.tune, size: 26, shadows: [
-            Shadow(color: Colors.black, blurRadius: 4),
-          ]),
+          const Icon(
+            Icons.tune,
+            size: 26,
+            shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+          ),
           const SizedBox(height: 4),
           Text(
             label,

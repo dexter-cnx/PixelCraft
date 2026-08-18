@@ -113,7 +113,9 @@ extension CameraImageRatioX on CameraImageRatio {
   }) {
     final info = _readJpegInfo(jpegBytes);
     if (info == null) {
-      throw const FormatException('Unable to read JPEG dimensions for ratio crop');
+      throw const FormatException(
+        'Unable to read JPEG dimensions for ratio crop',
+      );
     }
 
     int orientedWidth;
@@ -147,20 +149,10 @@ extension CameraImageRatioX on CameraImageRatio {
     }
     if (sourceAspect > target) {
       final width = target / sourceAspect;
-      return NormalizedCrop(
-        x: (1 - width) / 2,
-        y: 0,
-        width: width,
-        height: 1,
-      );
+      return NormalizedCrop(x: (1 - width) / 2, y: 0, width: width, height: 1);
     }
     final height = sourceAspect / target;
-    return NormalizedCrop(
-      x: 0,
-      y: (1 - height) / 2,
-      width: 1,
-      height: height,
-    );
+    return NormalizedCrop(x: 0, y: (1 - height) / 2, width: 1, height: height);
   }
 }
 
@@ -228,14 +220,11 @@ _JpegInfo? _readJpegInfo(Uint8List bytes) {
     if (marker == 0xE1 && segmentLength >= 10) {
       final payloadStart = offset + 2;
       final payloadEnd = offset + segmentLength;
-      exifOrientation = _readExifOrientation(
-        bytes,
-        payloadStart,
-        payloadEnd,
-      );
+      exifOrientation = _readExifOrientation(bytes, payloadStart, payloadEnd);
     }
 
-    final isSof = (marker >= 0xC0 && marker <= 0xC3) ||
+    final isSof =
+        (marker >= 0xC0 && marker <= 0xC3) ||
         (marker >= 0xC5 && marker <= 0xC7) ||
         (marker >= 0xC9 && marker <= 0xCB) ||
         (marker >= 0xCD && marker <= 0xCF);

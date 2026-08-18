@@ -636,7 +636,9 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final look = _cameraLook;
     final capture = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
-    _cameraControls = _cameraControls.withOrientation(capture.deviceOrientation);
+    _cameraControls = _cameraControls.withOrientation(
+      capture.deviceOrientation,
+    );
     await _saveCapture(
       capture.path,
       look: look,
@@ -981,9 +983,8 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                     value: _compositionGuide,
                     frameAspectRatio: _imageRatio.aspectRatio,
                     enabled: !_isCapturing,
-                    onChanged: (guide) => unawaited(
-                      refresh(() => _setCompositionGuide(guide)),
-                    ),
+                    onChanged: (guide) =>
+                        unawaited(refresh(() => _setCompositionGuide(guide))),
                   ),
                   const SizedBox(height: 18),
                   Text(

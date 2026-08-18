@@ -64,7 +64,9 @@ class _GpuColorCharacterizationScreenState
       }
       final permission = await _cameraBridge.requestCameraPermission();
       if (!permission) {
-        throw StateError('Camera permission is required for color characterization.');
+        throw StateError(
+          'Camera permission is required for color characterization.',
+        );
       }
 
       final rendererId = await _gpuBridge.createRenderer();
@@ -108,7 +110,10 @@ class _GpuColorCharacterizationScreenState
       final capture = await _cameraBridge.capturePhoto(rendererId);
       final cleanBytes = await File(capture.path).readAsBytes();
 
-      final loaded = await _engine.loadImageInBackground(cleanBytes, maxEdge: 512);
+      final loaded = await _engine.loadImageInBackground(
+        cleanBytes,
+        maxEdge: 512,
+      );
       final filmPreviews = await _engine.generateFilmProfilePreviews(
         cleanBytes,
         const [_profileId],
@@ -116,10 +121,14 @@ class _GpuColorCharacterizationScreenState
       );
       final rustFilmBytes = filmPreviews[_profileId];
       if (rustFilmBytes == null) {
-        throw StateError('Rust did not return the Velvia characterization preview.');
+        throw StateError(
+          'Rust did not return the Velvia characterization preview.',
+        );
       }
 
-      final rustSourceMean = await _centerSquareMeanRgb(loaded.originalPreviewBytes);
+      final rustSourceMean = await _centerSquareMeanRgb(
+        loaded.originalPreviewBytes,
+      );
       final rustFilmMean = await _centerSquareMeanRgb(rustFilmBytes);
       final sourceDelta = _delta(native.sourceMeanRgb, rustSourceMean);
       final filmDelta = _delta(native.filmMeanRgb, rustFilmMean);
@@ -210,14 +219,18 @@ class _GpuColorCharacterizationScreenState
                           )
                         : const Icon(Icons.color_lens_outlined),
                     label: Text(
-                      _measuring ? 'Characterizing…' : 'Capture & Characterize Color',
+                      _measuring
+                          ? 'Characterizing…'
+                          : 'Capture & Characterize Color',
                     ),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 10),
                     Text(
                       _error!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ],
                   if (_result != null) ...[
@@ -277,10 +290,10 @@ class _GpuColorCharacterizationScreenState
   }
 
   static List<double> _delta(List<double> a, List<double> b) => [
-        (a[0] - b[0]).abs(),
-        (a[1] - b[1]).abs(),
-        (a[2] - b[2]).abs(),
-      ];
+    (a[0] - b[0]).abs(),
+    (a[1] - b[1]).abs(),
+    (a[2] - b[2]).abs(),
+  ];
 
   static String _fmt(List<double> rgb) =>
       rgb.map((value) => value.toStringAsFixed(4)).join(',');
@@ -312,59 +325,59 @@ class _ColorResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card.filled(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Center ROI color statistics',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 10),
-              _rgbRow('Native source', result.native.sourceMeanRgb),
-              _rgbRow('Rust clean JPEG', result.rustSourceMean),
-              _rgbRow('Source |Δ|', result.sourceDelta),
-              _metric('Source max Δ', result.sourceMaxDelta.toStringAsFixed(4)),
-              const Divider(height: 24),
-              _rgbRow('Native Film estimate', result.native.filmMeanRgb),
-              _rgbRow('Rust Velvia', result.rustFilmMean),
-              _rgbRow('Film |Δ|', result.filmDelta),
-              _metric('Film max Δ', result.filmMaxDelta.toStringAsFixed(4)),
-              const Divider(height: 24),
-              _metric('Native samples', '${result.native.samples}'),
-              _metric('ROI', result.native.roi),
-              _metric('Native format', result.native.pixelFormat),
-              const SizedBox(height: 8),
-              const Text(
-                'Record these deviations as the camera/still color-path characterization. Rust final rendering remains authoritative.',
-              ),
-            ],
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Center ROI color statistics',
+            style: Theme.of(context).textTheme.titleSmall,
           ),
-        ),
-      );
+          const SizedBox(height: 10),
+          _rgbRow('Native source', result.native.sourceMeanRgb),
+          _rgbRow('Rust clean JPEG', result.rustSourceMean),
+          _rgbRow('Source |Δ|', result.sourceDelta),
+          _metric('Source max Δ', result.sourceMaxDelta.toStringAsFixed(4)),
+          const Divider(height: 24),
+          _rgbRow('Native Film estimate', result.native.filmMeanRgb),
+          _rgbRow('Rust Velvia', result.rustFilmMean),
+          _rgbRow('Film |Δ|', result.filmDelta),
+          _metric('Film max Δ', result.filmMaxDelta.toStringAsFixed(4)),
+          const Divider(height: 24),
+          _metric('Native samples', '${result.native.samples}'),
+          _metric('ROI', result.native.roi),
+          _metric('Native format', result.native.pixelFormat),
+          const SizedBox(height: 8),
+          const Text(
+            'Record these deviations as the camera/still color-path characterization. Rust final rendering remains authoritative.',
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget _rgbRow(String label, List<double> rgb) => _metric(
-        label,
-        'R ${rgb[0].toStringAsFixed(4)}  '
-        'G ${rgb[1].toStringAsFixed(4)}  '
-        'B ${rgb[2].toStringAsFixed(4)}',
-      );
+    label,
+    'R ${rgb[0].toStringAsFixed(4)}  '
+    'G ${rgb[1].toStringAsFixed(4)}  '
+    'B ${rgb[2].toStringAsFixed(4)}',
+  );
 
   Widget _metric(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(width: 132, child: Text(label)),
-            Expanded(
-              child: SelectableText(
-                value,
-                textAlign: TextAlign.right,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 132, child: Text(label)),
+        Expanded(
+          child: SelectableText(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }

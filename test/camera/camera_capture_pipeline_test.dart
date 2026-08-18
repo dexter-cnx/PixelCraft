@@ -34,10 +34,7 @@ void main() {
     expect(renderer.source, same(source));
     expect(renderer.look, same(look));
     expect(renderer.imageRatio, CameraImageRatio.threeTwo);
-    expect(
-      renderer.captureOrientation,
-      CameraCaptureOrientation.landscapeLeft,
-    );
+    expect(renderer.captureOrientation, CameraCaptureOrientation.landscapeLeft);
     expect(renderer.zoomFactor, 2.25);
     expect(saver.bytes, orderedEquals([9, 8, 7]));
     expect(saver.suggestedName, 'capture.jpg');
@@ -84,8 +81,7 @@ class _FakeRenderer implements CameraCaptureRenderer {
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
-    CameraCaptureOrientation captureOrientation =
-        CameraCaptureOrientation.auto,
+    CameraCaptureOrientation captureOrientation = CameraCaptureOrientation.auto,
     double zoomFactor = 1,
     int quality = 95,
   }) async {
@@ -104,8 +100,7 @@ class _ThrowingRenderer implements CameraCaptureRenderer {
     required Uint8List sourceJpeg,
     required CameraLookState look,
     CameraImageRatio imageRatio = CameraImageRatio.original,
-    CameraCaptureOrientation captureOrientation =
-        CameraCaptureOrientation.auto,
+    CameraCaptureOrientation captureOrientation = CameraCaptureOrientation.auto,
     double zoomFactor = 1,
     int quality = 95,
   }) async {

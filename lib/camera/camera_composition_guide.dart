@@ -220,7 +220,8 @@ class _CameraCompositionGuideSettingsControlState
                     ),
                   if (selected == CameraCompositionGuide.goldenSpiral)
                     ValueListenableBuilder<CameraGoldenSpiralFlip>(
-                      valueListenable: CameraGoldenSpiralFlipState.instance.value,
+                      valueListenable:
+                          CameraGoldenSpiralFlipState.instance.value,
                       builder: (context, flip, _) => Column(
                         children: [
                           SwitchListTile.adaptive(
@@ -367,11 +368,7 @@ class _GuidePreviewCard extends StatelessWidget {
               guide: guide,
               frameAspectRatio: frameAspectRatio,
             ),
-            Positioned(
-              left: 10,
-              bottom: 8,
-              child: _GuideLabel(guide: guide),
-            ),
+            Positioned(left: 10, bottom: 8, child: _GuideLabel(guide: guide)),
           ],
         ),
       ),
@@ -572,11 +569,7 @@ class _CompositionGuidePainter extends CustomPainter {
       height = frame.height;
       width = height / phi;
     }
-    return Rect.fromCenter(
-      center: frame.center,
-      width: width,
-      height: height,
-    );
+    return Rect.fromCenter(center: frame.center, width: width, height: height);
   }
 
   void _drawGoldenRectangleGuide(Canvas canvas, Rect frame, Paint paint) {
