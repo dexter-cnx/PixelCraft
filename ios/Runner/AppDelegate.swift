@@ -1,3 +1,4 @@
+import AVFoundation
 import Flutter
 import Photos
 import UIKit
@@ -22,22 +23,45 @@ import UIKit
     )
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "requestCamera":
+        Self.requestCamera(result)
       case "requestGalleryWrite":
-        if #available(iOS 14, *) {
-          PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            DispatchQueue.main.async {
-              result(Self.permissionDecision(for: status))
-            }
-          }
-        } else {
-          PHPhotoLibrary.requestAuthorization { status in
-            DispatchQueue.main.async {
-              result(Self.permissionDecision(for: status))
-            }
-          }
-        }
+        Self.requestGalleryWrite(result)
       default:
         result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private static func requestCamera(_ result: @escaping FlutterResult) {
+    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    case .authorized:
+      result("granted")
+    case .restricted, .denied:
+      result("restricted")
+    case .notDetermined:
+      AVCaptureDevice.requestAccess(for: .video) { granted in
+        DispatchQueue.main.async {
+          result(granted ? "granted" : "restricted")
+        }
+      }
+    @unknown default:
+      result("denied")
+    }
+  }
+
+  private static func requestGalleryWrite(_ result: @escaping FlutterResult) {
+    if #available(iOS 14, *) {
+      PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+        DispatchQueue.main.async {
+          result(permissionDecision(for: status))
+        }
+      }
+    } else {
+      PHPhotoLibrary.requestAuthorization { status in
+        DispatchQueue.main.async {
+          result(permissionDecision(for: status))
+        }
       }
     }
   }
@@ -46,9 +70,7 @@ import UIKit
     switch status {
     case .authorized, .limited:
       return "granted"
-    case .restricted:
-      return "restricted"
-    case .denied:
+    case .restricted, .denied:
       return "restricted"
     case .notDetermined:
       return "denied"
