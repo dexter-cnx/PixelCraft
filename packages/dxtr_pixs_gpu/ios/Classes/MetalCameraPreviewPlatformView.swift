@@ -35,12 +35,23 @@ final class MetalCameraPreviewPlatformView: NSObject, FlutterPlatformView {
   private let registry: MetalRendererRegistry
   private let metalView: PixelCraftMetalView
   private var framePacingProxy: MetalFramePacingDelegateProxy?
+  private var orientationObserver: NSObjectProtocol?
 
   init(frame: CGRect, rendererId: String, registry: MetalRendererRegistry) {
     self.rendererId = rendererId
     self.registry = registry
     self.metalView = PixelCraftMetalView(frame: frame)
     super.init()
+
+    UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+    orientationObserver = NotificationCenter.default.addObserver(
+      forName: UIDevice.orientationDidChangeNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self else { return }
+      self.updateOrientation(for: self.metalView)
+    }
 
     metalView.onLayout = { [weak self] view in
       self?.updateOrientation(for: view)
@@ -73,6 +84,10 @@ final class MetalCameraPreviewPlatformView: NSObject, FlutterPlatformView {
   }
 
   deinit {
+    if let orientationObserver {
+      NotificationCenter.default.removeObserver(orientationObserver)
+    }
+    UIDevice.current.endGeneratingDeviceOrientationNotifications()
     if let renderer = try? registry.renderer(id: rendererId) {
       renderer.setDiagnosticsMonitor(nil)
     }
@@ -88,10 +103,21 @@ final class MetalCameraPreviewPlatformView: NSObject, FlutterPlatformView {
   }
 
   private func currentOrientation(for view: UIView) -> UIInterfaceOrientation {
-    if let orientation = view.window?.windowScene?.interfaceOrientation {
-      return orientation
+    switch UIDevice.current.orientation {
+    case .portrait:
+      return .portrait
+    case .portraitUpsideDown:
+      return .portraitUpsideDown
+    case .landscapeLeft:
+      return .landscapeRight
+    case .landscapeRight:
+      return .landscapeLeft
+    default:
+      if let orientation = view.window?.windowScene?.interfaceOrientation {
+        return orientation
+      }
+      return .portrait
     }
-    return .portrait
   }
 }
 
@@ -419,7 +445,7 @@ struct GpuFramePacingSnapshot {
       "p95FrameMs": p95FrameMs,
       "p99FrameMs": p99FrameMs,
       "maxFrameMs": maxFrameMs,
-      "over40MsFrames": over40MsFrames,
+      "over40MsFrames": intervalsMs.filter { $0 > 40.0 }.count,
       "captureFrameCount": captureFrameCount,
       "captureFps": captureFps,
       "averageCaptureMs": averageCaptureMs,
