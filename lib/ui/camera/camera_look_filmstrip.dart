@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 const _accent = Color(0xFFFF6A00);
@@ -7,11 +9,13 @@ class CameraLookFilmstripItem {
     required this.id,
     required this.label,
     required this.index,
+    this.previewBytes,
   });
 
   final String id;
   final String label;
   final int index;
+  final Uint8List? previewBytes;
 }
 
 class CameraLookFilmstrip extends StatelessWidget {
@@ -20,6 +24,7 @@ class CameraLookFilmstrip extends StatelessWidget {
     required this.selectedId,
     required this.onSelected,
     this.enabled = true,
+    this.isLoadingPreviews = false,
     super.key,
   });
 
@@ -27,22 +32,12 @@ class CameraLookFilmstrip extends StatelessWidget {
   final String selectedId;
   final ValueChanged<String> onSelected;
   final bool enabled;
-
-  static const _palettes = <List<Color>>[
-    [Color(0xFF343434), Color(0xFF111111)],
-    [Color(0xFF7E715F), Color(0xFF314450)],
-    [Color(0xFF8C5D34), Color(0xFF44653D)],
-    [Color(0xFF826C65), Color(0xFF53606F)],
-    [Color(0xFF95653C), Color(0xFF24323B)],
-    [Color(0xFF5A6D58), Color(0xFF3C373B)],
-    [Color(0xFF6D5368), Color(0xFF343A4A)],
-    [Color(0xFF8A7656), Color(0xFF485660)],
-  ];
+  final bool isLoadingPreviews;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 116,
+      height: 126,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
@@ -52,7 +47,6 @@ class CameraLookFilmstrip extends StatelessWidget {
         itemBuilder: (context, index) {
           final item = items[index];
           final selected = item.id == selectedId;
-          final palette = _palettes[item.index % _palettes.length];
           return Semantics(
             button: true,
             selected: selected,
@@ -65,15 +59,16 @@ class CameraLookFilmstrip extends StatelessWidget {
                 curve: Curves.easeOutCubic,
                 scale: selected ? 1 : 0.94,
                 child: SizedBox(
-                  width: 88,
+                  width: 94,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
-                        width: selected ? 76 : 68,
-                        height: selected ? 76 : 68,
+                        width: selected ? 84 : 76,
+                        height: selected ? 84 : 76,
                         decoration: BoxDecoration(
+                          color: const Color(0xFF191919),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             color: selected ? _accent : Colors.white24,
@@ -89,39 +84,9 @@ class CameraLookFilmstrip extends StatelessWidget {
                               : null,
                         ),
                         clipBehavior: Clip.antiAlias,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: palette,
-                            ),
-                          ),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Positioned(
-                                left: -12,
-                                bottom: -18,
-                                child: Container(
-                                  width: 64,
-                                  height: 64,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withValues(alpha: 0.12),
-                                  ),
-                                ),
-                              ),
-                              if (item.id.isEmpty || item.id == 'original')
-                                const Center(
-                                  child: Icon(
-                                    Icons.circle_outlined,
-                                    color: Colors.white70,
-                                    size: 26,
-                                  ),
-                                ),
-                            ],
-                          ),
+                        child: _PreviewTile(
+                          bytes: item.previewBytes,
+                          isLoading: isLoadingPreviews,
                         ),
                       ),
                       const SizedBox(height: 7),
@@ -156,6 +121,50 @@ class CameraLookFilmstrip extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _PreviewTile extends StatelessWidget {
+  const _PreviewTile({required this.bytes, required this.isLoading});
+
+  final Uint8List? bytes;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = bytes;
+    if (preview != null) {
+      return Image.memory(
+        preview,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        cacheWidth: 180,
+        cacheHeight: 180,
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const ColoredBox(color: Color(0xFF202020)),
+        Center(
+          child: isLoading
+              ? const SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white54,
+                  ),
+                )
+              : const Icon(
+                  Icons.photo_camera_outlined,
+                  color: Colors.white38,
+                  size: 24,
+                ),
+        ),
+      ],
     );
   }
 }
