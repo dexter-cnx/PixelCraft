@@ -12,9 +12,6 @@ import 'camera_look_state.dart';
 import 'camera_recent_thumbnail.dart';
 
 /// PF3 transient camera-capture trigger.
-///
-/// This route pops immediately, then completes authoritative processing/save in
-/// the background while feedback is shown through the Camera ScaffoldMessenger.
 class CameraCaptureSaveHandoff extends StatefulWidget {
   const CameraCaptureSaveHandoff({
     super.key,
@@ -22,6 +19,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
     required this.look,
     this.imageRatio = CameraImageRatio.original,
     this.captureOrientation = CameraCaptureOrientation.auto,
+    this.zoomFactor = 1,
     this.captureRenderer,
     this.mediaSaveService,
   });
@@ -30,6 +28,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
   final CameraLookState look;
   final CameraImageRatio imageRatio;
   final CameraCaptureOrientation captureOrientation;
+  final double zoomFactor;
   final CameraCaptureRenderer? captureRenderer;
   final MediaSaveService? mediaSaveService;
 
@@ -53,6 +52,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     final look = widget.look;
     final imageRatio = widget.imageRatio;
     final captureOrientation = widget.captureOrientation;
+    final zoomFactor = widget.zoomFactor;
     final pipeline = CameraCapturePipeline(
       renderer: widget.captureRenderer ?? const RustCameraCaptureRenderer(),
       saveService: widget.mediaSaveService ?? const GalleryMediaSaveService(),
@@ -68,6 +68,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
           look: look,
           imageRatio: imageRatio,
           captureOrientation: captureOrientation,
+          zoomFactor: zoomFactor,
         ),
       );
     });
@@ -80,6 +81,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     required CameraLookState look,
     required CameraImageRatio imageRatio,
     required CameraCaptureOrientation captureOrientation,
+    required double zoomFactor,
   }) async {
     void show(
       String message, {
@@ -123,6 +125,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         look: look,
         imageRatio: imageRatio,
         captureOrientation: captureOrientation,
+        zoomFactor: zoomFactor,
         onPhase: (phase) {
           if (phase == ProcessingJobPhase.saving) {
             show(
@@ -149,6 +152,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
               look: look,
               imageRatio: imageRatio,
               captureOrientation: captureOrientation,
+              zoomFactor: zoomFactor,
             ),
           ),
         ),
@@ -160,9 +164,7 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     try {
       final source = File(imagePath);
       if (await source.exists()) await source.delete();
-    } catch (_) {
-      // Temporary-source cleanup failure must not invalidate a saved result.
-    }
+    } catch (_) {}
   }
 
   @override
