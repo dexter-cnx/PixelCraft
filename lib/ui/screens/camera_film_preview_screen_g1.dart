@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:easy_localization/easy_localization.dart';
