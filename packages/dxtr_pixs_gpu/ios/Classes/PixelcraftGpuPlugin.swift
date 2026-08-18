@@ -6,11 +6,13 @@ import UIKit
 public final class PixelcraftGpuPlugin: NSObject, FlutterPlugin {
   private static var previewPlugin: GpuPreviewPlugin?
   private static var editorPreviewPlugin: GpuEditorPreviewPlugin?
+  private static var livePreviewSnapshotChannel: LivePreviewSnapshotChannel?
   private static var orientationChannel: FlutterMethodChannel?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     previewPlugin = GpuPreviewPlugin(registrar: registrar)
     editorPreviewPlugin = GpuEditorPreviewPlugin(registrar: registrar)
+    livePreviewSnapshotChannel = LivePreviewSnapshotChannel(registrar: registrar)
     registerOrientationChannel(messenger: registrar.messenger())
     GpuFramePacingDiagnostics.shared.register(messenger: registrar.messenger())
     GpuEditorVerificationDiagnostics.shared.register(messenger: registrar.messenger())
