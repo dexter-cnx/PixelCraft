@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 const iosGpuCameraPreviewViewType = 'dev.pixelcraft/gpu_camera_preview_v1';
