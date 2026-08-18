@@ -66,10 +66,15 @@ jobs:
       return;
     }
 
-    if (_isLookTrayOpen) {
-      final sameTool = tool == _selectedTool;
+    if (_isLookTrayOpen && tool == _selectedTool) {
       await _confirmOpenLookTray();
-      if (!mounted || sameTool) return;
+      return;
+    }
+
+    if (_isLookTrayOpen &&
+        (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter)) {
+      await _confirmOpenLookTray();
+      if (!mounted) return;
     }
 
     final willExpand = tool != _selectedTool || !_toolPanelExpanded;
@@ -86,28 +91,23 @@ jobs:
   void _selectTool(CameraPrimaryTool tool) {
     unawaited(_handleToolSelection(tool));
   }
-
-  Future<void> _runAfterConfirmingLook(Future<void> Function() action) async {
-    await _confirmOpenLookTray();
-    if (!mounted) return;
-    await action();
-  }
 '''
           if old not in text:
               raise SystemExit('selectTool block not found')
           text = text.replace(old, new, 1)
 
-          replacements = {
-            'onGalleryPressed: _pickGallery,': "onGalleryPressed: () => unawaited(\n                    _runAfterConfirmingLook(_pickGallery),\n                  ),",
-            'onShutterPressed: _capture,': "onShutterPressed: () => unawaited(\n                    _runAfterConfirmingLook(_capture),\n                  ),",
-            'onControlsPressed: _showCameraControls,': "onControlsPressed: () => unawaited(\n                    _runAfterConfirmingLook(_showCameraControls),\n                  ),",
-            "? () => unawaited(_cycleFlashMode())": "? () => unawaited(\n                      _runAfterConfirmingLook(_cycleFlashMode),\n                    )",
-            "? () => unawaited(_switchCamera())": "? () => unawaited(\n                      _runAfterConfirmingLook(_switchCamera),\n                    )",
-          }
-          for old_text, new_text in replacements.items():
-              if old_text not in text:
-                  raise SystemExit(f'expected block not found: {old_text}')
-              text = text.replace(old_text, new_text, 1)
+          old_viewfinder = '            _buildViewfinder(),\n'
+          new_viewfinder = '''            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _isLookTrayOpen
+                  ? () => unawaited(_confirmOpenLookTray())
+                  : null,
+              child: _buildViewfinder(),
+            ),
+'''
+          if old_viewfinder not in text:
+              raise SystemExit('viewfinder stack entry not found')
+          text = text.replace(old_viewfinder, new_viewfinder, 1)
 
           path.write_text(text)
           PY
@@ -116,5 +116,5 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add lib/ui/screens/camera_film_preview_screen_g1.dart
-          git commit -m "feat: confirm camera look selection on exit"
+          git commit -m "feat: confirm camera look tray on exit"
           git push origin HEAD:feature/pf3-capture-process-save
