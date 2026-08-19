@@ -55,9 +55,7 @@ void main() {
       return <String, Object?>{'path': '/tmp/pixelcraft-camera/capture.jpg'};
     });
 
-    final capture = await const NativeGpuCameraBridge().capturePhoto(
-      'renderer-1',
-    );
+    final capture = await const NativeGpuCameraBridge().capturePhoto('renderer-1');
     expect(capture.path, '/tmp/pixelcraft-camera/capture.jpg');
   });
 
