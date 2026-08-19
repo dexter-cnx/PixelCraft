@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-17. PR #50 merged the `go_router` navigation foundation and platform-aware app entry. Phone/tablet now route camera-first at app launch, desktop remains editor/open/drop-first, and workspace navigation is declarative while Film/Filter/Adjust remain local tool state. PF0 routing is implemented; PF1/PF2 camera-shell integration is the next product slice.**
+Last refresh: **2026-08-19. On `feature/pf3-capture-process-save`, camera composition guides include Thirds, Golden Ratio, and Golden Spiral. Golden Spiral is rendered procedurally with Flutter `CustomPainter`/`Path` rather than image/SVG assets; guide-color customization should extend the existing painter and persist as a camera preference.**
 
 ---
 
@@ -598,6 +598,19 @@ PF work must reuse this foundation rather than build a second camera stack.
 
 PF3 changes current capture behavior to authoritative processing + JPEG save + remain in Camera.
 
+### Camera composition guide implementation note
+
+Current branch implementation lives in `lib/camera/camera_composition_guide.dart`.
+
+- guide styles: `thirds`, `goldenRatio`, `goldenSpiral`;
+- rendering uses Flutter `CustomPaint` with `_CompositionGuidePainter`;
+- Golden Spiral is generated procedurally from an inscribed golden rectangle, square cuts, and a `Path` assembled with `quadraticBezierTo(...)`, then rendered with `canvas.drawPath(...)`;
+- Golden Spiral horizontal/vertical flip is already persisted through `SharedPreferences`;
+- **do not replace Golden Spiral with PNG/SVG/image assets by default**; procedural rendering is the canonical direction because it scales to preview geometry, orientation/flip, DPI, line styling, and live customization;
+- current guide foreground is hard-coded white with a dark contrast shadow; the approved follow-up is a compact **Guide Color** swatch setting that updates the painter live;
+- Guide Color should be persisted as a camera preference and passed through `CameraCompositionGuideOverlay` -> `_CompositionGuidePainter`; it must remain a UI overlay only and must never affect captured/saved image pixels;
+- preferred initial swatches: White, Black, Red, Yellow, Green, Cyan, with an optional custom-color picker; opacity can be added alongside color, while line thickness may remain a later refinement.
+
 `WorkspaceCatalogStore` remains only bounded continuity/reopen metadata and must not become the primary product library.
 
 `EditorSessionStore` remains edit recovery and is separate from preferences/catalog concerns.
@@ -811,6 +824,8 @@ release --no-codesign is part of CI validation
 19. Keep main/verifier device identifiers isolated and never uninstall/overwrite the main app during verifier runs.
 20. Hosted Tier 3 reliability must never be presented as new physical-device evidence.
 21. Branch protection should rely on stable `Fast CI` and `CI Gate` contexts rather than conditional platform jobs.
+22. Camera composition guides are Flutter overlay geometry; Golden Spiral stays procedural (`CustomPainter`/`Path`) unless an explicit design decision changes that contract.
+23. Guide color customization must remain overlay-only and must never be baked into captured or exported image pixels.
 
 Standard local validation:
 
