@@ -11,6 +11,7 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
   static const enabledPreferenceKey = 'camera.composition_guide.enabled';
   static const stylePreferenceKey = 'camera.composition_guide.style';
   static const legacyPreferenceKey = 'camera.composition_guide';
+  static const colorPreferenceKey = 'camera.composition_guide.color_argb';
   static const flipHorizontalPreferenceKey =
       'camera.composition_guide.golden_spiral.flip_horizontal';
   static const flipVerticalPreferenceKey =
@@ -49,7 +50,10 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
 
   static Future<CameraCompositionGuide> load() async {
     final settings = await loadSettings();
-    await CameraGoldenSpiralFlipState.instance.ensureLoaded();
+    await Future.wait([
+      CameraGoldenSpiralFlipState.instance.ensureLoaded(),
+      CameraCompositionGuideColorState.instance.ensureLoaded(),
+    ]);
     return settings.enabled ? settings.guide : CameraCompositionGuide.off;
   }
 
@@ -80,6 +84,11 @@ extension CameraCompositionGuideX on CameraCompositionGuide {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(flipHorizontalPreferenceKey, horizontal);
     await prefs.setBool(flipVerticalPreferenceKey, vertical);
+  }
+
+  static Future<void> persistGuideColor(Color color) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(colorPreferenceKey, color.toARGB32());
   }
 }
 
@@ -146,6 +155,42 @@ class CameraGoldenSpiralFlipState {
   }
 }
 
+class CameraCompositionGuideColorState {
+  CameraCompositionGuideColorState._();
+
+  static final instance = CameraCompositionGuideColorState._();
+
+  static const defaultColor = Color(0xFFFFFFFF);
+
+  static const swatches = <Color>[
+    Color(0xFFFFFFFF),
+    Color(0xFF000000),
+    Color(0xFFFF3B30),
+    Color(0xFFFFD60A),
+    Color(0xFF34C759),
+    Color(0xFF32D7FF),
+  ];
+
+  final value = ValueNotifier<Color>(defaultColor);
+
+  Future<void>? _loading;
+
+  Future<void> ensureLoaded() => _loading ??= _load();
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    value.value = Color(
+      prefs.getInt(CameraCompositionGuideX.colorPreferenceKey) ??
+          defaultColor.toARGB32(),
+    );
+  }
+
+  Future<void> set(Color color) async {
+    value.value = color;
+    await CameraCompositionGuideX.persistGuideColor(color);
+  }
+}
+
 class CameraCompositionGuideSettingsControl extends StatefulWidget {
   const CameraCompositionGuideSettingsControl({
     required this.value,
@@ -171,6 +216,7 @@ class _CameraCompositionGuideSettingsControlState
   void initState() {
     super.initState();
     unawaited(CameraGoldenSpiralFlipState.instance.ensureLoaded());
+    unawaited(CameraCompositionGuideColorState.instance.ensureLoaded());
   }
 
   bool get _isOn => widget.value != CameraCompositionGuide.off;
@@ -320,13 +366,92 @@ class _CameraCompositionGuideSettingsControlState
               ),
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 12),
+          Text(
+            'camera.guide_color'.tr(),
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<Color>(
+            valueListenable: CameraCompositionGuideColorState.instance.value,
+            builder: (context, selectedColor, _) => Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final color in CameraCompositionGuideColorState.swatches)
+                  _GuideColorSwatch(
+                    color: color,
+                    selected: color.toARGB32() == selectedColor.toARGB32(),
+                    enabled: widget.enabled,
+                    onTap: () => unawaited(
+                      CameraCompositionGuideColorState.instance.set(color),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(
             'camera.composition_guide_hint'.tr(),
             style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
         ],
       ],
+    );
+  }
+}
+
+class _GuideColorSwatch extends StatelessWidget {
+  const _GuideColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: 'camera.guide_color'.tr(),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        customBorder: const CircleBorder(),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          width: 34,
+          height: 34,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected ? const Color(0xFFFF6A00) : Colors.white30,
+              width: selected ? 2.5 : 1,
+            ),
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: color.computeLuminance() > 0.9
+                    ? Colors.black26
+                    : Colors.white24,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -426,17 +551,22 @@ class CameraCompositionGuideOverlay extends StatelessWidget {
       return const SizedBox.shrink();
     }
     unawaited(CameraGoldenSpiralFlipState.instance.ensureLoaded());
+    unawaited(CameraCompositionGuideColorState.instance.ensureLoaded());
     return ValueListenableBuilder<CameraGoldenSpiralFlip>(
       valueListenable: CameraGoldenSpiralFlipState.instance.value,
-      builder: (context, flip, _) => IgnorePointer(
-        child: CustomPaint(
-          painter: _CompositionGuidePainter(
-            guide: guide,
-            frameAspectRatio: frameAspectRatio,
-            flipHorizontal: flip.horizontal,
-            flipVertical: flip.vertical,
+      builder: (context, flip, _) => ValueListenableBuilder<Color>(
+        valueListenable: CameraCompositionGuideColorState.instance.value,
+        builder: (context, guideColor, _) => IgnorePointer(
+          child: CustomPaint(
+            painter: _CompositionGuidePainter(
+              guide: guide,
+              frameAspectRatio: frameAspectRatio,
+              flipHorizontal: flip.horizontal,
+              flipVertical: flip.vertical,
+              color: guideColor,
+            ),
+            size: Size.infinite,
           ),
-          size: Size.infinite,
         ),
       ),
     );
@@ -449,23 +579,25 @@ class _CompositionGuidePainter extends CustomPainter {
     required this.frameAspectRatio,
     required this.flipHorizontal,
     required this.flipVertical,
+    required this.color,
   });
 
   final CameraCompositionGuide guide;
   final double? frameAspectRatio;
   final bool flipHorizontal;
   final bool flipVertical;
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
     final frame = _frameFor(size);
     final shadow = Paint()
-      ..color = Colors.black.withValues(alpha: 0.42)
+      ..color = Colors.black.withValues(alpha: 0.46)
       ..strokeWidth = 2.2
       ..style = PaintingStyle.stroke;
     final line = Paint()
-      ..color = Colors.white.withValues(alpha: 0.74)
+      ..color = color.withValues(alpha: 0.78)
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 
@@ -494,7 +626,7 @@ class _CompositionGuidePainter extends CustomPainter {
           drawSegment(Offset(frame.left, y), Offset(frame.right, y));
         }
         final dot = Paint()
-          ..color = Colors.white.withValues(alpha: 0.84)
+          ..color = color.withValues(alpha: 0.88)
           ..style = PaintingStyle.fill;
         for (final x in xs) {
           for (final y in ys) {
@@ -701,7 +833,8 @@ class _CompositionGuidePainter extends CustomPainter {
       oldDelegate.guide != guide ||
       oldDelegate.frameAspectRatio != frameAspectRatio ||
       oldDelegate.flipHorizontal != flipHorizontal ||
-      oldDelegate.flipVertical != flipVertical;
+      oldDelegate.flipVertical != flipVertical ||
+      oldDelegate.color != color;
 }
 
 class _GoldenCut {
