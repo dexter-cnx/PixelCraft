@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -64,6 +65,39 @@ void main() {
 
     expect(saver.bytes, isNull);
   });
+
+  test('PF3 serializes complete authoritative render transactions', () async {
+    final renderer = _SerialProbeRenderer();
+    final firstPipeline = CameraCapturePipeline(
+      renderer: renderer,
+      saveService: _FakeSaveService(),
+    );
+    final secondPipeline = CameraCapturePipeline(
+      renderer: renderer,
+      saveService: _FakeSaveService(),
+    );
+
+    final first = firstPipeline.processAndSave(
+      sourceJpeg: Uint8List.fromList([1]),
+      look: CameraLookState(),
+    );
+    await renderer.firstStarted.future;
+
+    final second = secondPipeline.processAndSave(
+      sourceJpeg: Uint8List.fromList([2]),
+      look: CameraLookState(),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(renderer.invocations, 1);
+    expect(renderer.maxActive, 1);
+
+    renderer.releaseFirst.complete();
+    await Future.wait([first, second]);
+
+    expect(renderer.invocations, 2);
+    expect(renderer.maxActive, 1);
+  });
 }
 
 class _FakeRenderer implements CameraCaptureRenderer {
@@ -105,6 +139,38 @@ class _ThrowingRenderer implements CameraCaptureRenderer {
     int quality = 95,
   }) async {
     throw StateError('render failed');
+  }
+}
+
+class _SerialProbeRenderer implements CameraCaptureRenderer {
+  final firstStarted = Completer<void>();
+  final releaseFirst = Completer<void>();
+
+  int invocations = 0;
+  int active = 0;
+  int maxActive = 0;
+
+  @override
+  Future<Uint8List> renderJpeg({
+    required Uint8List sourceJpeg,
+    required CameraLookState look,
+    CameraImageRatio imageRatio = CameraImageRatio.original,
+    CameraCaptureOrientation captureOrientation = CameraCaptureOrientation.auto,
+    double zoomFactor = 1,
+    int quality = 95,
+  }) async {
+    invocations += 1;
+    active += 1;
+    if (active > maxActive) maxActive = active;
+    try {
+      if (invocations == 1) {
+        firstStarted.complete();
+        await releaseFirst.future;
+      }
+      return Uint8List.fromList(sourceJpeg);
+    } finally {
+      active -= 1;
+    }
   }
 }
 
