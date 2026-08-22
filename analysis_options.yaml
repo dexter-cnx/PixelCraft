@@ -11,6 +11,13 @@ analyzer:
     # resolve CargoKit's private build-tool package dependencies from the app
     # package context.
     - packages/dxtr_pixs_engine/cargokit/**
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 linter:
   rules:
