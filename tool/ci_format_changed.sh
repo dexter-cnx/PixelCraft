@@ -17,6 +17,11 @@ if ! command -v dart >/dev/null 2>&1; then
   exit 1
 fi
 
+# Keep formatter behavior deterministic across local machines, IDEs and CI.
+# Do not rely solely on analysis_options.yaml being discovered/resolved by
+# `dart format`; pass the repository contract explicitly.
+DART_FORMAT_PAGE_WIDTH="${DART_FORMAT_PAGE_WIDTH:-80}"
+
 # Keep this script compatible with the stock Bash 3.2 shipped by macOS.
 # Do not use associative arrays here; de-duplicate with a small linear scan.
 # Bash 3.2 with nounset can reject expanding an empty array, so keep an explicit
@@ -85,11 +90,12 @@ if (( files_count == 0 )); then
   exit 0
 fi
 
-printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s)\n' "$mode" "$files_count"
+printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s), page-width=%s\n' \
+  "$mode" "$files_count" "$DART_FORMAT_PAGE_WIDTH"
 printf '  %s\n' "${files[@]}"
 
 if [[ "$mode" == "write" ]]; then
-  dart format "${files[@]}"
+  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${files[@]}"
 else
-  dart format --output=none --set-exit-if-changed "${files[@]}"
+  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" --output=none --set-exit-if-changed "${files[@]}"
 fi
