@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -136,8 +137,33 @@ class CameraCapturePipeline {
 
   const CameraCapturePipeline._(this._renderer, this._saveService);
 
+  static Future<void> _renderTail = Future<void>.value();
+
   final CameraCaptureRenderer _renderer;
   final MediaSaveService _saveService;
+
+  Future<Uint8List> _renderSerialized({
+    required Uint8List sourceJpeg,
+    required CameraLookState look,
+    required CameraImageRatio imageRatio,
+    required CameraCaptureOrientation captureOrientation,
+    required double zoomFactor,
+  }) {
+    // Rust's current image engine is process-global and individual bridge calls
+    // are locked independently. Keep the complete load/edit/export transaction
+    // exclusive so background Camera captures cannot interleave across isolates.
+    final turn = _renderTail.then(
+      (_) => _renderer.renderJpeg(
+        sourceJpeg: sourceJpeg,
+        look: look,
+        imageRatio: imageRatio,
+        captureOrientation: captureOrientation,
+        zoomFactor: zoomFactor,
+      ),
+    );
+    _renderTail = turn.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return turn;
+  }
 
   Future<CameraCaptureResult> processAndSave({
     required Uint8List sourceJpeg,
@@ -149,7 +175,7 @@ class CameraCapturePipeline {
     void Function(ProcessingJobPhase phase)? onPhase,
   }) async {
     onPhase?.call(ProcessingJobPhase.processing);
-    final rendered = await _renderer.renderJpeg(
+    final rendered = await _renderSerialized(
       sourceJpeg: sourceJpeg,
       look: look,
       imageRatio: imageRatio,
