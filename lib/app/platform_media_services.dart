@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 
+import 'editor_source_contract.dart';
 import 'platform_flow_foundation.dart';
 
 class ImagePickerMediaService implements MediaPickerService {
@@ -83,6 +84,13 @@ class PlatformPermissionService implements PermissionService {
 final mediaPickerServiceProvider = Provider<MediaPickerService>(
   (ref) => ImagePickerMediaService(),
 );
+
+final galleryEditorSourceCoordinatorProvider =
+    Provider<GalleryEditorSourceCoordinator>(
+      (ref) => GalleryEditorSourceCoordinator(
+        picker: ref.watch(mediaPickerServiceProvider),
+      ),
+    );
 
 final mediaSaveServiceProvider = Provider<MediaSaveService>(
   (ref) => const GalleryMediaSaveService(),
