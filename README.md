@@ -2,7 +2,7 @@
 
 **Dextryx Pixels** (`Dxtr Pixs`) is an offline-first camera, photo editor, and image-processing product built with Flutter, Rust, Metal, and OpenGL ES.
 
-PixelCraft uses a platform-adaptive product shell:
+PixelCraft uses a platform-adaptive shell:
 
 - **phone + tablet:** camera-first;
 - **desktop:** editor/open/drop-first;
@@ -10,52 +10,79 @@ PixelCraft uses a platform-adaptive product shell:
 
 PixelCraft is not the long-lived DAM/library product. **Nixin / Dextryx Images** owns Workplaces, cataloging, organization, browsing, and large-library workflows.
 
-## Product flow
-
-### Phone and tablet
-
-Launch directly into Camera:
+## Mobile and tablet flow
 
 ```text
-┌─────────────────────────────┐
-│                             │
-│       live preview          │
-│                             │
-│   Film  Filter  Adjust      │
-│                             │
-├─────────────────────────────┤
-│ Gallery   SHUTTER   Controls│
-└─────────────────────────────┘
+Launch
+  ↓
+Greeting / permissions when required
+  ↓
+Camera
+  ├── Film
+  ├── Filter
+  ├── Adjust
+  ├── Composition Guide
+  ├── Gallery
+  ├── Shutter
+  └── Controls
 ```
 
-Target behavior:
+Camera capture is authoritative and remains camera-first:
 
 ```text
-Shutter
- -> clean camera capture
- -> apply selected Film / Filter / Adjust through Rust-authoritative processing
- -> JPEG output
- -> save to system Gallery
- -> remain in Camera
+clean camera JPEG
++ selected Film / Filter / Adjust
+        ↓
+Rust full-resolution render
+        ↓
+JPEG output
+        ↓
+MediaSaveService
+        ↓
+system Gallery
+        ↓
+remain in Camera
 ```
 
-Live GPU pixels are preview-only and never become final-render authority.
+Live GPU pixels are preview-only and never become final-render authority. Opening Film/Filter does not perform a real still capture. Bounded live thumbnail snapshots are used for preview support instead of streaming camera buffers through MethodChannel or Flutter Rust Bridge.
 
-Gallery flow:
+The complete Rust capture render transaction is serialized because the current Rust image engine is process-global. Concurrent background captures therefore cannot interleave `loadImage`, edit operations, and `exportImage`.
+
+## Camera UX
+
+The mobile/tablet camera shell provides:
+
+- bottom-left Gallery entry;
+- bottom-center Shutter;
+- bottom-right Controls;
+- Film, Filter, and Adjust trays;
+- native GPU camera preview on supported Android/iOS paths;
+- Flutter `camera` fallback;
+- lens switching, flash, torch, mirror, zoom, image ratio;
+- Camera Controls sheet with explicit Close button;
+- Composition Guide styles: Thirds, Golden Ratio, Golden Spiral;
+- procedural Golden Spiral rendering with persistent flip;
+- persistent guide-color swatches: White, Black, Red, Yellow, Green, Cyan.
+
+Composition guides are UI overlays only and are never baked into captured/saved pixels.
+
+On Android, native renderer recreation after resume/external activity restores lens direction, flash, torch, mirror, enabled state, and active CameraLook.
+
+## Gallery/editor flow
 
 ```text
 Gallery
  -> choose source
- -> keep original source untouched
+ -> preserve original source untouched
  -> Editor
- -> Film / Filter / Adjust / transforms / future masks
+ -> Film / Filter / Adjust / transforms / masks
  -> Rust full-resolution render
- -> save processed result to Gallery
+ -> save processed result to Gallery / explicit destination
 ```
 
-The original source format is preserved as source data. JPEG stays JPEG source, PNG stays PNG source, WebP stays WebP source, and a future RAW input remains RAW source. Export is a separate output decision.
+The source remains immutable input. JPEG stays JPEG source, PNG stays PNG source, WebP stays WebP source, and future RAW input remains RAW source. Export format is a separate output decision.
 
-### Desktop
+## Desktop
 
 Desktop launches into an editor/open/drop surface rather than the mobile camera shell:
 
@@ -68,10 +95,6 @@ Film / Filter / Adjust / transforms / masks
         ↓
 Export / Save Copy
 ```
-
-Secondary/future inputs may include Open Recent, Paste Image, Capture from Camera, Open With, and external-edit requests.
-
-The desktop editor should use collapsible multi-pane controls while remaining an editor, not a DAM/library clone.
 
 ## Architecture
 
@@ -89,176 +112,50 @@ full-resolution replay / export
 
 Hard contracts:
 
-1. **Rust is authoritative** for committed edit semantics, recipe/history/checkpoint/recovery, and full-resolution render/export.
-2. **GPU is preview-only** and never final-render authority.
-3. Camera Film/Filter/Adjust preview never replaces the clean capture source.
-4. Live camera frame buffers never cross Dart MethodChannel or Flutter Rust Bridge.
+1. Rust is authoritative for committed edit semantics and full-resolution render/export.
+2. GPU is preview-only.
+3. Clean camera capture remains the authoritative source.
+4. Live camera frame buffers never cross Dart MethodChannel or Flutter Rust Bridge as a continuous stream.
 5. Film/Creative canonical LUT data remains Rust-owned.
 6. Unsupported GPU operation ordering falls back instead of silently changing semantics.
-7. Flutter/Riverpod state orchestrates UI and transient preview state; it must not become a second canonical edit recipe.
-8. PixelCraft editor-local source/recovery metadata never becomes a general DAM catalog.
+7. Riverpod orchestrates UI/transient state and does not become a second canonical recipe engine.
+8. PixelCraft editor-local metadata never becomes a general DAM catalog.
 
-## State management
-
-PixelCraft standardizes on **Riverpod** for Flutter application/UI orchestration.
-
-Recommended state boundaries:
+## Current milestone status
 
 ```text
-AppPreferencesState
-CameraState
-LiveLookState
-EditorUiState
-ProcessingJobState
-ExternalEditState   # future contract orchestration
+G1-G6                                      CLOSED / VERIFIED
+P0-P3 package extraction                   MERGED
+PKG-01 dxtr_pixs_* namespace consolidation COMPLETE
+G7A Release Engineering                    MERGED
+G7B Store Account Integration              DEFERRED INDEFINITELY
+
+PF0 Platform-flow foundations              ROUTING FOUNDATION MERGED (#50)
+PF1 Camera-first mobile/tablet shell        IMPLEMENTED
+PF2 Unified Camera Film/Filter/Adjust UX    IMPLEMENTED
+PF3 Capture-process-save-to-Gallery         VERIFIED IN PR #52 / READY TO MERGE
+PF4 Gallery-to-editor source flow           NEXT PRODUCT SLICE
+PF5 External edit request/result contract   PLANNED FOUNDATION ONLY
+
+MobileSAM / ONNX                            FUTURE / NOT ACTIVATED
+Real RAW development                        FUTURE / NOT ACTIVATED
+Dart 3.13 RecordUse/native tree-shaking     FUTURE / DEFERRED
 ```
 
-Riverpod may represent loading, selected tools, camera state, transient Film/Filter/Adjust preview values, progress, errors, and export state.
+PF3 physical validation passed on Android and iPhone. The reviewed implementation head passed Pixel Craft CI #747 before the final documentation-only sync. Codex review #4999877331 findings were addressed and resolved.
 
-Canonical edit operations, history, checkpoints, and export semantics remain Rust-owned.
+## State management and localization
 
-Do not add Bloc/GetX or another competing global state framework without an explicit architectural reason.
+PixelCraft uses **Riverpod** for Flutter application/UI orchestration and **easy_localization** for user-facing localization.
 
-## Localization
-
-PixelCraft uses **easy_localization** as the UI localization foundation.
-
-Initial supported locales:
+Initial locales:
 
 ```text
 en
 th
 ```
 
-Policy:
-
-- detect the device locale by default;
-- `th_*` selects Thai;
-- `en_*` selects English;
-- unsupported locales fall back to **English**;
-- new user-facing Flutter strings should enter localization resources rather than being hardcoded.
-
-Initial translation layout may use:
-
-```text
-assets/translations/en.json
-assets/translations/th.json
-```
-
-## Preferences and persistence
-
-Do **not** add Hive merely as a future-proofing dependency.
-
-Use an `AppPreferencesStore` abstraction for lightweight preferences such as:
-
-```text
-last camera lens
-grid / flash / camera UI preferences
-last Film + strength
-last Filter + strength
-theme / optional locale override
-last UI tool preferences
-```
-
-The persistence backend can remain lightweight and replaceable. It must not own image recipes or processing semantics.
-
-Existing persistence remains separated by responsibility:
-
-- `EditorSessionStore` — coherent editor recovery;
-- `WorkspaceCatalogStore` — bounded editor-local source/reopen metadata only;
-- filesystem/system Gallery — image files;
-- Rust recipe — authoritative editing semantics.
-
-## Application services for the platform-flow milestone
-
-The next product-flow work should converge on explicit service boundaries rather than screen-specific platform calls:
-
-```text
-AppPreferencesStore
-MediaPickerService
-MediaSaveService
-PermissionService
-CapabilityRegistry
-ProcessingJob orchestration
-App route/navigation abstraction
-```
-
-`MediaSaveService` should be the common path for camera JPEG results and editor exports to system Gallery.
-
-Error handling should map typed failures such as permission denied, camera unavailable, decode failure, unsupported source, render failure, and save failure into localized UI messages.
-
-## Future-safe source contract
-
-Source handling should remain format-aware and should not assume every input is JPEG/PNG.
-
-A future external-edit request may carry fields such as:
-
-```text
-version
-sourceUri / sourcePath
-sourceId?          # external identity owned by caller
-sourceMimeType
-requestedMode
-returnPolicy
-metadata?
-```
-
-A corresponding `PixelCraftEditResult` should return the edited output without transferring Nixin Workplaces/catalog authority into PixelCraft.
-
-This contract is a **planned foundation only**; full Nixin integration is not part of the current implementation slice.
-
-## Current capability status
-
-```text
-G1  Camera GPU Preview                         CLOSED
-G2  Editor GPU Preview Foundation              CLOSED / MERGED
-G3  Production Rendering Pipeline              CLOSED / MERGED
-G4  Product Editor UX / Session Workflow       CLOSED / MERGED
-G5  Editing Feature Completeness               CLOSED / VERIFIED
-G6  Reliability / Performance / Device Matrix  CLOSED / VERIFIED
-
-P0-P3 package extraction                       MERGED
-PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE
-G7A Release Engineering / Store Preparation    MERGED
-G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY
-
-PF0 Platform-flow routing foundation           PARTIAL / ROUTING MERGED (#50)
-PF1 Camera-first mobile/tablet shell            IN PROGRESS / CAMERA-FIRST ENTRY MERGED (#50)
-PF2 Unified Camera Film/Filter/Adjust UX        NEXT
-PF3 Capture-process-save-to-Gallery             PLANNED
-PF4 Gallery-to-editor source flow               PLANNED
-PF5 External edit request/result contract       PLANNED FOUNDATION ONLY
-
-MobileSAM / ONNX                               FUTURE / NOT ACTIVATED
-Real RAW development                           FUTURE / NOT ACTIVATED
-Dart 3.13 RecordUse/native tree-shaking        FUTURE / DEFERRED
-```
-
-## Film and Filter foundation
-
-Film Profiles and Creative Filters are already real Rust-backed capabilities rather than fake UI controls.
-
-Film uses first-class operations and canonical 33x33x33 LUT data with full-resolution replay/export. Current inspired looks include Provia, Velvia, Astia, E100, Ektar, and Chrome 64.
-
-Creative filters include grayscale/invert and canonical LUT-backed presets such as vintage, oceanic, lofi, dramatic, golden, and pastel pink.
-
-PF2 is therefore primarily camera UX integration over existing processing foundations.
-
-## Future MobileSAM and RAW
-
-Future package direction:
-
-```text
-dxtr_pixs_segment  # MobileSAM/local segmentation
-dxtr_pixs_restore  # restoration capabilities
-dxtr_pixs_raw      # real RAW development
-```
-
-These are not activated by the camera-first milestone.
-
-A future MobileSAM/ONNX path should produce masks through a replaceable mask-provider boundary and must not become image-processing authority.
-
-A future real RAW milestone must separately define decode/demosaic, camera color/WB, highlight recovery, working color space, memory/performance, full-resolution replay, and export behavior.
+Canonical edit operations, history, checkpoints, and export semantics remain Rust-owned.
 
 ## Package graph
 
@@ -272,10 +169,8 @@ PixelCraft app
 dxtr_pixs_film    -> dxtr_pixs_editing
 dxtr_pixs_gpu     -> dxtr_pixs_editing
 dxtr_pixs_editing -> Dart SDK only
-dxtr_pixs_engine  -> repository rust/ crate through build integration
+dxtr_pixs_engine  -> repository rust/ crate
 ```
-
-Native ABI/runtime identifiers remain stable unless separately approved.
 
 ## Product identity
 
@@ -320,19 +215,15 @@ After changing Rust APIs:
 make codegen
 ```
 
-### Install repository Git hooks once per clone
+Install repository hooks once per clone:
 
 ```bash
 make hooks-install
 ```
 
-After that, normal `git push` runs the repository pre-push formatting guard automatically. If Dart or Rust formatting changes tracked files, the push is stopped and the changed filenames are shown so the formatting can be reviewed and committed first. The hook path supports stock macOS Bash 3.2, Linux, WSL, and Git Bash; direct Windows PowerShell setup is documented in `docs/LOCAL_DEVELOPMENT.md`.
-
 ## CI and local validation
 
-The hosted workflow uses affected-change routing with a mandatory fast gate before expensive platform jobs. Full validation is forced for `main`, merge queue, explicit full mode, and CI/tooling changes.
-
-Recommended local entrypoint before opening/updating a PR:
+Recommended local entrypoint:
 
 ```bash
 make preflight
@@ -350,42 +241,17 @@ make gpu-check
 make ci-fast
 ```
 
-The local hook is an iteration-speed guard only. CI keeps `make format-check` as an independent authoritative safety net because hooks can be bypassed with `git push --no-verify`.
+`dart-format-check` is read-only. When formatting differs, diagnostics are generated from temporary copies so local staged/unstaged/untracked work is not rewritten merely to print the canonical diff.
 
-Additional validation remains available when needed:
-
-```bash
-bash tool/check_package_boundaries.sh
-make gpu-lut-verify
-make verify-native
-flutter analyze
-flutter test
-```
-
-Branch protection should require the stable always-present contexts:
-
-```text
-Fast CI
-CI Gate
-```
-
-Conditional platform jobs should not be individually required because unaffected jobs are intentionally skipped.
-
-PR #49 established the validated CI baseline with full run #432 (`31951272254`) passing Android, iOS, macOS, Windows, Linux, Golden Tests, Native/GPU Core, Reliability Tier 2, Reliability Tier 3, Fast CI, and CI Gate.
-
-See `docs/CI_ARCHITECTURE.md` for the classifier, DAG, full-mode policy, FRB artifact reuse, reliability tiers, branch-protection guidance, and device-safety contract.
-
-A green PR head alone does not close a milestone; resulting `main` CI must also be verified.
+Branch protection should require stable always-present contexts such as `Fast CI` and `CI Gate`; conditional platform jobs should not be required individually.
 
 ## Documentation
 
 - `docs/PROJECT_HANDOFF.md` — canonical continuation status and execution order
-- `docs/CODE_WALKTHROUGH.md` — runtime, state, localization, service, and package architecture
-- `docs/CI_ARCHITECTURE.md` — affected CI DAG, fast/full policy, reliability tiers, artifact reuse, and branch-protection contexts
-- `docs/LOCAL_DEVELOPMENT.md` — repository hook installation and local formatting/pre-push workflow
-- `docs/FILM_PROFILES_AND_RELIABILITY.md` — Film profile/reliability details
+- `docs/CODE_WALKTHROUGH.md` — runtime and architecture walkthrough
+- `docs/CI_ARCHITECTURE.md` — CI DAG and validation policy
+- `docs/LOCAL_DEVELOPMENT.md` — local formatting/pre-push workflow
 - `docs/FUTURE_DART_3_13_NATIVE_TREE_SHAKING.md` — deferred Dart 3.13 plan
-- release/device evidence documents under `docs/`
 
 ## License
 

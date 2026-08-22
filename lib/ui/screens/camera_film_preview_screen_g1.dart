@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
 
 import 'package:camera/camera.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -7,16 +9,23 @@ import 'package:flutter/material.dart';
 
 import '../../app/platform_flow_foundation.dart';
 import '../../app/platform_media_services.dart';
+import '../../camera/camera_capture_save_handoff.dart';
+import '../../camera/camera_composition_guide.dart';
 import '../../camera/camera_film_editor_handoff.dart';
 import '../../camera/camera_film_presets.dart';
+import '../../camera/camera_image_ratio.dart';
 import '../../camera/camera_look_preview_coordinator.dart';
 import '../../camera/camera_look_state.dart';
+import '../../core/bridge.dart';
 import '../../gpu/android_gpu_camera_preview.dart';
 import '../../gpu/gpu_preview_capability.dart';
 import '../../gpu/ios_gpu_camera_preview.dart';
 import '../../gpu/native_gpu_camera_bridge.dart';
 import '../../gpu/native_gpu_preview_bridge.dart';
+import '../../src/rust/api.dart' as rust;
+import '../camera/camera_look_filmstrip.dart';
 import '../camera/camera_primary_controls.dart';
+import 'about_screen.dart';
 
 class CameraFilmPreviewScreen extends StatefulWidget {
   const CameraFilmPreviewScreen({super.key, this.mediaPickerService});
@@ -31,6 +40,8 @@ class CameraFilmPreviewScreen extends StatefulWidget {
 class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     with WidgetsBindingObserver {
   static const _gpuPolicy = GpuPreviewCapabilityPolicy();
+  static const _minZoom = 1.0;
+  static const _maxZoom = 5.0;
   static const _cameraAdjustmentIds = <String>[
     'exposure',
     'temperature',
@@ -55,9 +66,20 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   CameraFilmPreset _preset = cameraFilmPresets.first;
   CameraPrimaryTool _selectedTool = CameraPrimaryTool.film;
+  bool _toolPanelExpanded = false;
   CameraLookState _cameraLook = CameraLookState();
+  CameraImageRatio _imageRatio = CameraImageRatio.original;
+  CameraCompositionGuide _compositionGuide = CameraCompositionGuide.off;
+  Map<String, Uint8List> _filmPreviewBytes = const {};
+  Map<String, Uint8List> _filterPreviewBytes = const {};
+  bool _isLoadingLookPreviews = false;
+  int _lookPreviewRequest = 0;
+  final bool _enableStillCaptureLookPreviews = false;
   String _selectedAdjustmentId = 'exposure';
   double _strength = 1;
+  double _zoomFactor = 1;
+  double _zoomStartFactor = 1;
+  Timer? _orientationPollTimer;
   bool _isInitializing = true;
   bool _isCapturing = false;
   String? _error;
@@ -95,6 +117,33 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   bool get _mirrorEnabled => _cameraControls.mirrorEnabled;
 
+  bool get _isLookTrayOpen =>
+      _toolPanelExpanded &&
+      (_selectedTool == CameraPrimaryTool.film ||
+          _selectedTool == CameraPrimaryTool.filter ||
+          _selectedTool == CameraPrimaryTool.adjust);
+
+  CameraCaptureOrientation get _physicalCaptureOrientation =>
+      switch (_cameraControls.deviceOrientation) {
+        NativeCameraDeviceOrientation.portrait =>
+          CameraCaptureOrientation.portrait,
+        NativeCameraDeviceOrientation.portraitUpsideDown =>
+          CameraCaptureOrientation.portraitUpsideDown,
+        NativeCameraDeviceOrientation.landscapeLeft =>
+          CameraCaptureOrientation.landscapeLeft,
+        NativeCameraDeviceOrientation.landscapeRight =>
+          CameraCaptureOrientation.landscapeRight,
+        NativeCameraDeviceOrientation.unknown => CameraCaptureOrientation.auto,
+      };
+
+  int get _zoomIndicatorQuarterTurns =>
+      switch (_cameraControls.deviceOrientation) {
+        NativeCameraDeviceOrientation.landscapeLeft => 1,
+        NativeCameraDeviceOrientation.landscapeRight => 3,
+        NativeCameraDeviceOrientation.portraitUpsideDown => 2,
+        _ => 0,
+      };
+
   @override
   void initState() {
     super.initState();
@@ -106,12 +155,53 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         unawaited(_handleNativeRuntimeFailure(rendererId, error.toString()));
       }
     };
+    _orientationPollTimer = Timer.periodic(
+      const Duration(milliseconds: 300),
+      (_) => unawaited(_pollPhysicalOrientation()),
+    );
+    unawaited(_loadImageRatio());
+    unawaited(_loadCompositionGuide());
     unawaited(_discoverAndInitialize());
+  }
+
+  Future<void> _pollPhysicalOrientation() async {
+    final rendererId = _gpuRendererId;
+    if (!_useNativeGpu || rendererId == null || _isCapturing) return;
+    try {
+      final state = await _nativeCameraBridge.controlState(rendererId);
+      if (!mounted || rendererId != _gpuRendererId) return;
+      if (state.deviceOrientation != _cameraControls.deviceOrientation) {
+        setState(() => _cameraControls = state);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadImageRatio() async {
+    final ratio = await CameraImageRatioX.load();
+    if (mounted) setState(() => _imageRatio = ratio);
+  }
+
+  Future<void> _setImageRatio(CameraImageRatio ratio) async {
+    if (_imageRatio == ratio) return;
+    setState(() => _imageRatio = ratio);
+    await ratio.persist();
+  }
+
+  Future<void> _loadCompositionGuide() async {
+    final guide = await CameraCompositionGuideX.load();
+    if (mounted) setState(() => _compositionGuide = guide);
+  }
+
+  Future<void> _setCompositionGuide(CameraCompositionGuide guide) async {
+    if (_compositionGuide == guide) return;
+    setState(() => _compositionGuide = guide);
+    await guide.persist();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _orientationPollTimer?.cancel();
     _nativeCameraBridge.setRuntimeFailureHandler(null);
     _lookCoordinator.onFailure = null;
     _lookCoordinator.detach();
@@ -251,6 +341,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     setState(() {
       _useNativeGpu = false;
       _selectedTool = CameraPrimaryTool.film;
+      _toolPanelExpanded = false;
       _isInitializing = true;
     });
     try {
@@ -306,6 +397,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
               : NativeCameraFlashMode.off,
           torchEnabled: false,
           mirrorEnabled: _cameraControls.mirrorEnabled,
+          deviceOrientation: _cameraControls.deviceOrientation,
         );
         _isInitializing = false;
         _error = null;
@@ -324,20 +416,14 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     try {
       await controller.setFlashMode(FlashMode.auto);
       hasFlash = true;
-    } on CameraException {
-      // Unsupported auto flash means this fallback camera has no flash capability.
-    }
+    } on CameraException {}
     try {
       await controller.setFlashMode(FlashMode.torch);
       hasTorch = true;
-    } on CameraException {
-      // Unsupported torch means this fallback camera has no torch capability.
-    }
+    } on CameraException {}
     try {
       await controller.setFlashMode(FlashMode.off);
-    } on CameraException {
-      // Best-effort reset after probing; unsupported off mode needs no further action.
-    }
+    } on CameraException {}
     return (hasFlash: hasFlash, hasTorch: hasTorch);
   }
 
@@ -391,6 +477,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   Future<void> _switchCamera() async {
     if (_isCapturing || !_canSwitchCamera) return;
+    if (mounted) setState(() => _zoomFactor = 1);
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
       await _nativeCameraBridge.switchCamera(rendererId);
@@ -430,6 +517,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         flashMode: mode,
         torchEnabled: false,
         mirrorEnabled: _cameraControls.mirrorEnabled,
+        deviceOrientation: _cameraControls.deviceOrientation,
       );
     });
   }
@@ -469,6 +557,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           flashMode: _cameraControls.flashMode,
           torchEnabled: false,
           mirrorEnabled: _cameraControls.mirrorEnabled,
+          deviceOrientation: _cameraControls.deviceOrientation,
         );
       });
       return;
@@ -484,6 +573,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
             : _cameraControls.flashMode,
         torchEnabled: enabled,
         mirrorEnabled: _cameraControls.mirrorEnabled,
+        deviceOrientation: _cameraControls.deviceOrientation,
       );
     });
   }
@@ -508,8 +598,23 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         flashMode: _cameraControls.flashMode,
         torchEnabled: _cameraControls.torchEnabled,
         mirrorEnabled: enabled,
+        deviceOrientation: _cameraControls.deviceOrientation,
       );
     });
+  }
+
+  void _onZoomStart(ScaleStartDetails details) {
+    if (_isCapturing) return;
+    _zoomStartFactor = _zoomFactor;
+  }
+
+  void _onZoomUpdate(ScaleUpdateDetails details) {
+    if (_isCapturing) return;
+    final next = (_zoomStartFactor * details.scale)
+        .clamp(_minZoom, _maxZoom)
+        .toDouble();
+    if ((next - _zoomFactor).abs() < 0.005) return;
+    setState(() => _zoomFactor = next);
   }
 
   Future<void> _capture() async {
@@ -529,13 +634,16 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
   Future<void> _captureNative(String rendererId) async {
     await _lookCoordinator.flush();
     final look = _cameraLook;
-    final path = await _nativeCameraBridge.capturePhoto(rendererId);
+    final capture = await _nativeCameraBridge.capturePhoto(rendererId);
     if (!mounted) return;
-    await _gpuBridge.pause(rendererId);
-    if (!mounted) return;
-    await _openEditor(path, look: look);
-    if (!mounted || rendererId != _gpuRendererId) return;
-    await _gpuBridge.resume(rendererId);
+    _cameraControls = _cameraControls.withOrientation(
+      capture.deviceOrientation,
+    );
+    await _saveCapture(
+      capture.path,
+      look: look,
+      captureOrientation: _physicalCaptureOrientation,
+    );
   }
 
   Future<void> _captureFallback() async {
@@ -551,7 +659,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     final look = _cameraLook;
     await _detachAndDisposeController(showLoading: true);
     if (!mounted) return;
-    await _openEditor(capture.path, look: look);
+    await _saveCapture(capture.path, look: look);
     if (!mounted) return;
     if (camera != null) await _initializeCamera(camera);
   }
@@ -569,6 +677,22 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     }
     await _openEditor(source.uri.toFilePath(), look: CameraLookState());
   }
+
+  Future<void> _saveCapture(
+    String imagePath, {
+    required CameraLookState look,
+    CameraCaptureOrientation captureOrientation = CameraCaptureOrientation.auto,
+  }) => Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => CameraCaptureSaveHandoff(
+        imagePath: imagePath,
+        look: look,
+        imageRatio: _imageRatio,
+        captureOrientation: captureOrientation,
+        zoomFactor: _zoomFactor,
+      ),
+    ),
+  );
 
   Future<void> _openEditor(String imagePath, {required CameraLookState look}) =>
       Navigator.of(context).push(
@@ -637,20 +761,162 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     _submitCameraLook();
   }
 
-  void _selectTool(CameraPrimaryTool tool) {
+  bool _adjustmentChanged(String id) {
+    final spec = cameraAdjustmentSpec(id);
+    return (_cameraLook.adjustmentValue(id) - spec.neutral).abs() > 0.000001;
+  }
+
+  void _resetAdjustment(String id) {
+    if (!_adjustmentChanged(id)) return;
+    setState(() => _cameraLook = _cameraLook.resetAdjustment(id));
+    _submitCameraLook();
+  }
+
+  void _resetAllAdjustments() {
+    setState(() => _cameraLook = _cameraLook.resetAdjustments());
+    _submitCameraLook();
+  }
+
+  Future<void> _refreshLookPreviews(CameraPrimaryTool tool) async {
+    if (_isCapturing || !_useNativeGpu || _gpuRendererId == null) return;
+    if (tool != CameraPrimaryTool.film && tool != CameraPrimaryTool.filter) {
+      return;
+    }
+
+    if (!_enableStillCaptureLookPreviews) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingLookPreviews = false;
+        if (tool == CameraPrimaryTool.film) {
+          _filmPreviewBytes = const {};
+        } else {
+          _filterPreviewBytes = const {};
+        }
+      });
+      return;
+    }
+
+    final request = ++_lookPreviewRequest;
+    if (mounted) setState(() => _isLoadingLookPreviews = true);
+    String? snapshotPath;
+    try {
+      final capture = await _nativeCameraBridge.capturePhoto(_gpuRendererId!);
+      snapshotPath = capture.path;
+      final source = await File(snapshotPath).readAsBytes();
+      final previews = await Isolate.run(() async {
+        await initializeRustBridge();
+        if (tool == CameraPrimaryTool.film) {
+          final ids = cameraFilmPresets
+              .where((preset) => !preset.isOriginal)
+              .map((preset) => preset.id)
+              .toList(growable: false);
+          final generated = rust.generateFilmProfilePreviews(
+            imageBytes: source,
+            profileIds: ids,
+            maxEdge: 180,
+          );
+          return <String, Uint8List>{
+            '': source,
+            for (final preview in generated) preview.id: preview.bytes,
+          };
+        }
+
+        final ids = cameraCreativeFilters
+            .map((filter) => filter.id)
+            .toList(growable: false);
+        final generated = rust.generateFilterPreviews(
+          imageBytes: source,
+          filterNames: ids,
+          maxEdge: 180,
+        );
+        return <String, Uint8List>{
+          '': source,
+          for (final preview in generated) preview.name: preview.bytes,
+        };
+      });
+      if (!mounted || request != _lookPreviewRequest) return;
+      setState(() {
+        if (tool == CameraPrimaryTool.film) {
+          _filmPreviewBytes = previews;
+        } else {
+          _filterPreviewBytes = previews;
+        }
+      });
+    } catch (_) {
+    } finally {
+      if (snapshotPath != null) {
+        try {
+          await File(snapshotPath).delete();
+        } catch (_) {}
+      }
+      if (mounted && request == _lookPreviewRequest) {
+        setState(() => _isLoadingLookPreviews = false);
+      }
+    }
+  }
+
+  Future<void> _confirmOpenLookTray() async {
+    if (!_isLookTrayOpen) return;
+    if (_useNativeGpu && _gpuRendererId != null) {
+      await _lookCoordinator.flush();
+    }
+    if (!mounted) return;
+    setState(() => _toolPanelExpanded = false);
+  }
+
+  Future<void> _handleToolSelection(CameraPrimaryTool tool) async {
     if (tool != CameraPrimaryTool.film && !_useNativeGpu) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('camera.native_look_required'.tr())),
       );
       return;
     }
-    setState(() => _selectedTool = tool);
+
+    if (_isLookTrayOpen) {
+      if (tool == _selectedTool) {
+        await _confirmOpenLookTray();
+        return;
+      }
+      await _confirmOpenLookTray();
+      if (!mounted) return;
+      setState(() {
+        _selectedTool = tool;
+        _toolPanelExpanded = true;
+      });
+      if (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter) {
+        unawaited(_refreshLookPreviews(tool));
+      }
+      return;
+    }
+
+    final willExpand = tool != _selectedTool || !_toolPanelExpanded;
+    setState(() {
+      _selectedTool = tool;
+      _toolPanelExpanded = willExpand;
+    });
+    if (willExpand &&
+        (tool == CameraPrimaryTool.film || tool == CameraPrimaryTool.filter)) {
+      unawaited(_refreshLookPreviews(tool));
+    }
+  }
+
+  void _selectTool(CameraPrimaryTool tool) {
+    unawaited(_handleToolSelection(tool));
+  }
+
+  void _openAdjustment(String id) {
+    setState(() {
+      _selectedAdjustmentId = id;
+      _selectedTool = CameraPrimaryTool.adjust;
+      _toolPanelExpanded = true;
+    });
   }
 
   Future<void> _showCameraControls() async {
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF111111),
+      isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) {
           Future<void> refresh(Future<void> Function() action) async {
@@ -659,19 +925,83 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           }
 
           return SafeArea(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'camera.controls'.tr(),
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(color: Colors.white),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'camera.controls'.tr(),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.titleLarge?.copyWith(color: Colors.white),
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('camera-controls-close'),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                        color: Colors.white,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 14),
+                  Text(
+                    'camera.image_ratio'.tr(),
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final ratio in CameraImageRatio.values)
+                        ChoiceChip(
+                          label: Text(ratio.label),
+                          selected: ratio == _imageRatio,
+                          onSelected: _isCapturing
+                              ? null
+                              : (_) => unawaited(
+                                  refresh(() => _setImageRatio(ratio)),
+                                ),
+                          selectedColor: const Color(0xFFFF6A00),
+                          backgroundColor: const Color(0xFF242424),
+                          side: BorderSide(
+                            color: ratio == _imageRatio
+                                ? const Color(0xFFFF6A00)
+                                : Colors.white24,
+                          ),
+                          labelStyle: TextStyle(
+                            color: ratio == _imageRatio
+                                ? Colors.black
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          showCheckmark: false,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'camera.image_ratio_hint'.tr(),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const SizedBox(height: 18),
+                  CameraCompositionGuideSettingsControl(
+                    value: _compositionGuide,
+                    frameAspectRatio: _imageRatio.aspectRatio,
+                    enabled: !_isCapturing,
+                    onChanged: (guide) =>
+                        unawaited(refresh(() => _setCompositionGuide(guide))),
+                  ),
+                  const SizedBox(height: 18),
                   Text(
                     'camera.flash'.tr(),
                     style: const TextStyle(color: Colors.white70),
@@ -733,6 +1063,20 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                           }
                         : null,
                   ),
+                  ListTile(
+                    leading: const Icon(Icons.info_outline_rounded),
+                    iconColor: Colors.white,
+                    textColor: Colors.white,
+                    title: Text('about.title'.tr()),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AboutScreen(),
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -751,18 +1095,51 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
           fit: StackFit.expand,
           children: [
             _buildViewfinder(),
+            if (_imageRatio != CameraImageRatio.original)
+              _buildImageRatioGuide(),
+            if (_compositionGuide != CameraCompositionGuide.off)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 64,
+                bottom: 174,
+                child: CameraCompositionGuideOverlay(
+                  guide: _compositionGuide,
+                  frameAspectRatio: _imageRatio.aspectRatio,
+                ),
+              ),
+            if (!_isCapturing)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onScaleStart: _onZoomStart,
+                  onScaleUpdate: _onZoomUpdate,
+                  child: const ColoredBox(color: Colors.transparent),
+                ),
+              ),
+            if (_isLookTrayOpen)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => unawaited(_confirmOpenLookTray()),
+                  child: const ColoredBox(color: Colors.transparent),
+                ),
+              ),
             _buildTopBar(),
-            if (_selectedTool == CameraPrimaryTool.film) _buildFilmControls(),
-            if (_selectedTool == CameraPrimaryTool.filter)
+            if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.film)
+              _buildFilmControls(),
+            if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.filter)
               _buildFilterControls(),
-            if (_selectedTool == CameraPrimaryTool.adjust)
+            if (_toolPanelExpanded && _selectedTool == CameraPrimaryTool.adjust)
               _buildAdjustControls(),
+            _buildActiveAdjustmentIndicators(),
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
               child: CameraPrimaryControls(
                 selectedTool: _selectedTool,
+                isToolPanelExpanded: _toolPanelExpanded,
                 onToolSelected: _selectTool,
                 onGalleryPressed: _pickGallery,
                 onShutterPressed: _capture,
@@ -771,8 +1148,16 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 filmLabel: 'camera.film'.tr(),
                 filterLabel: 'camera.filter'.tr(),
                 adjustLabel: 'camera.adjust'.tr(),
+                filmSummary: _preset.isOriginal
+                    ? 'Original'
+                    : '${_preset.name.replaceAll(' Inspired', '')} · ${(_strength * 100).round()}%',
+                filterSummary: _cameraLook.creativeFilterId.isEmpty
+                    ? 'Original'
+                    : '${'camera.${_cameraLook.creativeFilterId}'.tr()} · ${(_cameraLook.creativeFilterStrength * 100).round()}%',
                 controlsLabel: 'camera.controls'.tr(),
                 shutterSemanticLabel: 'camera.take_photo'.tr(),
+                zoomFactor: _zoomFactor,
+                zoomQuarterTurns: _zoomIndicatorQuarterTurns,
                 isCapturing: _isCapturing,
               ),
             ),
@@ -787,6 +1172,56 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       ),
     );
   }
+
+  Widget _buildImageRatioGuide() {
+    final aspect = _imageRatio.aspectRatioFor(_physicalCaptureOrientation);
+    if (aspect == null) return const SizedBox.shrink();
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: 64,
+      bottom: 174,
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _CameraRatioGuidePainter(aspectRatio: aspect),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.58),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    _imageRatio.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _applyZoom(Widget preview) => ClipRect(
+    child: Transform.scale(
+      scale: _zoomFactor,
+      alignment: Alignment.center,
+      child: preview,
+    ),
+  );
 
   Widget _buildViewfinder() {
     if (_error != null) {
@@ -826,10 +1261,10 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
     final rendererId = _gpuRendererId;
     if (_useNativeGpu && rendererId != null) {
-      if (defaultTargetPlatform == TargetPlatform.iOS) {
-        return IosGpuCameraPreview(rendererId: rendererId);
-      }
-      return AndroidGpuCameraPreview(rendererId: rendererId);
+      final preview = defaultTargetPlatform == TargetPlatform.iOS
+          ? IosGpuCameraPreview(rendererId: rendererId)
+          : AndroidGpuCameraPreview(rendererId: rendererId);
+      return _applyZoom(preview);
     }
 
     final controller = _controller;
@@ -858,7 +1293,7 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
         if (scale < 1) scale = 1 / scale;
         return ClipRect(
           child: Transform.scale(
-            scale: scale,
+            scale: scale * _zoomFactor,
             child: Center(child: preview),
           ),
         );
@@ -948,73 +1383,79 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     gradient: LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: [Colors.transparent, Color(0xB3000000)],
+      colors: [Colors.transparent, Color(0xA6000000)],
     ),
   );
 
   Widget _buildFilmControls() {
+    final items = <CameraLookFilmstripItem>[
+      for (var index = 0; index < cameraFilmPresets.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraFilmPresets[index].id,
+          label: cameraFilmPresets[index].name.replaceAll(' Inspired', ''),
+          index: index,
+          previewBytes: _filmPreviewBytes[cameraFilmPresets[index].id],
+        ),
+    ];
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 174,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 40, 0, 4),
+          padding: const EdgeInsets.fromLTRB(0, 34, 0, 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _preset.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              CameraLookFilmstrip(
+                items: items,
+                selectedId: _preset.id,
+                enabled: !_isCapturing,
+                isLoadingPreviews: _isLoadingLookPreviews,
+                onSelected: (id) {
+                  if (id == _preset.id) {
+                    unawaited(_confirmOpenLookTray());
+                    return;
+                  }
+                  final preset = cameraFilmPresets.firstWhere(
+                    (candidate) => candidate.id == id,
+                  );
+                  _selectPreset(preset);
+                },
               ),
-              if (!_preset.isOriginal)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 44),
-                  child: Slider(
-                    value: _strength,
-                    min: 0,
-                    max: 1,
-                    onChanged: _isCapturing ? null : _setStrength,
-                  ),
-                )
-              else
-                const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: cameraFilmPresets.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final preset = cameraFilmPresets[index];
-                    final selected = preset.id == _preset.id;
-                    return ChoiceChip(
-                      selected: selected,
-                      label: Text(preset.name.replaceAll(' Inspired', '')),
-                      onSelected: _isCapturing
-                          ? null
-                          : (_) => _selectPreset(preset),
-                      selectedColor: Colors.white,
-                      backgroundColor: Colors.black54,
-                      side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: _preset.isOriginal
+                    ? const SizedBox(height: 2)
+                    : Padding(
+                        key: ValueKey('film-strength-${_preset.id}'),
+                        padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Slider(
+                                value: _strength,
+                                min: 0,
+                                max: 1,
+                                onChanged: _isCapturing ? null : _setStrength,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 34,
+                              child: Text(
+                                '${(_strength * 100).round()}',
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      labelStyle: TextStyle(
-                        color: selected ? Colors.black : Colors.white,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                      showCheckmark: false,
-                    );
-                  },
-                ),
               ),
             ],
           ),
@@ -1025,77 +1466,79 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
 
   Widget _buildFilterControls() {
     final activeId = _cameraLook.creativeFilterId;
+    final items = <CameraLookFilmstripItem>[
+      CameraLookFilmstripItem(
+        id: '',
+        label: 'camera.original'.tr(),
+        index: 0,
+        previewBytes: _filterPreviewBytes[''],
+      ),
+      for (var index = 0; index < cameraCreativeFilters.length; index++)
+        CameraLookFilmstripItem(
+          id: cameraCreativeFilters[index].id,
+          label: 'camera.${cameraCreativeFilters[index].id}'.tr(),
+          index: index + 1,
+          previewBytes: _filterPreviewBytes[cameraCreativeFilters[index].id],
+        ),
+    ];
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 174,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 40, 0, 4),
+          padding: const EdgeInsets.fromLTRB(0, 34, 0, 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                activeId.isEmpty
-                    ? 'camera.original'.tr()
-                    : 'camera.$activeId'.tr(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              CameraLookFilmstrip(
+                items: items,
+                selectedId: activeId,
+                enabled: !_isCapturing,
+                isLoadingPreviews: _isLoadingLookPreviews,
+                onSelected: (id) {
+                  if (id == activeId) {
+                    unawaited(_confirmOpenLookTray());
+                    return;
+                  }
+                  _selectCreativeFilter(id.isEmpty ? null : id);
+                },
               ),
-              if (activeId.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 44),
-                  child: Slider(
-                    value: _cameraLook.creativeFilterStrength,
-                    min: 0,
-                    max: 1,
-                    onChanged: _isCapturing ? null : _setCreativeStrength,
-                  ),
-                )
-              else
-                const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: cameraCreativeFilters.length + 1,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final filter = index == 0
-                        ? null
-                        : cameraCreativeFilters[index - 1];
-                    final id = filter?.id ?? '';
-                    final selected = id == activeId;
-                    return ChoiceChip(
-                      selected: selected,
-                      label: Text(
-                        filter == null
-                            ? 'camera.original'.tr()
-                            : 'camera.${filter.id}'.tr(),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: activeId.isEmpty
+                    ? const SizedBox(height: 2)
+                    : Padding(
+                        key: ValueKey('filter-strength-$activeId'),
+                        padding: const EdgeInsets.fromLTRB(56, 0, 56, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Slider(
+                                value: _cameraLook.creativeFilterStrength,
+                                min: 0,
+                                max: 1,
+                                onChanged: _isCapturing
+                                    ? null
+                                    : _setCreativeStrength,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 34,
+                              child: Text(
+                                '${(_cameraLook.creativeFilterStrength * 100).round()}',
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      onSelected: _isCapturing
-                          ? null
-                          : (_) => _selectCreativeFilter(filter?.id),
-                      selectedColor: Colors.white,
-                      backgroundColor: Colors.black54,
-                      side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
-                      ),
-                      labelStyle: TextStyle(
-                        color: selected ? Colors.black : Colors.white,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                      showCheckmark: false,
-                    );
-                  },
-                ),
               ),
             ],
           ),
@@ -1104,57 +1547,140 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
     );
   }
 
+  Widget _buildActiveAdjustmentIndicators() {
+    final changed = _cameraAdjustmentIds
+        .where(_adjustmentChanged)
+        .toList(growable: false);
+    if (changed.isEmpty) return const SizedBox.shrink();
+    const shortLabels = <String, String>{
+      'exposure': 'EV',
+      'temperature': 'Temp',
+      'tint': 'Tint',
+      'brightness': 'Bright',
+      'contrast': 'Contrast',
+      'saturation': 'Sat',
+      'vignette': 'Vign',
+    };
+    return Positioned(
+      right: 10,
+      top: 78,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final id in changed)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: GestureDetector(
+                onTap: _isCapturing ? null : () => _openAdjustment(id),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.58),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    child: Text(
+                      '${shortLabels[id]} ${_cameraLook.adjustmentValue(id).toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAdjustControls() {
     final spec = cameraAdjustmentSpec(_selectedAdjustmentId);
     final value = _cameraLook.adjustmentValue(_selectedAdjustmentId);
+    final selectedChanged = _adjustmentChanged(_selectedAdjustmentId);
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 156,
+      bottom: 174,
       child: DecoratedBox(
         decoration: _lookPanelDecoration,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 40, 0, 4),
+          padding: const EdgeInsets.fromLTRB(16, 30, 16, 6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                '${'camera.$_selectedAdjustmentId'.tr()}  ${value.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${'camera.$_selectedAdjustmentId'.tr()}  ${value.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Reset',
+                    onPressed: selectedChanged && !_isCapturing
+                        ? () => _resetAdjustment(_selectedAdjustmentId)
+                        : null,
+                    icon: const Icon(Icons.refresh_rounded),
+                    color: Colors.white,
+                    disabledColor: Colors.white24,
+                  ),
+                  TextButton.icon(
+                    onPressed: _isCapturing ? null : _resetAllAdjustments,
+                    icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                    label: const Text('Reset All'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                    ),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 44),
-                child: Slider(
-                  value: value,
-                  min: spec.min,
-                  max: spec.max,
-                  onChanged: _isCapturing ? null : _setAdjustment,
-                ),
+              Slider(
+                value: value,
+                min: spec.min,
+                max: spec.max,
+                onChanged: _isCapturing ? null : _setAdjustment,
               ),
               SizedBox(
-                height: 42,
+                height: 46,
                 child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   scrollDirection: Axis.horizontal,
                   itemCount: _cameraAdjustmentIds.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
                     final id = _cameraAdjustmentIds[index];
                     final selected = id == _selectedAdjustmentId;
-                    return ChoiceChip(
+                    final changed = _adjustmentChanged(id);
+                    return InputChip(
                       selected: selected,
                       label: Text('camera.$id'.tr()),
                       onSelected: _isCapturing
                           ? null
                           : (_) => _selectAdjustment(id),
+                      onDeleted: changed && !_isCapturing
+                          ? () => _resetAdjustment(id)
+                          : null,
+                      deleteIcon: const Icon(Icons.refresh_rounded, size: 16),
+                      deleteIconColor: const Color(0xFFFF6A00),
                       selectedColor: Colors.white,
                       backgroundColor: Colors.black54,
                       side: BorderSide(
-                        color: selected ? Colors.white : Colors.white38,
+                        color: changed
+                            ? const Color(0xFFFF6A00)
+                            : selected
+                            ? Colors.white
+                            : Colors.white38,
                       ),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
@@ -1173,4 +1699,51 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
       ),
     );
   }
+}
+
+class _CameraRatioGuidePainter extends CustomPainter {
+  const _CameraRatioGuidePainter({required this.aspectRatio});
+
+  final double aspectRatio;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0 || aspectRatio <= 0) return;
+
+    final availableAspect = size.width / size.height;
+    final Rect frame;
+    if (availableAspect > aspectRatio) {
+      final width = size.height * aspectRatio;
+      frame = Rect.fromLTWH((size.width - width) / 2, 0, width, size.height);
+    } else {
+      final height = size.width / aspectRatio;
+      frame = Rect.fromLTWH(0, (size.height - height) / 2, size.width, height);
+    }
+
+    final mask = Paint()..color = Colors.black.withValues(alpha: 0.28);
+    if (frame.top > 0) {
+      canvas.drawRect(Rect.fromLTRB(0, 0, size.width, frame.top), mask);
+      canvas.drawRect(
+        Rect.fromLTRB(0, frame.bottom, size.width, size.height),
+        mask,
+      );
+    }
+    if (frame.left > 0) {
+      canvas.drawRect(Rect.fromLTRB(0, 0, frame.left, size.height), mask);
+      canvas.drawRect(
+        Rect.fromLTRB(frame.right, 0, size.width, size.height),
+        mask,
+      );
+    }
+
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = Colors.white.withValues(alpha: 0.78);
+    canvas.drawRect(frame.deflate(0.7), border);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CameraRatioGuidePainter oldDelegate) =>
+      oldDelegate.aspectRatio != aspectRatio;
 }

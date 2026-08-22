@@ -15,10 +15,12 @@ import 'core/bridge.dart';
 import 'ui/screens/camera_film_preview_screen.dart';
 import 'ui/screens/film_profiles_screen.dart';
 import 'ui/screens/gpu_editor_preview_lab_screen.dart';
+import 'ui/screens/greeting_screen.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_editor_screen.dart';
 
 const _launchGpuEditorLab = bool.fromEnvironment('GPU_EDITOR_LAB');
+const _brandOrange = Color(0xFFFF6A00);
 
 bool get _isMobilePlatform =>
     !kIsWeb &&
@@ -27,7 +29,7 @@ bool get _isMobilePlatform =>
 
 ThemeData _cameraTheme() => ThemeData(
   useMaterial3: true,
-  colorSchemeSeed: const Color(0xFF9D8CFF),
+  colorSchemeSeed: _brandOrange,
   brightness: Brightness.dark,
   scaffoldBackgroundColor: Colors.black,
 );
@@ -93,7 +95,9 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
           name: AppRouteNames.camera,
           builder: (_, __) => Theme(
             data: _cameraTheme(),
-            child: const RustBootstrapScreen(child: CameraFilmPreviewScreen()),
+            child: const GreetingGate(
+              child: RustBootstrapScreen(child: CameraFilmPreviewScreen()),
+            ),
           ),
         ),
         GoRoute(
@@ -155,9 +159,9 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
     localizationsDelegates: context.localizationDelegates,
     theme: ThemeData(
       useMaterial3: true,
-      colorSchemeSeed: const Color(0xFF7259E7),
+      colorSchemeSeed: _brandOrange,
       brightness: Brightness.light,
-      scaffoldBackgroundColor: const Color(0xFFF8F7FC),
+      scaffoldBackgroundColor: const Color(0xFFF8F6F3),
     ),
     darkTheme: _cameraTheme(),
     themeMode: ThemeMode.system,
@@ -189,7 +193,6 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
   Future<void> _initialize() async {
     final stopwatch = Stopwatch()..start();
     debugPrint('[Dextryx Pixels] Initializing Rust bridge...');
-
     try {
       await initializeRustBridge().timeout(
         _timeout,
@@ -228,7 +231,6 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
             !snapshot.hasError) {
           return widget.child;
         }
-
         if (snapshot.hasError) {
           return Scaffold(
             body: SafeArea(
@@ -270,7 +272,6 @@ class _RustBootstrapScreenState extends State<RustBootstrapScreen> {
             ),
           );
         }
-
         return Scaffold(
           body: Center(
             child: Column(

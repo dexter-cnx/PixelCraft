@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 const iosGpuCameraPreviewViewType = 'dev.pixelcraft/gpu_camera_preview_v1';
@@ -8,19 +9,19 @@ const iosGpuCameraPreviewViewType = 'dev.pixelcraft/gpu_camera_preview_v1';
 /// The platform view receives only the renderer/session id. Camera frame pixels
 /// remain entirely native and never cross Dart or Flutter Rust Bridge.
 class IosGpuCameraPreview extends StatelessWidget {
-  const IosGpuCameraPreview({
-    super.key,
-    required this.rendererId,
-  });
+  const IosGpuCameraPreview({super.key, required this.rendererId});
 
   final String rendererId;
 
   @override
   Widget build(BuildContext context) {
-    return UiKitView(
-      viewType: iosGpuCameraPreviewViewType,
-      creationParams: <String, Object?>{'rendererId': rendererId},
-      creationParamsCodec: const StandardMessageCodec(),
+    return IgnorePointer(
+      child: UiKitView(
+        viewType: iosGpuCameraPreviewViewType,
+        hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+        creationParams: <String, Object?>{'rendererId': rendererId},
+        creationParamsCodec: const StandardMessageCodec(),
+      ),
     );
   }
 }

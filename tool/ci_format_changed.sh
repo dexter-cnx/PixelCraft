@@ -17,13 +17,23 @@ if ! command -v dart >/dev/null 2>&1; then
   exit 1
 fi
 
+# Keep formatter behavior deterministic across local machines, IDEs and CI.
+# Do not rely solely on analysis_options.yaml being discovered/resolved by
+# `dart format`; pass the repository contract explicitly.
+DART_FORMAT_PAGE_WIDTH="${DART_FORMAT_PAGE_WIDTH:-80}"
+
 # Keep this script compatible with the stock Bash 3.2 shipped by macOS.
 # Do not use associative arrays here; de-duplicate with a small linear scan.
+# Bash 3.2 with nounset can reject expanding an empty array, so keep an explicit
+# count and never expand files[@] until at least one entry has been added.
 files=()
+files_count=0
 
 contains_file() {
   local candidate="$1"
   local existing
+
+  (( files_count > 0 )) || return 1
   for existing in "${files[@]}"; do
     [[ "$existing" == "$candidate" ]] && return 0
   done
@@ -36,6 +46,7 @@ add_file() {
   [[ -f "$file" ]] || return 0
   contains_file "$file" && return 0
   files+=("$file")
+  files_count=$((files_count + 1))
 }
 
 add_from_command() {
@@ -74,16 +85,38 @@ else
   add_from_command < <(git ls-files --others --exclude-standard -- '*.dart')
 fi
 
-if (( ${#files[@]} == 0 )); then
+if (( files_count == 0 )); then
   echo "[Pixel Craft] Dart format-${mode}: no changed Dart files"
   exit 0
 fi
 
-printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s)\n' "$mode" "${#files[@]}"
+printf '[Pixel Craft] Dart format-%s: %d changed Dart file(s), page-width=%s\n' \
+  "$mode" "$files_count" "$DART_FORMAT_PAGE_WIDTH"
 printf '  %s\n' "${files[@]}"
 
 if [[ "$mode" == "write" ]]; then
-  dart format "${files[@]}"
+  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${files[@]}"
 else
-  dart format --output=none --set-exit-if-changed "${files[@]}"
+  if dart format --page-width="$DART_FORMAT_PAGE_WIDTH" --output=none --set-exit-if-changed "${files[@]}"; then
+    exit 0
+  fi
+
+  # Generate the formatter's canonical rewrite in a temporary mirror so check
+  # mode remains strictly read-only for staged, unstaged, and untracked files.
+  tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/pixelcraft-format.XXXXXX")"
+  trap 'rm -rf "$tmp_root"' EXIT INT TERM
+
+  temp_files=()
+  for file in "${files[@]}"; do
+    mkdir -p "$tmp_root/$(dirname "$file")"
+    cp "$file" "$tmp_root/$file"
+    temp_files+=("$tmp_root/$file")
+  done
+
+  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${temp_files[@]}" >/dev/null
+  echo "[Pixel Craft] Dart formatter diff:"
+  for file in "${files[@]}"; do
+    diff -u "$file" "$tmp_root/$file" || true
+  done
+  exit 1
 fi

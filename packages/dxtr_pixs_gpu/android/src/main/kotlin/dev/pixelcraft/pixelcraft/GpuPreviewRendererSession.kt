@@ -29,9 +29,13 @@ internal data class NativeGpuViewport(
 
 internal class NativeGpuRendererSession(
     val id: String,
-    val renderer: AndroidGpuCameraOesRenderer,
+    var renderer: AndroidGpuCameraOesRenderer,
     var state: NativeGpuSessionState = NativeGpuSessionState.CREATED,
     var surface: NativeGpuSurfaceConfig? = null,
+    var outputSurface: Surface? = null,
+    var outputWidth: Int = 0,
+    var outputHeight: Int = 0,
+    var displayRotation: Int = Surface.ROTATION_0,
     var profileId: String = "",
     var strength: Double = 0.0,
     var cameraLook: NativeGpuCameraLook = NativeGpuCameraLook(),
@@ -39,13 +43,6 @@ internal class NativeGpuRendererSession(
     var enabled: Boolean = true,
 )
 
-/**
- * G1 native renderer/session registry.
- *
- * Each session owns one Camera2/OES renderer. Actual output Surfaces arrive
- * directly from the Android PlatformView; no Surface or frame payload crosses
- * MethodChannel.
- */
 internal class GpuPreviewRendererSessionRegistry(context: Context) {
     private val appContext = context.applicationContext
     private val cameraManager =
@@ -55,13 +52,18 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     @Volatile
     var runtimeFailureListener: ((rendererId: String, message: String) -> Unit)? = null
 
+    private fun newRenderer(id: String): AndroidGpuCameraOesRenderer =
+        AndroidGpuCameraOesRenderer(appContext) { message ->
+            runtimeFailureListener?.invoke(id, message)
+        }
+
     @Synchronized
     fun create(): NativeGpuRendererSession {
         val id = UUID.randomUUID().toString()
-        val renderer = AndroidGpuCameraOesRenderer(appContext) { message ->
-            runtimeFailureListener?.invoke(id, message)
-        }
-        val session = NativeGpuRendererSession(id = id, renderer = renderer)
+        val session = NativeGpuRendererSession(
+            id = id,
+            renderer = newRenderer(id),
+        )
         sessions[id] = session
         return session
     }
@@ -97,6 +99,10 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
                 devicePixelRatio = 1.0,
                 surfaceId = null,
             )
+            outputSurface = surface
+            outputWidth = width
+            outputHeight = height
+            this.displayRotation = displayRotation
             renderer.configureOutputSurface(surface, width, height, displayRotation)
             state = NativeGpuSessionState.SURFACE_CONFIGURED
         }
@@ -106,6 +112,9 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     fun clearOutputSurface(id: String) {
         sessions[id]?.apply {
             renderer.clearOutputSurface()
+            outputSurface = null
+            outputWidth = 0
+            outputHeight = 0
             surface = null
             if (state != NativeGpuSessionState.DESTROYED) {
                 state = NativeGpuSessionState.CREATED
@@ -182,11 +191,54 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
     @Synchronized
     fun resume(id: String) {
         val target = session(id)
-        target.renderer.resume()
-        target.state = if (target.surface != null) {
-            NativeGpuSessionState.SURFACE_CONFIGURED
+        if (target.state == NativeGpuSessionState.DESTROYED) return
+
+        // Do not reuse Camera2/EGL state across an external Activity such as
+        // the system Gallery picker. The old renderer has already closed its
+        // camera on pause; release its GL resources and rebuild a clean native
+        // renderer around the still-valid PlatformView Surface.
+        val controls = target.renderer.cameraControlState()
+        target.renderer.release()
+        val replacement = newRenderer(id)
+        target.renderer = replacement
+        replacement.setEnabled(target.enabled)
+        replacement.setCameraLook(target.cameraLook)
+
+        fun restoreControlsAndSurface() {
+            val flashMode = controls["flashMode"] as? String ?: "auto"
+            val torchEnabled = controls["torchEnabled"] as? Boolean ?: false
+            val mirrorEnabled = controls["mirrorEnabled"] as? Boolean ?: false
+            replacement.setFlashMode(flashMode)
+            replacement.setMirrorEnabled(mirrorEnabled)
+            replacement.setTorchEnabled(torchEnabled)
+
+            val output = target.outputSurface
+            if (output != null && target.outputWidth > 0 && target.outputHeight > 0 && output.isValid) {
+                replacement.configureOutputSurface(
+                    output,
+                    target.outputWidth,
+                    target.outputHeight,
+                    target.displayRotation,
+                )
+                target.state = NativeGpuSessionState.SURFACE_CONFIGURED
+            } else {
+                target.state = NativeGpuSessionState.CREATED
+            }
+        }
+
+        if (controls["lensDirection"] == "front") {
+            replacement.switchCamera { result ->
+                result.onSuccess {
+                    restoreControlsAndSurface()
+                }.onFailure { error ->
+                    runtimeFailureListener?.invoke(
+                        id,
+                        "Unable to restore camera lens after resume: ${error.message ?: error}",
+                    )
+                }
+            }
         } else {
-            NativeGpuSessionState.CREATED
+            restoreControlsAndSurface()
         }
     }
 
@@ -210,6 +262,7 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
         sessions.remove(id)?.apply {
             state = NativeGpuSessionState.DESTROYED
             renderer.release()
+            outputSurface = null
         }
     }
 

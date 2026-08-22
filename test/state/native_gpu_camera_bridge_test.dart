@@ -15,12 +15,12 @@ void main() {
   test('camera permission request sends protocol only', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'requestCameraPermission');
-      expect(call.arguments, <String, Object?>{
-        'protocolVersion': gpuPreviewProtocolVersion,
-      });
-      return true;
-    });
+          expect(call.method, 'requestCameraPermission');
+          expect(call.arguments, <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+          });
+          return true;
+        });
 
     expect(
       await const NativeGpuCameraBridge().requestCameraPermission(),
@@ -31,46 +31,47 @@ void main() {
   test('available lenses stay small control-plane identifiers', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'availableCameraLenses');
-      expect(call.arguments, <String, Object?>{
-        'protocolVersion': gpuPreviewProtocolVersion,
-      });
-      return <String>['back', 'front'];
-    });
+          expect(call.method, 'availableCameraLenses');
+          expect(call.arguments, <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+          });
+          return <String>['back', 'front'];
+        });
 
-    expect(
-      await const NativeGpuCameraBridge().availableLenses(),
-      <String>['back', 'front'],
-    );
+    expect(await const NativeGpuCameraBridge().availableLenses(), <String>[
+      'back',
+      'front',
+    ]);
   });
 
-  test('capture returns only a clean native file path', () async {
+  test('capture returns clean native file path in capture result', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'capturePhoto');
-      expect(call.arguments, <String, Object?>{
-        'protocolVersion': gpuPreviewProtocolVersion,
-        'rendererId': 'renderer-1',
-      });
-      return <String, Object?>{'path': '/tmp/pixelcraft-camera/capture.jpg'};
-    });
+          expect(call.method, 'capturePhoto');
+          expect(call.arguments, <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+            'rendererId': 'renderer-1',
+          });
+          return <String, Object?>{
+            'path': '/tmp/pixelcraft-camera/capture.jpg',
+          };
+        });
 
-    expect(
-      await const NativeGpuCameraBridge().capturePhoto('renderer-1'),
-      '/tmp/pixelcraft-camera/capture.jpg',
-    );
+    const bridge = NativeGpuCameraBridge();
+    final capture = await bridge.capturePhoto('renderer-1');
+    expect(capture.path, '/tmp/pixelcraft-camera/capture.jpg');
   });
 
   test('switch camera returns native lens direction', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'switchCamera');
-      expect(call.arguments, <String, Object?>{
-        'protocolVersion': gpuPreviewProtocolVersion,
-        'rendererId': 'renderer-1',
-      });
-      return <String, Object?>{'lensDirection': 'front'};
-    });
+          expect(call.method, 'switchCamera');
+          expect(call.arguments, <String, Object?>{
+            'protocolVersion': gpuPreviewProtocolVersion,
+            'rendererId': 'renderer-1',
+          });
+          return <String, Object?>{'lensDirection': 'front'};
+        });
 
     expect(
       await const NativeGpuCameraBridge().switchCamera('renderer-1'),
@@ -89,16 +90,16 @@ void main() {
 
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-      gpuPreviewChannelName,
-      const StandardMethodCodec().encodeMethodCall(
-        const MethodCall('runtimeFailure', <String, Object?>{
-          'protocolVersion': gpuPreviewProtocolVersion,
-          'rendererId': 'renderer-9',
-          'message': 'Metal drawable unavailable',
-        }),
-      ),
-      (_) {},
-    );
+          gpuPreviewChannelName,
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('runtimeFailure', <String, Object?>{
+              'protocolVersion': gpuPreviewProtocolVersion,
+              'rendererId': 'renderer-9',
+              'message': 'Metal drawable unavailable',
+            }),
+          ),
+          (_) {},
+        );
     await Future<void>.delayed(Duration.zero);
 
     expect(rendererId, 'renderer-9');

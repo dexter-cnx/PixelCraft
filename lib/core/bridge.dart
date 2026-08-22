@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../src/rust/frb_generated.dart';
+import 'rust_external_library_stub.dart'
+    if (dart.library.io) 'rust_external_library_io.dart';
 
 bool _initialized = false;
 Future<void>? _initialization;
@@ -17,7 +19,9 @@ Future<void> initializeRustBridge() {
 
 Future<void> _initializeOnce() async {
   try {
-    await RustLib.init();
+    await RustLib.init(
+      externalLibrary: rustExternalLibraryForCurrentPlatform(),
+    );
     _initialized = true;
   } catch (error) {
     // Permit a real retry after a failed native-library load.
