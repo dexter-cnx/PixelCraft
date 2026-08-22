@@ -86,6 +86,48 @@ void main() {
       expect(source.inheritsCameraLook, isFalse);
     });
   });
+
+  group('LegacyGalleryEditorRoutingPicker', () {
+    test('consumes Gallery descriptor after opening typed editor source', () async {
+      final descriptor = MediaSourceDescriptor(
+        uri: Uri.file('/tmp/gallery.jpg'),
+        provenance: MediaSourceProvenance.gallery,
+        mimeType: 'image/jpeg',
+        externalId: 'gallery-1',
+      );
+      EditorSource? openedSource;
+      final picker = LegacyGalleryEditorRoutingPicker(
+        picker: _FakePicker(descriptor),
+        onOpenEditor: (source) async => openedSource = source,
+      );
+
+      final legacyResult = await picker.pickImage();
+
+      expect(legacyResult, isNull);
+      expect(openedSource, isNotNull);
+      expect(openedSource!.original, same(descriptor));
+      expect(openedSource!.externalId, 'gallery-1');
+      expect(openedSource!.inheritsCameraLook, isFalse);
+    });
+
+    test('passes non-Gallery provenance back to legacy validation', () async {
+      final descriptor = MediaSourceDescriptor(
+        uri: Uri.file('/tmp/drop.jpg'),
+        provenance: MediaSourceProvenance.desktopDrop,
+        mimeType: 'image/jpeg',
+      );
+      var opened = false;
+      final picker = LegacyGalleryEditorRoutingPicker(
+        picker: _FakePicker(descriptor),
+        onOpenEditor: (_) async => opened = true,
+      );
+
+      final legacyResult = await picker.pickImage();
+
+      expect(legacyResult, same(descriptor));
+      expect(opened, isFalse);
+    });
+  });
 }
 
 class _FakePicker implements MediaPickerService {
