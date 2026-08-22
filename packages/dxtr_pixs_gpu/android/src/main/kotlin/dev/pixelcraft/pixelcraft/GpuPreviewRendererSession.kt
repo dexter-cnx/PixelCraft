@@ -197,23 +197,48 @@ internal class GpuPreviewRendererSessionRegistry(context: Context) {
         // the system Gallery picker. The old renderer has already closed its
         // camera on pause; release its GL resources and rebuild a clean native
         // renderer around the still-valid PlatformView Surface.
+        val controls = target.renderer.cameraControlState()
         target.renderer.release()
         val replacement = newRenderer(id)
         target.renderer = replacement
         replacement.setEnabled(target.enabled)
         replacement.setCameraLook(target.cameraLook)
 
-        val output = target.outputSurface
-        if (output != null && target.outputWidth > 0 && target.outputHeight > 0 && output.isValid) {
-            replacement.configureOutputSurface(
-                output,
-                target.outputWidth,
-                target.outputHeight,
-                target.displayRotation,
-            )
-            target.state = NativeGpuSessionState.SURFACE_CONFIGURED
+        fun restoreControlsAndSurface() {
+            val flashMode = controls["flashMode"] as? String ?: "auto"
+            val torchEnabled = controls["torchEnabled"] as? Boolean ?: false
+            val mirrorEnabled = controls["mirrorEnabled"] as? Boolean ?: false
+            replacement.setFlashMode(flashMode)
+            replacement.setMirrorEnabled(mirrorEnabled)
+            replacement.setTorchEnabled(torchEnabled)
+
+            val output = target.outputSurface
+            if (output != null && target.outputWidth > 0 && target.outputHeight > 0 && output.isValid) {
+                replacement.configureOutputSurface(
+                    output,
+                    target.outputWidth,
+                    target.outputHeight,
+                    target.displayRotation,
+                )
+                target.state = NativeGpuSessionState.SURFACE_CONFIGURED
+            } else {
+                target.state = NativeGpuSessionState.CREATED
+            }
+        }
+
+        if (controls["lensDirection"] == "front") {
+            replacement.switchCamera { result ->
+                result.onSuccess {
+                    restoreControlsAndSurface()
+                }.onFailure { error ->
+                    runtimeFailureListener?.invoke(
+                        id,
+                        "Unable to restore camera lens after resume: ${error.message ?: error}",
+                    )
+                }
+            }
         } else {
-            target.state = NativeGpuSessionState.CREATED
+            restoreControlsAndSurface()
         }
     }
 
