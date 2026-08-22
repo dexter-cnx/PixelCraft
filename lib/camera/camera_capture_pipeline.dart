@@ -161,7 +161,10 @@ class CameraCapturePipeline {
         zoomFactor: zoomFactor,
       ),
     );
-    _renderTail = turn.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _renderTail = turn.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
     return turn;
   }
 
