@@ -186,8 +186,8 @@ device-safety-check: ## Verify G6 verifier isolation and primary app identifier 
 	bash tool/ci_device_safety_guard.sh
 
 ci-fast: ## Mandatory cheap CI gate before platform/native build jobs
-	@$(MAKE) format-check
 	@$(MAKE) pub-get
+	@$(MAKE) format-check
 	@$(MAKE) package-check
 	@$(MAKE) codegen
 	@$(MAKE) analyze
@@ -216,7 +216,7 @@ native-test: ensure-rust-plugin ## Run real Rust bridge smoke test on DEVICE
 	$(FLUTTER) test integration_test/native_engine_smoke_test.dart -d $(DEVICE)
 
 gpu-native-test: ensure-rust-plugin ## Run Android OpenGL LUT shader harness on DEVICE
-	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<device-id>" >&2; exit 1; }
+	@test -n "$(DEVICE)" || { echo "ERROR: use DEVICE=<android-device-id>" >&2; exit 1; }
 	$(FLUTTER) test integration_test/gpu_preview_harness_test.dart -d $(DEVICE)
 
 g3-device-verify: ensure-rust-plugin ## Run isolated G3 iOS GPU verification app; DEVICE=<ios-device-id>
