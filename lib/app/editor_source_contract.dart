@@ -61,8 +61,13 @@ class EditorSourceFactory {
       'jpg' || 'jpeg' => EditorSourceFormat.jpeg,
       'png' => EditorSourceFormat.png,
       'heic' || 'heif' => EditorSourceFormat.heif,
-      'dng' || 'arw' || 'cr2' || 'cr3' || 'nef' || 'raf' || 'orf' =>
-        EditorSourceFormat.raw,
+      'dng' ||
+      'arw' ||
+      'cr2' ||
+      'cr3' ||
+      'nef' ||
+      'raf' ||
+      'orf' => EditorSourceFormat.raw,
       _ => EditorSourceFormat.unknown,
     };
   }
