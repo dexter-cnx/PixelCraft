@@ -104,3 +104,42 @@ class GalleryEditorSourceCoordinator {
     return _factory.fromDescriptor(descriptor);
   }
 }
+
+/// Temporary PF4 migration adapter for the legacy Camera Gallery callback.
+///
+/// The legacy camera screen expects a [MediaPickerService] and opens its own
+/// editor when a descriptor is returned. For Gallery sources this adapter
+/// consumes the descriptor, opens the canonical typed editor route through
+/// [onOpenEditor], then returns null so the legacy handoff cannot run twice.
+///
+/// Non-Gallery provenance is returned unchanged and remains subject to the
+/// legacy screen's fail-closed validation.
+class LegacyGalleryEditorRoutingPicker implements MediaPickerService {
+  const LegacyGalleryEditorRoutingPicker({
+    required MediaPickerService picker,
+    required Future<void> Function(EditorSource source) onOpenEditor,
+    EditorSourceFactory factory = const EditorSourceFactory(),
+  }) : this._(picker, onOpenEditor, factory);
+
+  const LegacyGalleryEditorRoutingPicker._(
+    this._picker,
+    this._onOpenEditor,
+    this._factory,
+  );
+
+  final MediaPickerService _picker;
+  final Future<void> Function(EditorSource source) _onOpenEditor;
+  final EditorSourceFactory _factory;
+
+  @override
+  Future<MediaSourceDescriptor?> pickImage() async {
+    final descriptor = await _picker.pickImage();
+    if (descriptor == null) return null;
+    if (descriptor.provenance != MediaSourceProvenance.gallery) {
+      return descriptor;
+    }
+
+    await _onOpenEditor(_factory.fromDescriptor(descriptor));
+    return null;
+  }
+}
