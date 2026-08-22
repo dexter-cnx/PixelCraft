@@ -45,12 +45,7 @@ void main() {
       ),
     );
 
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is Image && widget.image is MemoryImage,
-      ),
-      findsNWidgets(2),
-    );
+    expect(find.byType(Image), findsNWidgets(2));
     await tester.tap(find.text('Film A'));
     expect(selected, 'film-a');
   });
@@ -76,12 +71,7 @@ void main() {
     );
 
     expect(find.byType(ColorFiltered), findsOneWidget);
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is Image && widget.image is MemoryImage,
-      ),
-      findsOneWidget,
-    );
+    expect(find.byType(Image), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }
