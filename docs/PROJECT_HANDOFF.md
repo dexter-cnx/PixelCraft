@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-22 — PF3 implementation and physical validation complete in PR #52; final documentation sync is the last pre-merge step.**
+Last refresh: **2026-08-22 — PF3 merged in PR #52; PF4 Gallery -> typed Editor source flow is active in PR #55.**
 
 ---
 
@@ -141,17 +141,29 @@ Hard rules:
 
 ### Gallery/editor
 
+PF4 active flow:
+
 ```text
 Gallery
- -> choose source
- -> preserve original source untouched
+ -> MediaPickerService
+ -> MediaSourceDescriptor
+ -> EditorSourceFactory
+ -> typed EditorSource
+ -> EditorRouteData.source
  -> Product Editor
  -> Film / Filter / Adjust / transforms / masks
  -> Rust full-resolution render
  -> save processed result to Gallery / explicit destination
 ```
 
-Gallery/external sources do not inherit CameraLook automatically.
+Rules:
+
+- preserve the original source untouched;
+- Gallery/external sources do not inherit transient CameraLook;
+- source provenance/MIME/external id/format identity remain attached to the typed source contract;
+- current file-backed sources derive a path only at the Product Editor compatibility boundary;
+- non-file typed sources fail closed until a supported resolver/decoder exists;
+- RAW/HEIF identities may be represented without activating deferred RAW development.
 
 ## Desktop — editor/open/drop-first
 
@@ -197,7 +209,7 @@ G6  Reliability / Performance / Device Matrix  CLOSED / VERIFIED
 P0-P3 package extraction                       MERGED
 PKG-01 dxtr_pixs_* namespace consolidation     COMPLETE
 PKG-02 existing-package ownership audit         PLANNED
-PKG-03 camera package extraction review         NEXT AFTER PF3 MERGE / BEFORE OR ALONGSIDE PF4 AS APPROPRIATE
+PKG-03 camera package extraction review         AUDITED / DEFERRED
 
 G7A Release Engineering / Store Preparation    MERGED
 G7B Store Account Integration / Beta Upload    DEFERRED INDEFINITELY
@@ -213,10 +225,11 @@ CI-01 affected fast-fail / reliability tiers    CLOSED / VERIFIED
 PF0 Platform-flow foundations                   ROUTING FOUNDATION MERGED (#50)
 PF1 Camera-first mobile/tablet shell             IMPLEMENTED
 PF2 Unified Camera Film/Filter/Adjust UX         IMPLEMENTED
-PF3 Capture-process-save-to-Gallery              VERIFIED IN PR #52 / READY TO MERGE
-PF4 Gallery-to-editor source flow                NEXT PRODUCT SLICE
+PF3 Capture-process-save-to-Gallery              MERGED (#52)
+PF4 Gallery-to-editor source flow                IN PROGRESS (#55)
 PF5 External edit request/result contract        PLANNED FOUNDATION ONLY
 
+Plugin-oriented feature architecture            FUTURE / PLANNED / DO NOT ACTIVATE YET
 MobileSAM / ONNX segmentation                   FUTURE / NOT ACTIVATED
 Real RAW development                            FUTURE / NOT ACTIVATED
 O1 Dart 3.13 native tree-shaking / RecordUse    FUTURE / DEFERRED / DO NOT START NOW
@@ -332,10 +345,16 @@ Validated behavior includes:
 - Camera Controls Close interaction;
 - Composition Guide color behavior and persistence.
 
-Implementation head before final docs-only sync:
+PF3 was merged by PR #52 on 2026-08-22.
 
 ```text
-head: a57b967c62ee0cef2faeaa4ae5db1b8a272e5e9a
+main merge: a203cc6202c1a202526294def5b8fe209ca416cd
+```
+
+Pre-merge validation evidence retained from PF3:
+
+```text
+implementation head: a57b967c62ee0cef2faeaa4ae5db1b8a272e5e9a
 Pixel Craft CI #747: PASS
 ```
 
@@ -347,7 +366,53 @@ Codex review #4999877331 findings were all fixed, replied to, and resolved:
 
 ---
 
-# 8. CI architecture and local validation
+# 8. PF4 implementation details
+
+PF4 source contract:
+
+```text
+lib/app/editor_source_contract.dart
+lib/app/app_routes.dart
+lib/ui/screens/camera_film_preview_screen.dart
+```
+
+`EditorSource` preserves:
+
+```text
+original MediaSourceDescriptor
+source provenance
+MIME type
+external id
+format identity
+```
+
+`EditorSource.inheritsCameraLook` is false. Gallery/external sources must never inherit transient camera state implicitly.
+
+`EditorRouteData` can carry exactly one of:
+
+```text
+legacy image path
+image bytes
+typed EditorSource
+```
+
+For a typed file source, `imagePath` is derived only at the current Product Editor compatibility boundary. A non-file typed source remains preserved but routes to an unsupported-source state until explicit resolution support exists.
+
+The public camera entry is now a narrow PF4 routing wrapper around the existing G1 runtime. `LegacyGalleryEditorRoutingPicker` consumes Gallery selections, opens the canonical typed `/editor` route, then returns `null` to prevent the legacy G1 callback from also opening `CameraFilmEditorHandoff`.
+
+This migration seam deliberately leaves PF3 camera capture/runtime behavior unchanged.
+
+PKG-03 audit is recorded in:
+
+```text
+docs/PKG03_CAMERA_EXTRACTION_AUDIT.md
+```
+
+Decision: do not extract camera into a package during PF4. Revisit only when a concrete second consumer or stable reusable API exists.
+
+---
+
+# 9. CI architecture and local validation
 
 Affected-validation DAG:
 
@@ -394,7 +459,7 @@ Do not uninstall or overwrite the main app during verifier/device runs.
 
 ---
 
-# 9. State, localization, services
+# 10. State, localization, services
 
 Use Riverpod for Flutter application/UI orchestration and `easy_localization` for user-facing copy.
 
@@ -421,7 +486,7 @@ Source contracts remain format-aware so future RAW/Nixin integration does not re
 
 ---
 
-# 10. Package graph
+# 11. Package graph and future plugin boundary
 
 ```text
 PixelCraft App
@@ -438,16 +503,19 @@ dxtr_pixs_engine  -> repository rust/ crate
 
 Do not add new packages without a stable reuse/ownership boundary.
 
-Camera package extraction should be evaluated after PF3 is merged/stable.
+PKG-03 camera extraction is audited/deferred; do not extract camera merely for organization.
+
+Future feature-plugin architecture is planned but not active. The intended direction is capability/provider based rather than a dynamic arbitrary-code plugin loader: optional features should depend on stable app/domain contracts, register capabilities explicitly, and remain replaceable without becoming image authority. Candidate future features such as MobileSAM should sit behind those boundaries. Do not restructure PF4 solely for future plugins.
 
 ---
 
-# 11. Deferred work
+# 12. Deferred work
 
 Do not activate without a separate decision:
 
 ```text
 G7B store account/beta upload
+feature-plugin runtime/registration expansion
 MobileSAM / ONNX segmentation
 real RAW development
 Dart 3.13 RecordUse/native tree-shaking
@@ -460,18 +528,17 @@ Future RAW requires a separate explicit milestone covering decode/demosaic, WB/c
 
 ---
 
-# 12. Current next action
+# 13. Current next action
 
 ## Immediate
 
-1. Final documentation sync (`PROJECT_HANDOFF`, `CODE_WALKTHROUGH`, `README`) — this commit set.
-2. Require exact-head PR CI after docs sync.
-3. Merge PR #52 when required checks are green.
-4. Verify resulting `main` push CI.
-5. Delete `feature/pf3-capture-process-save` after successful merge if no longer needed.
+1. Require exact-head CI for PR #55 after PF4 typed Gallery routing and documentation sync.
+2. Fix any formatter/analyzer/test failures before expanding the slice.
+3. Complete PF4 processed export-to-Gallery failure/retry behavior without mutating the original source.
+4. Add/adjust regression coverage for Gallery -> typed route -> Product Editor and export failure/retry.
+5. Re-run exact-head CI and review threads.
+6. Mark PR #55 ready only when PF4 behavior and docs are stable.
 
-## After PF3 merge
+## After PF4
 
-Proceed to **PF4 — Gallery source -> Editor -> Gallery export/source-preservation completion**.
-
-Before expanding PF4, evaluate PKG-03 camera package extraction only if PF3 contracts are now stable enough to justify the boundary; do not extract merely for organization.
+Proceed to PF5 foundation only if needed for explicit external edit request/result contracts. Do not activate real RAW, MobileSAM, Dart 3.13 RecordUse, or generic plugin runtime work as part of PF4.
