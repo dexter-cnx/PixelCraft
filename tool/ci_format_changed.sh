@@ -101,10 +101,22 @@ else
     exit 0
   fi
 
-  # Print the formatter's exact canonical rewrite instead of forcing developers
-  # to guess wrapping behavior from a filename-only failure.
-  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${files[@]}" >/dev/null
+  # Generate the formatter's canonical rewrite in a temporary mirror so check
+  # mode remains strictly read-only for staged, unstaged, and untracked files.
+  tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/pixelcraft-format.XXXXXX")"
+  trap 'rm -rf "$tmp_root"' EXIT INT TERM
+
+  temp_files=()
+  for file in "${files[@]}"; do
+    mkdir -p "$tmp_root/$(dirname "$file")"
+    cp "$file" "$tmp_root/$file"
+    temp_files+=("$tmp_root/$file")
+  done
+
+  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${temp_files[@]}" >/dev/null
   echo "[Pixel Craft] Dart formatter diff:"
-  git --no-pager diff -- "${files[@]}"
+  for file in "${files[@]}"; do
+    diff -u "$file" "$tmp_root/$file" || true
+  done
   exit 1
 fi
