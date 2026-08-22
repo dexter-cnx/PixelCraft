@@ -931,11 +931,26 @@ class _CameraFilmPreviewScreenState extends State<CameraFilmPreviewScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'camera.controls'.tr(),
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(color: Colors.white),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'camera.controls'.tr(),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                color: Colors.white,
+                              ),
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('camera-controls-close'),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                        color: Colors.white,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 14),
                   Text(
