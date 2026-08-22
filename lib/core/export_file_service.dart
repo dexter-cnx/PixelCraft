@@ -54,9 +54,13 @@ class ExportFileService {
     ExportDirectoryProvider? directoryProvider,
     GalleryImageSaver? gallerySaver,
     bool? isMobilePlatform,
-  }) : _directoryProvider = directoryProvider,
-       _gallerySaver = gallerySaver,
-       _isMobilePlatform = isMobilePlatform;
+  }) : this._(directoryProvider, gallerySaver, isMobilePlatform);
+
+  const ExportFileService._(
+    this._directoryProvider,
+    this._gallerySaver,
+    this._isMobilePlatform,
+  );
 
   final ExportDirectoryProvider? _directoryProvider;
   final GalleryImageSaver? _gallerySaver;
