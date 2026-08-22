@@ -97,5 +97,14 @@ printf '  %s\n' "${files[@]}"
 if [[ "$mode" == "write" ]]; then
   dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${files[@]}"
 else
-  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" --output=none --set-exit-if-changed "${files[@]}"
+  if dart format --page-width="$DART_FORMAT_PAGE_WIDTH" --output=none --set-exit-if-changed "${files[@]}"; then
+    exit 0
+  fi
+
+  # Print the formatter's exact canonical rewrite instead of forcing developers
+  # to guess wrapping behavior from a filename-only failure.
+  dart format --page-width="$DART_FORMAT_PAGE_WIDTH" "${files[@]}" >/dev/null
+  echo "[Pixel Craft] Dart formatter diff:"
+  git --no-pager diff -- "${files[@]}"
+  exit 1
 fi
