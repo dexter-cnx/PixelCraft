@@ -91,8 +91,9 @@ class GalleryEditorSourceCoordinator {
   const GalleryEditorSourceCoordinator({
     required MediaPickerService picker,
     EditorSourceFactory factory = const EditorSourceFactory(),
-  }) : _picker = picker,
-       _factory = factory;
+  }) : this._(picker, factory);
+
+  const GalleryEditorSourceCoordinator._(this._picker, this._factory);
 
   final MediaPickerService _picker;
   final EditorSourceFactory _factory;
