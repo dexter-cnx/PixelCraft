@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-22 — PF3 merged in PR #52; PF4 Gallery -> typed Editor source flow is active in PR #55.**
+Last refresh: **2026-08-24 — PF4 merged in PR #55; PF5 external-edit contract merged in PR #56.**
 
 ---
 
@@ -70,7 +70,7 @@ Primary role: **image manager / catalog / Workplaces product**.
 
 Nixin owns asset identity, long-lived organization, browsing, catalog metadata, import, source management, collections, and future library workflows.
 
-Future external edit must use an explicit versioned request/result contract. Nixin keeps asset/catalog authority; PixelCraft/Rust keeps edit/pixel authority.
+External edit integration is now defined by PF5 as an explicit versioned request/result contract. Nixin keeps asset/catalog authority; PixelCraft/Rust keeps edit/pixel authority.
 
 ---
 
@@ -86,7 +86,7 @@ Greeting / permissions when required
 Camera
 ```
 
-Target shell is now implemented:
+Current shell:
 
 ```text
 ┌─────────────────────────────┐
@@ -108,9 +108,7 @@ Rules:
 - Film, Filter, Adjust are Camera-context tools;
 - unsupported GPU behavior fails closed/falls back safely.
 
-### Camera capture
-
-PF3 implementation:
+### Camera capture — PF3
 
 ```text
 clean camera JPEG
@@ -134,14 +132,12 @@ Hard rules:
 
 1. clean camera JPEG remains authoritative source;
 2. preview framebuffer pixels are never final output;
-3. PF3 output is JPEG;
+3. camera output is JPEG for the implemented PF3 path;
 4. Shutter does not force Editor navigation;
 5. Camera remains active after save;
 6. permission prompts do not interrupt an active shutter -> process -> save transaction.
 
-### Gallery/editor
-
-PF4 active flow:
+### Gallery/editor — PF4
 
 ```text
 Gallery
@@ -163,7 +159,27 @@ Rules:
 - source provenance/MIME/external id/format identity remain attached to the typed source contract;
 - current file-backed sources derive a path only at the Product Editor compatibility boundary;
 - non-file typed sources fail closed until a supported resolver/decoder exists;
-- RAW/HEIF identities may be represented without activating deferred RAW development.
+- RAW/HEIF identities may be represented without activating deferred RAW development;
+- processed-export Gallery retry reuses the committed backup and does not rerender or mutate the original.
+
+### External edit — PF5 foundation
+
+```text
+Nixin / external catalog
+ -> ExternalEditRequestV1
+    - requestId
+    - caller-owned catalogAssetId
+    - MediaSourceDescriptor(externalEdit)
+    - optional preferred output MIME
+ -> PixelCraft transport boundary (transport not implemented yet)
+ -> edit/render under PixelCraft/Rust authority
+ -> ExternalEditResultV1
+    - completed + ExternalEditOutputV1
+    - cancelled
+    - failed + stable failureCode
+```
+
+PF5 is **transport-neutral foundation only**. It does not add deep links, app-to-app transport, catalog mutation, RAW decode, MobileSAM, or a generic plugin runtime.
 
 ## Desktop — editor/open/drop-first
 
@@ -191,8 +207,10 @@ Hard contracts:
 6. Native/GPU failure fails closed to valid product state.
 7. Riverpod must not become canonical recipe/history authority.
 8. Long-lived image-management ownership belongs to Nixin.
-9. External-edit integration uses explicit request/result contracts.
+9. External-edit integration uses explicit versioned request/result contracts.
 10. Do not casually replace mobile Metal/OpenGL ES runtime with wgpu.
+11. External catalog identity is caller-owned; PixelCraft must not invent or reinterpret it.
+12. Optional authoritative recipe payloads returned externally are PixelCraft/Rust-authored and opaque to callers.
 
 ---
 
@@ -222,12 +240,12 @@ W1D DAM-style multi-item expansion              CANCELLED AS DEFAULT DIRECTION
 
 CI-01 affected fast-fail / reliability tiers    CLOSED / VERIFIED
 
-PF0 Platform-flow foundations                   ROUTING FOUNDATION MERGED (#50)
+PF0 Platform-flow foundations                   MERGED (#50)
 PF1 Camera-first mobile/tablet shell             IMPLEMENTED
 PF2 Unified Camera Film/Filter/Adjust UX         IMPLEMENTED
 PF3 Capture-process-save-to-Gallery              MERGED (#52)
-PF4 Gallery-to-editor source flow                IN PROGRESS (#55)
-PF5 External edit request/result contract        PLANNED FOUNDATION ONLY
+PF4 Gallery-to-editor source flow                MERGED (#55)
+PF5 External edit request/result contract        MERGED (#56)
 
 Plugin-oriented feature architecture            FUTURE / PLANNED / DO NOT ACTIVATE YET
 MobileSAM / ONNX segmentation                   FUTURE / NOT ACTIVATED
@@ -237,178 +255,92 @@ O1 Dart 3.13 native tree-shaking / RecordUse    FUTURE / DEFERRED / DO NOT START
 
 ---
 
-# 6. PF3 implementation details
-
-## Camera look and preview
-
-Camera uses `CameraLookState` for transient Film/Filter/Adjust preview configuration.
-
-Film/Filter thumbnail trays use bounded non-shutter live snapshots:
-
-```text
-channel: dev.pixelcraft/gpu_preview_snapshot_v1
-Android source: active OpenGL-backed TextureView
-Apple source: active Metal camera preview
-```
-
-Refresh is bounded/coalesced and stops when the tray is disposed.
-
-Hard invariant:
-
-```text
-_enableStillCaptureLookPreviews = false
-```
-
-Opening Film/Filter must never call real still capture or produce a shutter sound.
-
-## Authoritative render serialization
-
-The current Rust image engine is process-global. Individual bridge calls are synchronized, but an entire `loadImage -> edits -> exportImage` sequence must be atomic relative to other captures.
-
-`CameraCapturePipeline` therefore serializes complete render transactions before invoking `RustCameraCaptureRenderer`.
-
-Regression coverage starts concurrent pipelines and verifies renderer max concurrency remains 1.
-
-## Android resume/recreation
-
-After pause/external activity, Android recreates the native Camera2/EGL renderer and restores:
-
-```text
-enabled state
-CameraLook
-lens direction
-flash mode
-torch state
-mirror state
-output surface / rotation
-```
-
-This prevents resume from silently reverting to rear/auto/off/unmirrored defaults.
-
-## Camera Controls
-
-Camera Controls is a modal bottom sheet and now includes an explicit Close button in its header.
-
-## Composition Guide
-
-Implementation:
-
-```text
-lib/camera/camera_composition_guide.dart
-```
-
-Supported guides:
-
-```text
-thirds
-goldenRatio
-goldenSpiral
-```
-
-Golden Spiral is procedurally rendered with Flutter `CustomPainter`/`Path`; do not replace it with PNG/SVG assets by default.
-
-Persistent guide settings:
-
-- selected guide;
-- Golden Spiral flip;
-- guide color.
-
-Initial color swatches:
-
-```text
-White
-Black
-Red
-Yellow
-Green
-Cyan
-```
-
-Guide color updates live. Composition guides are UI overlays only and must never affect captured/saved pixels.
-
----
-
-# 7. PF3 validation evidence
+# 6. PF3 validation evidence
 
 Physical-device validation completed successfully on Android and iPhone.
 
-Validated behavior includes:
+Validated behavior includes Android/iPhone live Film/Filter preview, first-run Greeting + permissions, neutral/composed capture -> process -> save, Camera status feedback, Gallery -> Editor regression smoke, Camera Controls Close, Composition Guide behavior/persistence, and temporary-source Retry where practical.
 
-- Android/iPhone live Film/Filter preview;
-- first-run Greeting + permissions;
-- What's New once-per-ID behavior;
-- neutral capture -> process -> save;
-- composed-look capture -> process -> save;
-- processing/saving feedback remains on Camera;
-- Gallery -> Editor regression smoke;
-- temporary-source failure/Retry where practical;
-- Camera Controls Close interaction;
-- Composition Guide color behavior and persistence.
-
-PF3 was merged by PR #52 on 2026-08-22.
+PF3 merged by PR #52 on 2026-08-22.
 
 ```text
 main merge: a203cc6202c1a202526294def5b8fe209ca416cd
-```
-
-Pre-merge validation evidence retained from PF3:
-
-```text
 implementation head: a57b967c62ee0cef2faeaa4ae5db1b8a272e5e9a
 Pixel Craft CI #747: PASS
 ```
 
-Codex review #4999877331 findings were all fixed, replied to, and resolved:
+Composition guide implementation:
 
-1. serialize background capture render transactions;
-2. restore Android camera controls on renderer recreation;
-3. keep formatter check mode read-only.
+```text
+lib/camera/camera_composition_guide.dart
+thirds / goldenRatio / goldenSpiral
+persistent White / Black / Red / Yellow / Green / Cyan guide colors
+```
+
+Golden Spiral is procedurally rendered with Flutter `CustomPainter`/`Path`; guides are overlay-only and never affect saved pixels.
 
 ---
 
-# 8. PF4 implementation details
+# 7. PF4 closure evidence
 
-PF4 source contract:
+PF4 merged by PR #55.
+
+```text
+final exact head: fe2e14cad1c8b2b21843f19524b5068837ec4720
+merge commit:     29a256665f56b494aa6c7085070699420c48948f
+Pixel Craft CI #773: PASS
+```
+
+Important files:
 
 ```text
 lib/app/editor_source_contract.dart
 lib/app/app_routes.dart
 lib/ui/screens/camera_film_preview_screen.dart
+lib/core/export_file_service.dart
 ```
 
-`EditorSource` preserves:
+PF4 establishes typed Gallery/editor source identity and preserves provenance/MIME/external identity/format identity. `EditorSource.inheritsCameraLook` is false.
+
+Production processed-export retry was hardened before merge: a committed backup is created first, automatic Gallery save retries are bounded, and explicit Retry Gallery reads the backup instead of rerendering or touching the original source.
+
+Review blocker around exposing Retry Gallery from production UI was fixed and resolved before merge.
+
+PKG-03 camera extraction remains audited/deferred; do not extract camera merely for organization.
+
+---
+
+# 8. PF5 closure evidence
+
+PF5 merged by PR #56 on 2026-08-24 local project date.
 
 ```text
-original MediaSourceDescriptor
-source provenance
-MIME type
-external id
-format identity
+final exact head: 69e317b4cb153f09c3a926d6aab6964ca9fd410d
+merge commit:     8df08f090c6d2e001526004ef15c9ae652b6a471
+Pixel Craft CI #781: PASS
 ```
 
-`EditorSource.inheritsCameraLook` is false. Gallery/external sources must never inherit transient camera state implicitly.
-
-`EditorRouteData` can carry exactly one of:
+Important files:
 
 ```text
-legacy image path
-image bytes
-typed EditorSource
+lib/app/external_edit_contract.dart
+test/app/external_edit_contract_test.dart
+docs/PF5_EXTERNAL_EDIT_CONTRACT.md
 ```
 
-For a typed file source, `imagePath` is derived only at the current Product Editor compatibility boundary. A non-file typed source remains preserved but routes to an unsupported-source state until explicit resolution support exists.
+PF5 contract V1 includes:
 
-The public camera entry is now a narrow PF4 routing wrapper around the existing G1 runtime. `LegacyGalleryEditorRoutingPicker` consumes Gallery selections, opens the canonical typed `/editor` route, then returns `null` to prevent the legacy G1 callback from also opening `CameraFilmEditorHandoff`.
+- `ExternalEditRequestV1` with version, request correlation, caller-owned `catalogAssetId`, explicit `externalEdit` provenance, source URI/MIME/provider identity, and optional output MIME preference;
+- `ExternalEditOutputV1` with absolute/schemed URI, non-empty MIME, optional suggested filename, and optional PixelCraft/Rust authoritative recipe JSON;
+- `ExternalEditResultV1` with explicit completed/cancelled/failed status and stable `failureCode` for failures;
+- fail-closed unsupported version/status/provenance/malformed payload behavior;
+- release-safe outbound validation so objects emitted locally also satisfy decoder invariants.
 
-This migration seam deliberately leaves PF3 camera capture/runtime behavior unchanged.
+Codex review reported three P2 producer/consumer symmetry gaps. All were fixed, regression-tested, replied to, and resolved before merge:
 
-PKG-03 audit is recorded in:
-
-```text
-docs/PKG03_CAMERA_EXTRACTION_AUDIT.md
-```
-
-Decision: do not extract camera into a package during PF4. Revisit only when a concrete second consumer or stable reusable API exists.
+1. enforce `externalEdit` provenance on constructed requests;
+2. reject empty/whitespace output MIME on construction;
+3. reject empty/whitespace failure code on failed-result construction.
 
 ---
 
@@ -444,7 +376,7 @@ make ci-fast
 make preflight
 ```
 
-`dart-format-check` is read-only. On formatter failure it formats temporary copies and prints a canonical diff without modifying staged/unstaged/untracked developer files.
+Formatting policy: run canonical Dart formatting before pushes that touch Dart. `dart-format-check` is read-only and should fail with a canonical diff rather than modify developer files.
 
 Hosted CI must never fabricate physical-device PASS evidence.
 
@@ -503,9 +435,7 @@ dxtr_pixs_engine  -> repository rust/ crate
 
 Do not add new packages without a stable reuse/ownership boundary.
 
-PKG-03 camera extraction is audited/deferred; do not extract camera merely for organization.
-
-Future feature-plugin architecture is planned but not active. The intended direction is capability/provider based rather than a dynamic arbitrary-code plugin loader: optional features should depend on stable app/domain contracts, register capabilities explicitly, and remain replaceable without becoming image authority. Candidate future features such as MobileSAM should sit behind those boundaries. Do not restructure PF4 solely for future plugins.
+Future feature-plugin architecture is capability/provider based rather than a dynamic arbitrary-code loader. Optional features should depend on stable app/domain contracts, register capabilities explicitly, and remain replaceable without becoming image authority. Candidate future features such as MobileSAM should sit behind those boundaries.
 
 ---
 
@@ -515,6 +445,7 @@ Do not activate without a separate decision:
 
 ```text
 G7B store account/beta upload
+external-edit app-to-app/deep-link transport
 feature-plugin runtime/registration expansion
 MobileSAM / ONNX segmentation
 real RAW development
@@ -530,15 +461,13 @@ Future RAW requires a separate explicit milestone covering decode/demosaic, WB/c
 
 # 13. Current next action
 
-## Immediate
+## Immediate — PF5 closure sync
 
-1. Require exact-head CI for PR #55 after PF4 typed Gallery routing and documentation sync.
-2. Fix any formatter/analyzer/test failures before expanding the slice.
-3. Complete PF4 processed export-to-Gallery failure/retry behavior without mutating the original source.
-4. Add/adjust regression coverage for Gallery -> typed route -> Product Editor and export failure/retry.
-5. Re-run exact-head CI and review threads.
-6. Mark PR #55 ready only when PF4 behavior and docs are stable.
+1. Merge this documentation sync after exact-head docs-only CI.
+2. Keep `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, and `PF5_EXTERNAL_EDIT_CONTRACT.md` aligned with merged PF4/PF5 behavior.
+3. Remove stale PF4/PF5 in-progress wording from canonical docs.
+4. Do not activate transport, RAW, MobileSAM, Dart 3.13 RecordUse, or generic plugin runtime as part of this closure slice.
 
-## After PF4
+## Next product slice after closure
 
-Proceed to PF5 foundation only if needed for explicit external edit request/result contracts. Do not activate real RAW, MobileSAM, Dart 3.13 RecordUse, or generic plugin runtime work as part of PF4.
+Run a focused **post-PF5 gap audit** against the current camera/editor UX and service boundaries. Prefer concrete user-visible or reliability gaps over speculative architecture. Candidate work should be selected only after the audit and should preserve the established camera-first mobile/tablet flow, typed source contracts, Rust authority, and Nixin catalog boundary.
