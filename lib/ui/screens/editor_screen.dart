@@ -698,6 +698,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
       if (!mounted) return;
 
       while (mounted) {
+        if (!mounted) break;
         final choice = await showDialog<_ExportResultChoice>(
           context: context,
           builder: (context) => AlertDialog(
