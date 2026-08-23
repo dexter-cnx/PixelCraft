@@ -58,10 +58,7 @@ class ExternalEditRequestV1 {
       requestId: requestId,
       catalogAssetId: catalogAssetId,
       source: source,
-      preferredOutputMimeType: _optionalString(
-        json,
-        'preferredOutputMimeType',
-      ),
+      preferredOutputMimeType: _optionalString(json, 'preferredOutputMimeType'),
     );
   }
 }
@@ -103,10 +100,7 @@ class ExternalEditOutputV1 {
       uri: uri,
       mimeType: _requireNonEmptyString(json, 'mimeType'),
       suggestedFileName: _optionalString(json, 'suggestedFileName'),
-      authoritativeRecipeJson: _optionalString(
-        json,
-        'authoritativeRecipeJson',
-      ),
+      authoritativeRecipeJson: _optionalString(json, 'authoritativeRecipeJson'),
     );
   }
 }
