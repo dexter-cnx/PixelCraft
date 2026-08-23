@@ -703,51 +703,78 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
             format: selection.format,
             quality: selection.quality,
           );
-      final file = await _fileService.save(bytes, format: selection.format);
+      var file = await _fileService.save(bytes, format: selection.format);
       if (!mounted) return;
 
-      final share = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(
-            file.savedToGallery ? 'Saved to Gallery' : 'Export complete',
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (file.savedToGallery)
-                const Text('The full-resolution export was saved to your device.')
-              else ...[
-                const Text(
-                  'The export completed, but Dextryx Pixels could not add it to the device gallery.',
-                ),
-                if (file.galleryError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(file.galleryError!),
+      while (mounted) {
+        final choice = await showDialog<_ExportResultChoice>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              file.savedToGallery ? 'Saved to Gallery' : 'Export complete',
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (file.savedToGallery)
+                  const Text(
+                    'The full-resolution export was saved to your device.',
+                  )
+                else ...[
+                  const Text(
+                    'The export completed, but Dextryx Pixels could not add it to the device gallery.',
+                  ),
+                  if (file.galleryError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(file.galleryError!),
+                  ],
                 ],
+                const SizedBox(height: 12),
+                Text(
+                  'App backup: ${file.path}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
-              const SizedBox(height: 12),
-              Text(
-                'App backup: ${file.path}',
-                style: Theme.of(context).textTheme.bodySmall,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(
+                  context,
+                  _ExportResultChoice.done,
+                ),
+                child: const Text('Done'),
+              ),
+              if (!file.savedToGallery)
+                TextButton.icon(
+                  onPressed: () => Navigator.pop(
+                    context,
+                    _ExportResultChoice.retryGallery,
+                  ),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Retry Gallery'),
+                ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(
+                  context,
+                  _ExportResultChoice.share,
+                ),
+                icon: const Icon(Icons.share),
+                label: const Text('Share'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Done'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(context, true),
-              icon: const Icon(Icons.share),
-              label: const Text('Share'),
-            ),
-          ],
-        ),
-      );
-      if (share == true) await _fileService.share(file);
+        );
+        if (!mounted || choice == null || choice == _ExportResultChoice.done) {
+          break;
+        }
+        if (choice == _ExportResultChoice.share) {
+          await _fileService.share(file);
+          break;
+        }
+
+        file = await _fileService.retryGallerySave(file);
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1018,6 +1045,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
 }
 
 enum _ExitChoice { continueEditing, discard, apply }
+
+enum _ExportResultChoice { done, share, retryGallery }
 
 class _PreparingPhotoView extends StatelessWidget {
   const _PreparingPhotoView({
