@@ -19,31 +19,34 @@ void main() {
     }
   });
 
-  test('writes backup first and retries transient Gallery failure once', () async {
-    var calls = 0;
-    final service = ExportFileService(
-      directoryProvider: () async => tempDirectory,
-      isMobilePlatform: true,
-      gallerySaver: (bytes, fileName) async {
-        calls++;
-        return GallerySaveResult(
-          isSuccess: calls == 2,
-          errorMessage: calls == 1 ? 'temporary failure' : null,
-        );
-      },
-    );
+  test(
+    'writes backup first and retries transient Gallery failure once',
+    () async {
+      var calls = 0;
+      final service = ExportFileService(
+        directoryProvider: () async => tempDirectory,
+        isMobilePlatform: true,
+        gallerySaver: (bytes, fileName) async {
+          calls++;
+          return GallerySaveResult(
+            isSuccess: calls == 2,
+            errorMessage: calls == 1 ? 'temporary failure' : null,
+          );
+        },
+      );
 
-    final exported = await service.save(
-      Uint8List.fromList([1, 2, 3, 4]),
-      format: 'jpeg',
-    );
+      final exported = await service.save(
+        Uint8List.fromList([1, 2, 3, 4]),
+        format: 'jpeg',
+      );
 
-    expect(calls, 2);
-    expect(exported.savedToGallery, isTrue);
-    expect(exported.gallerySaveAttempts, 2);
-    expect(exported.galleryError, isNull);
-    expect(await File(exported.path).readAsBytes(), [1, 2, 3, 4]);
-  });
+      expect(calls, 2);
+      expect(exported.savedToGallery, isTrue);
+      expect(exported.gallerySaveAttempts, 2);
+      expect(exported.galleryError, isNull);
+      expect(await File(exported.path).readAsBytes(), [1, 2, 3, 4]);
+    },
+  );
 
   test('keeps app backup when Gallery fails twice', () async {
     var calls = 0;
