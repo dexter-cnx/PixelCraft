@@ -63,6 +63,20 @@ void main() {
         );
       },
     );
+
+    test('outbound request rejects non-external provenance', () {
+      expect(
+        () => ExternalEditRequestV1(
+          requestId: 'request-1',
+          catalogAssetId: 'asset-1',
+          source: MediaSourceDescriptor(
+            uri: Uri.parse('file:///photos/source.jpg'),
+            provenance: MediaSourceProvenance.gallery,
+          ),
+        ),
+        throwsArgumentError,
+      );
+    });
   });
 
   group('ExternalEditResultV1', () {
@@ -90,6 +104,16 @@ void main() {
       expect(decoded.failureCode, isNull);
     });
 
+    test('outbound output rejects whitespace-only MIME type', () {
+      expect(
+        () => ExternalEditOutputV1(
+          uri: Uri.parse('file:///exports/edited.jpg'),
+          mimeType: '   ',
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('failed result requires a stable failure code', () {
       expect(
         () => ExternalEditResultV1.fromJson(<String, Object?>{
@@ -99,6 +123,17 @@ void main() {
           'status': 'failed',
         }),
         throwsFormatException,
+      );
+    });
+
+    test('outbound failed result rejects whitespace-only failure code', () {
+      expect(
+        () => ExternalEditResultV1.failed(
+          requestId: 'request-1',
+          catalogAssetId: 'asset-1',
+          failureCode: '   ',
+        ),
+        throwsArgumentError,
       );
     });
 
