@@ -119,6 +119,13 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
             if (data is! EditorRouteData) {
               return const _InvalidEditorRouteScreen();
             }
+
+            if (!data.hasInitialFilm &&
+                data.source != null &&
+                data.imagePath == null) {
+              return const _UnsupportedEditorSourceScreen();
+            }
+
             final editor = data.hasInitialFilm
                 ? CameraFilmEditorHandoff(
                     imagePath: data.imagePath!,
@@ -305,6 +312,23 @@ class _InvalidEditorRouteScreen extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.all(24),
         child: Text('The editor route requires a valid source.'),
+      ),
+    ),
+  );
+}
+
+class _UnsupportedEditorSourceScreen extends StatelessWidget {
+  const _UnsupportedEditorSourceScreen();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'errors.unsupported_source'.tr(),
+          textAlign: TextAlign.center,
+        ),
       ),
     ),
   );

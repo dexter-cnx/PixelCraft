@@ -60,16 +60,29 @@ workspace change = route
 workspace tool change = state
 ```
 
-Camera -> Editor uses typed `EditorRouteData` through `GoRouterState.extra`; arbitrary local paths are not encoded in public URLs.
+Editor navigation uses typed `EditorRouteData` through `GoRouterState.extra`; arbitrary local paths are not encoded in public URLs.
+
+PF4 extends `EditorRouteData` with an optional typed `EditorSource`. Gallery/desktop/future external-edit metadata can therefore remain attached to the editor route while the current `ProductEditorScreen` compatibility boundary still consumes a file path or bytes.
+
+Non-file typed sources fail closed at the route boundary until a supported resolver/decoder exists; PixelCraft does not silently copy or invent a path.
 
 ## 4. Camera implementation
 
-Primary screen:
+Public camera entry:
 
 ```text
 lib/ui/screens/camera_film_preview_screen.dart
- -> camera_film_preview_screen_g1.dart
 ```
+
+Current runtime implementation:
+
+```text
+camera_film_preview_screen.dart
+  -> PF4 routing wrapper
+  -> camera_film_preview_screen_g1.dart
+```
+
+The PF4 wrapper is intentionally narrow. Camera capture/runtime behavior remains in G1; the wrapper intercepts the legacy Gallery picker callback and routes Gallery selections through the canonical typed Editor route.
 
 The current camera foundation includes:
 
@@ -240,19 +253,36 @@ Cyan
 
 Guide color updates the overlay painter live. Composition guides remain UI-only and are never captured into output pixels.
 
-## 11. Gallery/editor source flow
+## 11. PF4 Gallery/editor source flow
 
-Gallery/external sources remain on the Editor path and do not inherit CameraLook automatically.
+PF4 source contracts:
 
 ```text
-Gallery
- -> MediaPickerService
- -> source descriptor/path
- -> Editor
- -> Rust session
- -> edit
- -> full-resolution render/export
+MediaPickerService
+      ↓
+MediaSourceDescriptor
+      ↓
+EditorSourceFactory
+      ↓
+EditorSource
+  - original descriptor
+  - provenance
+  - MIME type
+  - external id
+  - format identity
+      ↓
+EditorRouteData.source
+      ↓
+Product Editor compatibility boundary
 ```
+
+Camera Gallery flow currently uses `LegacyGalleryEditorRoutingPicker` as a temporary migration adapter. It consumes Gallery selections, opens the canonical typed `/editor` route, then returns `null` to the old G1 callback so the legacy direct `CameraFilmEditorHandoff` cannot run a second time.
+
+Gallery/external sources never inherit transient `CameraLook` automatically.
+
+Current format identity can represent JPEG, PNG, HEIF, RAW, and unknown without claiming all are currently decodable. RAW development remains deferred.
+
+For current file-backed Gallery sources, `EditorRouteData.imagePath` derives the filesystem path only at the Product Editor compatibility boundary. The original typed source remains preserved in `EditorRouteData.source`.
 
 The input source remains untouched. Output is a separate file/destination decision.
 
@@ -306,7 +336,7 @@ dxtr_pixs_editing -> Dart SDK only
 dxtr_pixs_engine  -> repository rust/ crate
 ```
 
-Evaluate camera package extraction only after PF3 is merged/stable.
+PKG-03 camera package extraction was audited after PF3 and is deferred. The current camera boundary still depends on app services, generated Rust bindings, GPU/native runtime ownership, and product-specific UX. Revisit only when a concrete second consumer or stable reusable camera API exists.
 
 ## 16. CI behavior
 
@@ -317,33 +347,3 @@ Local entrypoint:
 ```bash
 make preflight
 ```
-
-Useful focused targets:
-
-```bash
-make format-check
-make analyze
-make test-fast
-make gpu-check
-make ci-fast
-```
-
-`dart-format-check` is read-only. On failure it formats temporary copies and prints the canonical diff without rewriting developer worktree files.
-
-## 17. PF3 validation status
-
-PF3 has completed physical validation on Android and iPhone, including camera capture/save behavior, live Film/Filter preview behavior, Greeting/permissions, What's New behavior, Gallery -> Editor smoke, Camera Controls Close, and Composition Guide color behavior.
-
-Codex review #4999877331 raised three findings and all were fixed/replied/resolved:
-
-1. serialize authoritative Rust capture transactions;
-2. restore Android camera controls when recreating renderer;
-3. keep formatter check mode read-only.
-
-The implementation head passed Pixel Craft CI #747 before the final documentation-only sync.
-
-## 18. Next continuation point
-
-After PR #52 merges and resulting `main` CI is verified, continue with **PF4 — Gallery source -> Editor -> Gallery export/source-preservation completion**.
-
-Do not activate MobileSAM/ONNX, real RAW development, Dart 3.13 RecordUse work, or G7B unless separately approved.

@@ -18,7 +18,8 @@ import '../widgets/image_preview.dart';
 typedef ImageFileLoader = Future<Uint8List> Function(String path);
 
 final imageFileLoaderProvider = Provider<ImageFileLoader>(
-  (ref) => (path) => File(path).readAsBytes(),
+  (ref) =>
+      (path) => File(path).readAsBytes(),
 );
 
 class EditorScreen extends ConsumerStatefulWidget {
@@ -28,9 +29,9 @@ class EditorScreen extends ConsumerStatefulWidget {
     this.imagePath,
     this.recoveryRecipe,
   }) : assert(
-          (imageBytes == null) != (imagePath == null),
-          'Provide exactly one of imageBytes or imagePath.',
-        );
+         (imageBytes == null) != (imagePath == null),
+         'Provide exactly one of imageBytes or imagePath.',
+       );
 
   final List<int>? imageBytes;
   final String? imagePath;
@@ -95,10 +96,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
   @override
   void didHaveMemoryPressure() {
     if (!_gpuIntegrationEligible) return;
-    _invalidateGpuPreview(
-      dropRenderer: true,
-      reason: 'memory pressure',
-    );
+    _invalidateGpuPreview(dropRenderer: true, reason: 'memory pressure');
   }
 
   @override
@@ -150,8 +148,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
   Future<void> _refreshRecipeSummary() async {
     final generation = ++_recipeRefreshGeneration;
     try {
-      final recipe =
-          await ref.read(imageEngineProvider).exportSessionRecipeInBackground();
+      final recipe = await ref
+          .read(imageEngineProvider)
+          .exportSessionRecipeInBackground();
       final summary = EditorRecipeSummary.fromRecipeJson(recipe);
       if (!mounted || generation != _recipeRefreshGeneration) return;
       setState(() => _recipeSummary = summary);
@@ -170,37 +169,35 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
 
     _invalidateGpuPreview(reason: 'G4 draft reset');
     try {
-      final recipe =
-          await ref.read(imageEngineProvider).exportSessionRecipeInBackground();
+      final recipe = await ref
+          .read(imageEngineProvider)
+          .exportSessionRecipeInBackground();
       final rewritten = rewrite(recipe);
       await ref.read(editorProvider.notifier).restore(original, rewritten);
       if (keepSelectedAdjustment != null) {
-        ref
-            .read(editorProvider.notifier)
-            .selectFilter(keepSelectedAdjustment);
+        ref.read(editorProvider.notifier).selectFilter(keepSelectedAdjustment);
       }
-      await ref.read(editorSessionStoreProvider).save(
-            originalBytes: original,
-            recipeJson: rewritten,
-          );
+      await ref
+          .read(editorSessionStoreProvider)
+          .save(originalBytes: original, recipeJson: rewritten);
       await _refreshRecipeSummary();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Reset failed: $error')));
     }
   }
 
   Future<void> _resetAdjustment(String filter) => _rewriteDraftRecipe(
-        (recipe) => EditorRecipeSummary.resetDraftAdjustment(recipe, filter),
-        keepSelectedAdjustment: filter,
-      );
+    (recipe) => EditorRecipeSummary.resetDraftAdjustment(recipe, filter),
+    keepSelectedAdjustment: filter,
+  );
 
   Future<void> _resetAdjustments() => _rewriteDraftRecipe(
-        EditorRecipeSummary.resetDraftAdjustments,
-        keepSelectedAdjustment: ref.read(editorProvider).selectedFilter,
-      );
+    EditorRecipeSummary.resetDraftAdjustments,
+    keepSelectedAdjustment: ref.read(editorProvider).selectedFilter,
+  );
 
   Future<void> _resetCreative() =>
       _rewriteDraftRecipe(EditorRecipeSummary.resetDraftCreative);
@@ -237,11 +234,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
       _ => null,
     };
     if (draftKind == null) return null;
-    return GpuEditorTransientEdit(
-      kind: draftKind,
-      key: key,
-      value: value,
-    );
+    return GpuEditorTransientEdit(kind: draftKind, key: key, value: value);
   }
 
   void _onGpuPreviewStart(String kind, String key, double value) {
@@ -256,8 +249,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
 
   Future<void> _prepareGpuPreview(EditorState state, int generation) async {
     try {
-      final recipe =
-          await ref.read(imageEngineProvider).exportSessionRecipeInBackground();
+      final recipe = await ref
+          .read(imageEngineProvider)
+          .exportSessionRecipeInBackground();
       if (!mounted || !_gpuSession.isCurrent(generation)) return;
 
       final transient = _gpuSession.transient;
@@ -266,11 +260,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
         recipe,
         transient: transient,
       );
-      if (!_gpuSession.prepare(
-        generation,
-        recipeJson: recipe,
-        plan: plan,
-      )) {
+      if (!_gpuSession.prepare(generation, recipeJson: recipe, plan: plan)) {
         debugPrint(
           '[G3 editor GPU] faithful fallback: '
           '${plan.fallbackReason ?? 'unrepresentable draft'}',
@@ -343,22 +333,25 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     if (pending != null) return pending;
 
     final generation = _gpuSession.rendererGeneration;
-    final future = _gpuBridge.createRenderer().then((id) async {
-      if (!mounted || generation != _gpuSession.rendererGeneration) {
-        await _gpuBridge.destroyRenderer(id).catchError((Object error) {
-          debugPrint('[G3 editor GPU] stale renderer cleanup failed: $error');
-        });
-        throw StateError('GPU renderer creation was superseded');
-      }
-      _gpuRendererId = id;
-      _gpuRendererFuture = null;
-      return id;
-    }, onError: (Object error, StackTrace stack) {
-      if (generation == _gpuSession.rendererGeneration) {
+    final future = _gpuBridge.createRenderer().then(
+      (id) async {
+        if (!mounted || generation != _gpuSession.rendererGeneration) {
+          await _gpuBridge.destroyRenderer(id).catchError((Object error) {
+            debugPrint('[G3 editor GPU] stale renderer cleanup failed: $error');
+          });
+          throw StateError('GPU renderer creation was superseded');
+        }
+        _gpuRendererId = id;
         _gpuRendererFuture = null;
-      }
-      Error.throwWithStackTrace(error, stack);
-    });
+        return id;
+      },
+      onError: (Object error, StackTrace stack) {
+        if (generation == _gpuSession.rendererGeneration) {
+          _gpuRendererFuture = null;
+        }
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
     _gpuRendererFuture = future;
     return future;
   }
@@ -387,10 +380,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     } catch (error) {
       debugPrint('[G3 editor GPU] live preview unavailable: $error');
       if (mounted && _gpuSession.isCurrent(generation)) {
-        _invalidateGpuPreview(
-          dropRenderer: true,
-          reason: 'activation failure',
-        );
+        _invalidateGpuPreview(dropRenderer: true, reason: 'activation failure');
       }
     }
   }
@@ -435,11 +425,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     await _gpuBridge.setAdjustments(rendererId, plan.adjustments);
 
     if (plan.creativeUsesFilmSlot) {
-      await _gpuBridge.setCreative(
-        rendererId,
-        filterId: '',
-        intensity: 0,
-      );
+      await _gpuBridge.setCreative(rendererId, filterId: '', intensity: 0);
       await _gpuBridge.setFilm(
         rendererId,
         profileId: 'creative_${plan.creativeFilterId}',
@@ -473,7 +459,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     final generation = _gpuSession.activationGeneration;
     final transient = _gpuSession.transient;
     final expectedKind = _transientEdit(kind, key, value)?.kind;
-    final wasGpuActive = _gpuSession.isActive &&
+    final wasGpuActive =
+        _gpuSession.isActive &&
         transient != null &&
         transient.kind == expectedKind &&
         transient.key == key;
@@ -565,8 +552,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                           itemCount: entries.length,
                           itemBuilder: (context, index) {
                             final entry = entries[index];
-                            final startsDraft = index ==
-                                    _recipeSummary.checkpointCursor &&
+                            final startsDraft =
+                                index == _recipeSummary.checkpointCursor &&
                                 _recipeSummary.checkpointCursor > 0;
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -585,9 +572,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                                           .textTheme
                                           .labelSmall
                                           ?.copyWith(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
                                           ),
                                     ),
                                   ),
@@ -650,7 +637,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                 ),
                 items: const [
                   DropdownMenuItem(value: 'png', child: Text('PNG · lossless')),
-                  DropdownMenuItem(value: 'jpeg', child: Text('JPEG · smaller')),
+                  DropdownMenuItem(
+                    value: 'jpeg',
+                    child: Text('JPEG · smaller'),
+                  ),
                   DropdownMenuItem(value: 'webp', child: Text('WEBP')),
                 ],
                 onChanged: (value) {
@@ -673,7 +663,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                 children: [
                   Icon(Icons.photo_size_select_large_outlined, size: 18),
                   SizedBox(width: 8),
-                  Expanded(child: Text('Resolution: original source dimensions')),
+                  Expanded(
+                    child: Text('Resolution: original source dimensions'),
+                  ),
                 ],
               ),
             ],
@@ -684,10 +676,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
               child: const Text('Cancel'),
             ),
             FilledButton.icon(
-              onPressed: () => Navigator.pop(
-                context,
-                (format: format, quality: quality.round()),
-              ),
+              onPressed: () => Navigator.pop(context, (
+                format: format,
+                quality: quality.round(),
+              )),
               icon: const Icon(Icons.ios_share),
               label: const Text('Export'),
             ),
@@ -699,60 +691,81 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
 
     setState(() => _isSavingExport = true);
     try {
-      final bytes = await ref.read(editorProvider.notifier).exportImage(
-            format: selection.format,
-            quality: selection.quality,
-          );
-      final file = await _fileService.save(bytes, format: selection.format);
+      final bytes = await ref
+          .read(editorProvider.notifier)
+          .exportImage(format: selection.format, quality: selection.quality);
+      var file = await _fileService.save(bytes, format: selection.format);
       if (!mounted) return;
 
-      final share = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(
-            file.savedToGallery ? 'Saved to Gallery' : 'Export complete',
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (file.savedToGallery)
-                const Text('The full-resolution export was saved to your device.')
-              else ...[
-                const Text(
-                  'The export completed, but Dextryx Pixels could not add it to the device gallery.',
-                ),
-                if (file.galleryError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(file.galleryError!),
+      while (mounted) {
+        if (!mounted) break;
+        final choice = await showDialog<_ExportResultChoice>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              file.savedToGallery ? 'Saved to Gallery' : 'Export complete',
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (file.savedToGallery)
+                  const Text(
+                    'The full-resolution export was saved to your device.',
+                  )
+                else ...[
+                  const Text(
+                    'The export completed, but Dextryx Pixels could not add it to the device gallery.',
+                  ),
+                  if (file.galleryError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(file.galleryError!),
+                  ],
                 ],
+                const SizedBox(height: 12),
+                Text(
+                  'App backup: ${file.path}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
-              const SizedBox(height: 12),
-              Text(
-                'App backup: ${file.path}',
-                style: Theme.of(context).textTheme.bodySmall,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(context, _ExportResultChoice.done),
+                child: const Text('Done'),
+              ),
+              if (!file.savedToGallery)
+                TextButton.icon(
+                  onPressed: () =>
+                      Navigator.pop(context, _ExportResultChoice.retryGallery),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Retry Gallery'),
+                ),
+              FilledButton.icon(
+                onPressed: () =>
+                    Navigator.pop(context, _ExportResultChoice.share),
+                icon: const Icon(Icons.share),
+                label: const Text('Share'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Done'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(context, true),
-              icon: const Icon(Icons.share),
-              label: const Text('Share'),
-            ),
-          ],
-        ),
-      );
-      if (share == true) await _fileService.share(file);
+        );
+        if (!mounted || choice == null || choice == _ExportResultChoice.done) {
+          break;
+        }
+        if (choice == _ExportResultChoice.share) {
+          await _fileService.share(file);
+          break;
+        }
+
+        file = await _fileService.retryGallerySave(file);
+      }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export failed: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Export failed: $error')));
     } finally {
       if (mounted) setState(() => _isSavingExport = false);
     }
@@ -762,7 +775,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     final state = ref.read(editorProvider);
     if (state.isBusy || state.isPreviewProcessing || _isSavingExport) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Finish the current operation before leaving.')),
+        const SnackBar(
+          content: Text('Finish the current operation before leaving.'),
+        ),
       );
       return;
     }
@@ -781,7 +796,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, _ExitChoice.continueEditing),
+            onPressed: () =>
+                Navigator.pop(context, _ExitChoice.continueEditing),
             child: const Text('Continue Editing'),
           ),
           TextButton(
@@ -820,12 +836,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
     ref.listen<EditorState>(editorProvider, (previous, next) {
       if (previous == null) return;
       final toolChanged = previous.selectedTool != next.selectedTool;
-      final checkpointChanged =
-          !identical(previous.originalPreviewBytes, next.originalPreviewBytes);
+      final checkpointChanged = !identical(
+        previous.originalPreviewBytes,
+        next.originalPreviewBytes,
+      );
       final enteredOriginal = !previous.showOriginal && next.showOriginal;
       final becameBusy = !previous.isBusy && next.isBusy;
       final failed = next.error != null && next.error != previous.error;
-      final recipeMayHaveChanged = previous.cursor != next.cursor ||
+      final recipeMayHaveChanged =
+          previous.cursor != next.cursor ||
           previous.operationCount != next.operationCount ||
           checkpointChanged;
 
@@ -846,12 +865,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
         reason: checkpointChanged
             ? 'Rust checkpoint changed'
             : toolChanged
-                ? 'editor tool changed'
-                : enteredOriginal
-                    ? 'before preview requested'
-                    : becameBusy
-                        ? 'editor entered busy state'
-                        : 'editor reported an error',
+            ? 'editor tool changed'
+            : enteredOriginal
+            ? 'before preview requested'
+            : becameBusy
+            ? 'editor entered busy state'
+            : 'editor reported an error',
       );
     });
 
@@ -877,17 +896,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
             icon: const Icon(Icons.history_rounded),
           ),
           IconButton(
-            onPressed: state.canUndo && !actionsBlocked ? controller.undo : null,
+            onPressed: state.canUndo && !actionsBlocked
+                ? controller.undo
+                : null,
             tooltip: 'Undo',
             icon: const Icon(Icons.undo),
           ),
           IconButton(
-            onPressed: state.canRedo && !actionsBlocked ? controller.redo : null,
+            onPressed: state.canRedo && !actionsBlocked
+                ? controller.redo
+                : null,
             tooltip: 'Redo',
             icon: const Icon(Icons.redo),
           ),
           IconButton(
-            onPressed: state.previewBytes == null || state.isExporting || actionsBlocked
+            onPressed:
+                state.previewBytes == null ||
+                    state.isExporting ||
+                    actionsBlocked
                 ? null
                 : _showExportDialog,
             tooltip: 'Export',
@@ -907,103 +933,106 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
                 imageBytes: widget.imageBytes,
               )
             : _sourceError != null
-                ? Center(child: Text(_sourceError!))
-                : state.previewBytes == null
-                    ? Center(
-                        child: state.error == null
-                            ? const CircularProgressIndicator()
-                            : Text(state.error!),
-                      )
-                    : LayoutBuilder(
-                        builder: (context, constraints) {
-                          final canvas = _EditorCanvas(
-                            state: state,
-                            controller: controller,
-                            gpuRendererId: _gpuRendererId,
-                            gpuPreviewActive: _gpuPreviewActive,
-                          );
-                          final tools = EditorToolPanel(
-                            state: state,
-                            controller: controller,
-                            recipeSummary: _recipeSummary,
-                            onGpuPreviewStart:
-                                _gpuIntegrationEligible ? _onGpuPreviewStart : null,
-                            onGpuPreviewChanged:
-                                _gpuIntegrationEligible ? _onGpuPreviewChanged : null,
-                            onGpuPreviewCommit:
-                                _gpuIntegrationEligible ? _onGpuPreviewCommit : null,
-                            onResetAdjustment: _resetAdjustment,
-                            onResetAdjustments: _resetAdjustments,
-                            onResetCreative: _resetCreative,
-                            onResetFilm: _resetFilm,
-                          );
-                          final content = constraints.maxWidth >= 900
-                              ? Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Row(
-                                    children: [
-                                      Expanded(flex: 3, child: canvas),
-                                      const SizedBox(width: 20),
-                                      SizedBox(
-                                        width: 360,
-                                        child: SingleChildScrollView(child: tools),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                                  child: Column(
-                                    children: [
-                                      Expanded(child: canvas),
-                                      const SizedBox(height: 12),
-                                      SingleChildScrollView(child: tools),
-                                    ],
-                                  ),
-                                );
-
-                          return Stack(
+            ? Center(child: Text(_sourceError!))
+            : state.previewBytes == null
+            ? Center(
+                child: state.error == null
+                    ? const CircularProgressIndicator()
+                    : Text(state.error!),
+              )
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final canvas = _EditorCanvas(
+                    state: state,
+                    controller: controller,
+                    gpuRendererId: _gpuRendererId,
+                    gpuPreviewActive: _gpuPreviewActive,
+                  );
+                  final tools = EditorToolPanel(
+                    state: state,
+                    controller: controller,
+                    recipeSummary: _recipeSummary,
+                    onGpuPreviewStart: _gpuIntegrationEligible
+                        ? _onGpuPreviewStart
+                        : null,
+                    onGpuPreviewChanged: _gpuIntegrationEligible
+                        ? _onGpuPreviewChanged
+                        : null,
+                    onGpuPreviewCommit: _gpuIntegrationEligible
+                        ? _onGpuPreviewCommit
+                        : null,
+                    onResetAdjustment: _resetAdjustment,
+                    onResetAdjustments: _resetAdjustments,
+                    onResetCreative: _resetCreative,
+                    onResetFilm: _resetFilm,
+                  );
+                  final content = constraints.maxWidth >= 900
+                      ? Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
                             children: [
-                              content,
-                              if (isProcessing)
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    child: ColoredBox(
-                                      color: const Color(0x22000000),
-                                      child: Center(
-                                        child: Card(
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 20,
-                                              vertical: 14,
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const SizedBox.square(
-                                                  dimension: 20,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Text(
-                                                  _isSavingExport
-                                                      ? 'Exporting full resolution…'
-                                                      : 'Processing image…',
-                                                ),
-                                              ],
-                                            ),
+                              Expanded(flex: 3, child: canvas),
+                              const SizedBox(width: 20),
+                              SizedBox(
+                                width: 360,
+                                child: SingleChildScrollView(child: tools),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                          child: Column(
+                            children: [
+                              Expanded(child: canvas),
+                              const SizedBox(height: 12),
+                              SingleChildScrollView(child: tools),
+                            ],
+                          ),
+                        );
+
+                  return Stack(
+                    children: [
+                      content,
+                      if (isProcessing)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: ColoredBox(
+                              color: const Color(0x22000000),
+                              child: Center(
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 14,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const SizedBox.square(
+                                          dimension: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
                                           ),
                                         ),
-                                      ),
+                                        const SizedBox(width: 12),
+                                        Text(
+                                          _isSavingExport
+                                              ? 'Exporting full resolution…'
+                                              : 'Processing image…',
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                            ],
-                          );
-                        },
-                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
       ),
     );
 
@@ -1018,6 +1047,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen>
 }
 
 enum _ExitChoice { continueEditing, discard, apply }
+
+enum _ExportResultChoice { done, share, retryGallery }
 
 class _PreparingPhotoView extends StatelessWidget {
   const _PreparingPhotoView({
@@ -1079,8 +1110,10 @@ class _PreparingPhotoView extends StatelessWidget {
     if (path != null) {
       final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
       final logicalWidth = MediaQuery.sizeOf(context).width;
-      final cacheWidth =
-          (logicalWidth * devicePixelRatio).round().clamp(720, 1440);
+      final cacheWidth = (logicalWidth * devicePixelRatio).round().clamp(
+        720,
+        1440,
+      );
       return Image.file(
         File(path),
         fit: BoxFit.contain,
@@ -1122,16 +1155,20 @@ class _EditorCanvas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rendererId = gpuRendererId;
-    final showGpu = gpuPreviewActive && rendererId != null && !state.showOriginal;
+    final showGpu =
+        gpuPreviewActive && rendererId != null && !state.showOriginal;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPressStart:
-          state.isBusy ? null : (_) => controller.setShowOriginal(true),
-      onLongPressEnd:
-          state.isBusy ? null : (_) => controller.setShowOriginal(false),
-      onLongPressCancel:
-          state.isBusy ? null : () => controller.setShowOriginal(false),
+      onLongPressStart: state.isBusy
+          ? null
+          : (_) => controller.setShowOriginal(true),
+      onLongPressEnd: state.isBusy
+          ? null
+          : (_) => controller.setShowOriginal(false),
+      onLongPressCancel: state.isBusy
+          ? null
+          : () => controller.setShowOriginal(false),
       child: Stack(
         fit: StackFit.expand,
         children: [
