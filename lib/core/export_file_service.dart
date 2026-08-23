@@ -6,10 +6,8 @@ import 'package:saver_gallery/saver_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 
 typedef ExportDirectoryProvider = Future<Directory> Function();
-typedef GalleryImageSaver = Future<GallerySaveResult> Function(
-  Uint8List bytes,
-  String fileName,
-);
+typedef GalleryImageSaver =
+    Future<GallerySaveResult> Function(Uint8List bytes, String fileName);
 
 class GallerySaveResult {
   const GallerySaveResult({required this.isSuccess, this.errorMessage});
@@ -70,8 +68,9 @@ class ExportFileService {
       _isMobilePlatform ?? (Platform.isAndroid || Platform.isIOS);
 
   Future<ExportedFile> save(Uint8List bytes, {required String format}) async {
-    final directory = await (_directoryProvider?.call() ??
-        getApplicationDocumentsDirectory());
+    final directory =
+        await (_directoryProvider?.call() ??
+            getApplicationDocumentsDirectory());
     final exportDirectory = Directory('${directory.path}/PixelCraft Exports');
     await exportDirectory.create(recursive: true);
 
@@ -90,10 +89,7 @@ class ExportFileService {
     // secondary destination and must never be able to destroy the only export.
     await file.writeAsBytes(bytes, flush: true);
 
-    var galleryResult = const _GalleryAttemptResult(
-      saved: false,
-      attempts: 0,
-    );
+    var galleryResult = const _GalleryAttemptResult(saved: false, attempts: 0);
     if (_shouldSaveToGallery) {
       galleryResult = await _saveGalleryWithRetry(bytes, fileName);
     }
@@ -131,8 +127,9 @@ class ExportFileService {
     String? lastError;
     for (var attempt = 1; attempt <= 2; attempt++) {
       try {
-        final result = await (_gallerySaver?.call(bytes, fileName) ??
-            _defaultGallerySaver(bytes, fileName));
+        final result =
+            await (_gallerySaver?.call(bytes, fileName) ??
+                _defaultGallerySaver(bytes, fileName));
         if (result.isSuccess) {
           return _GalleryAttemptResult(saved: true, attempts: attempt);
         }
@@ -142,11 +139,7 @@ class ExportFileService {
       }
     }
 
-    return _GalleryAttemptResult(
-      saved: false,
-      attempts: 2,
-      error: lastError,
-    );
+    return _GalleryAttemptResult(saved: false, attempts: 2, error: lastError);
   }
 
   Future<GallerySaveResult> _defaultGallerySaver(
