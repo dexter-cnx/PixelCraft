@@ -8,7 +8,29 @@ enum ExternalEditResultStatus { completed, cancelled, failed }
 
 @immutable
 class ExternalEditRequestV1 {
-  const ExternalEditRequestV1({
+  factory ExternalEditRequestV1({
+    required String requestId,
+    required String catalogAssetId,
+    required MediaSourceDescriptor source,
+    String? preferredOutputMimeType,
+  }) {
+    if (source.provenance != MediaSourceProvenance.externalEdit) {
+      throw ArgumentError.value(
+        source.provenance,
+        'source.provenance',
+        'External edit request source must use externalEdit provenance.',
+      );
+    }
+
+    return ExternalEditRequestV1._(
+      requestId: requestId,
+      catalogAssetId: catalogAssetId,
+      source: source,
+      preferredOutputMimeType: preferredOutputMimeType,
+    );
+  }
+
+  const ExternalEditRequestV1._({
     required this.requestId,
     required this.catalogAssetId,
     required this.source,
@@ -65,12 +87,34 @@ class ExternalEditRequestV1 {
 
 @immutable
 class ExternalEditOutputV1 {
-  const ExternalEditOutputV1({
+  factory ExternalEditOutputV1({
+    required Uri uri,
+    required String mimeType,
+    String? suggestedFileName,
+    String? authoritativeRecipeJson,
+  }) {
+    if (mimeType.trim().isEmpty) {
+      throw ArgumentError.value(
+        mimeType,
+        'mimeType',
+        'External edit output MIME type must not be empty.',
+      );
+    }
+
+    return ExternalEditOutputV1._(
+      uri: uri,
+      mimeType: mimeType,
+      suggestedFileName: suggestedFileName,
+      authoritativeRecipeJson: authoritativeRecipeJson,
+    );
+  }
+
+  const ExternalEditOutputV1._({
     required this.uri,
     required this.mimeType,
     this.suggestedFileName,
     this.authoritativeRecipeJson,
-  }) : assert(mimeType != '');
+  });
 
   final Uri uri;
   final String mimeType;
@@ -136,18 +180,28 @@ class ExternalEditResultV1 {
          status: ExternalEditResultStatus.cancelled,
        );
 
-  const ExternalEditResultV1.failed({
+  factory ExternalEditResultV1.failed({
     required String requestId,
     required String catalogAssetId,
     required String failureCode,
     String? failureMessage,
-  }) : this._(
-         requestId: requestId,
-         catalogAssetId: catalogAssetId,
-         status: ExternalEditResultStatus.failed,
-         failureCode: failureCode,
-         failureMessage: failureMessage,
-       );
+  }) {
+    if (failureCode.trim().isEmpty) {
+      throw ArgumentError.value(
+        failureCode,
+        'failureCode',
+        'External edit failure code must not be empty.',
+      );
+    }
+
+    return ExternalEditResultV1._(
+      requestId: requestId,
+      catalogAssetId: catalogAssetId,
+      status: ExternalEditResultStatus.failed,
+      failureCode: failureCode,
+      failureMessage: failureMessage,
+    );
+  }
 
   static const schemaVersion = externalEditContractVersion;
 
