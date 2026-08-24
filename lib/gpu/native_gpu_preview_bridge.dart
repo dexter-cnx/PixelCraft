@@ -1,6 +1,4 @@
 import 'package:dxtr_pixs_gpu/native_gpu_preview_bridge.dart' as gpu;
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 export 'package:dxtr_pixs_gpu/native_gpu_preview_bridge.dart'
@@ -86,8 +84,7 @@ class NativeGpuPreviewSuspension {
 /// App-level bridge wrapper that preserves the package API while registering
 /// renderer identity with [NativeGpuPreviewSuspension].
 class NativeGpuPreviewBridge extends gpu.NativeGpuPreviewBridge {
-  const NativeGpuPreviewBridge({MethodChannel? channel})
-    : super(channel: channel);
+  const NativeGpuPreviewBridge({super.channel});
 
   @override
   Future<String> createRenderer() async {
