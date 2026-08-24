@@ -33,11 +33,11 @@ Gallery save
   ↓
 short success state
   ↓
-pop handoff route
+initiate handoff route pop
   ↓
-return to live Camera
+begin best-effort cleanup of temporary clean source
   ↓
-cleanup temporary clean source
+return to live Camera as route transition completes
 ```
 
 ## Architecture
@@ -56,7 +56,7 @@ cleanup temporary clean source
 - `CameraCapturePipeline` invocation;
 - Rust authoritative full-resolution render;
 - `MediaSaveService` delivery;
-- best-effort temporary-source cleanup after the route is released.
+- best-effort temporary-source cleanup once successful route pop has been initiated.
 
 The default implementation is `DefaultCameraCaptureHandoffTransaction`.
 
@@ -69,7 +69,7 @@ The default implementation is `DefaultCameraCaptureHandoffTransaction`.
 5. Conflicting Back/navigation is blocked only during active processing/saving.
 6. Completed and failed phases are allowed to leave the route.
 7. Failure preserves the captured source so Retry can execute the same authoritative transaction again.
-8. Temporary-source cleanup occurs only after successful route completion; the file is not deleted while `Image.file` still owns the frozen-still presentation.
+8. On success, cleanup begins only after `Navigator.pop()` has been initiated. `MaterialPageRoute` may still be mounted during its reverse transition, so PF7 does not claim cleanup waits for route disposal.
 9. PF7 does not change Metal/OpenGL ES preview architecture.
 10. PF7 does not activate RAW, MobileSAM/ONNX, external-edit transport, Dart 3.13 RecordUse, or a generic plugin runtime.
 
@@ -92,10 +92,10 @@ The final test deliberately avoids asserting route-animation timing through widg
 - transaction starts while the frozen still is visible;
 - controls under the handoff are not hit-testable during processing;
 - the handoff does not pop before the transaction finishes;
-- after success, `NavigatorObserver.didPop` confirms route completion;
-- source cleanup follows successful completion.
+- after success, `NavigatorObserver.didPop` confirms route pop initiation;
+- source cleanup follows that successful pop initiation.
 
-This avoids coupling the regression test to `MaterialPageRoute` animation timing.
+This avoids coupling the regression test to `MaterialPageRoute` animation timing or incorrectly treating `didPop` as route disposal.
 
 ## Physical smoke recommended after merge
 
