@@ -137,9 +137,8 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         duration: const Duration(seconds: 8),
         action: SnackBarAction(
           label: 'camera.try_again'.tr(),
-          onPressed: () => unawaited(
-            _process(messenger: messenger, pipeline: pipeline),
-          ),
+          onPressed: () =>
+              unawaited(_process(messenger: messenger, pipeline: pipeline)),
         ),
       );
     }
