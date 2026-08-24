@@ -7,7 +7,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixelcraft/app/platform_media_services.dart';
+import 'package:pixelcraft/app/platform_flow_foundation.dart';
 import 'package:pixelcraft/camera/camera_capture_pipeline.dart';
 import 'package:pixelcraft/camera/camera_capture_save_handoff.dart';
 import 'package:pixelcraft/camera/camera_image_ratio.dart';
