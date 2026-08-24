@@ -45,6 +45,15 @@ void main() {
     ),
   );
 
+  Future<void> pumpLocalized(WidgetTester tester, Widget child) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(child);
+      await tester.idle();
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'Compare button toggles original without changing edit semantics',
     (tester) async {
@@ -54,13 +63,13 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await tester.pumpWidget(
+      await pumpLocalized(
+        tester,
         UncontrolledProviderScope(
           container: container,
           child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
         ),
       );
-      await tester.pumpAndSettle();
 
       final compareButton = find.byKey(const ValueKey('editor_compare_button'));
       expect(compareButton, findsOneWidget);
@@ -107,8 +116,7 @@ void main() {
       child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
     );
 
-    await tester.pumpWidget(editor());
-    await tester.pumpAndSettle();
+    await pumpLocalized(tester, editor());
 
     final compareButton = find.byKey(const ValueKey('editor_compare_button'));
     await tester.tap(compareButton);
@@ -119,8 +127,7 @@ void main() {
     await tester.pump();
     expect(container.read(editorProvider).showOriginal, isTrue);
 
-    await tester.pumpWidget(editor());
-    await tester.pumpAndSettle();
+    await pumpLocalized(tester, editor());
 
     expect(container.read(editorProvider).showOriginal, isFalse);
     expect(
@@ -136,13 +143,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     final engine = FakeImageEngine();
-    await tester.pumpWidget(
+    await pumpLocalized(
+      tester,
       ProviderScope(
         overrides: [imageEngineProvider.overrideWithValue(engine)],
         child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
       ),
     );
-    await tester.pumpAndSettle();
 
     final compareButton = find.byKey(const ValueKey('editor_compare_button'));
     expect(compareButton, findsOneWidget);
