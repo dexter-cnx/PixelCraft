@@ -72,9 +72,14 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open_capture_handoff')));
     await tester.pump();
-    await tester.runAsync(() => renderer.started.future);
+    await tester.runAsync(() async {
+      for (var attempt = 0; attempt < 50 && !renderer.started.isCompleted; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
     await tester.pump();
 
+    expect(renderer.started.isCompleted, isTrue);
     expect(
       find.byKey(const ValueKey('camera_capture_frozen_still')),
       findsOneWidget,
@@ -84,7 +89,7 @@ void main() {
 
     renderer.release.complete();
     await tester.runAsync(() async {
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     });
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 901));
