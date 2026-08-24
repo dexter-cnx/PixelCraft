@@ -69,7 +69,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open_capture_handoff')));
     await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(renderer.started.isCompleted, isTrue);
     expect(
@@ -81,8 +81,7 @@ void main() {
 
     renderer.release.complete();
     await tester.pump();
-    await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(saver.bytes, isNotNull);
     expect(find.byKey(const ValueKey('open_capture_handoff')), findsOneWidget);
