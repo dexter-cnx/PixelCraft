@@ -348,7 +348,7 @@ ExternalEditRequestV1
 
 `catalogAssetId` is caller-owned stable identity. PixelCraft may correlate against it but must not replace it with an editor-local identifier.
 
-Outbound construction validates the same invariants as decode, including mandatory `externalEdit` provenance. This is release-safe validation rather than debug-only assertions.
+Outbound construction now release-safely enforces the P2 invariants fixed in PF5 review: request source provenance must be `externalEdit`, completed-output MIME must be non-empty after trimming, and failed-result `failureCode` must be non-empty after trimming. Other decoder checks, including required identifier content and schemed URI validation, remain decoder-side contract validation and must not be assumed to have been prevalidated merely because an object was locally constructed.
 
 ### Result
 
@@ -373,7 +373,7 @@ optional authoritativeRecipeJson
 
 `authoritativeRecipeJson` is PixelCraft/Rust-authored metadata. External callers may persist it opaquely for future re-edit continuity but must not interpret or mutate it into a competing edit authority.
 
-Failed results require a non-empty/trimmed failure code. Completed outputs require a non-empty/trimmed MIME. Unsupported versions, statuses, provenance, malformed maps, and invalid URIs fail closed with `FormatException`.
+Failed results require a non-empty/trimmed failure code. Completed outputs require a non-empty/trimmed MIME. Unsupported versions, statuses, provenance, malformed maps, and invalid URIs fail closed with `FormatException` during decode.
 
 PF5 does **not** implement:
 
