@@ -133,16 +133,16 @@ G7B Store Account Integration              DEFERRED INDEFINITELY
 PF0 Platform-flow foundations              ROUTING FOUNDATION MERGED (#50)
 PF1 Camera-first mobile/tablet shell        IMPLEMENTED
 PF2 Unified Camera Film/Filter/Adjust UX    IMPLEMENTED
-PF3 Capture-process-save-to-Gallery         VERIFIED IN PR #52 / READY TO MERGE
-PF4 Gallery-to-editor source flow           NEXT PRODUCT SLICE
-PF5 External edit request/result contract   PLANNED FOUNDATION ONLY
+PF3 Capture-process-save-to-Gallery         MERGED (#52)
+PF4 Gallery-to-editor source flow           MERGED (#55)
+PF5 External edit request/result contract   MERGED (#56)
 
 MobileSAM / ONNX                            FUTURE / NOT ACTIVATED
 Real RAW development                        FUTURE / NOT ACTIVATED
 Dart 3.13 RecordUse/native tree-shaking     FUTURE / DEFERRED
 ```
 
-PF3 physical validation passed on Android and iPhone. The reviewed implementation head passed Pixel Craft CI #747 before the final documentation-only sync. Codex review #4999877331 findings were addressed and resolved.
+PF3 physical validation passed on Android and iPhone. PF4 and PF5 are merged; PF5 final exact head `69e317b4cb153f09c3a926d6aab6964ca9fd410d` passed Pixel Craft CI #781 before merge commit `8df08f090c6d2e001526004ef15c9ae652b6a471`.
 
 ## State management and localization
 
