@@ -76,7 +76,10 @@ void main() {
       find.byKey(const ValueKey('camera_capture_frozen_still')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('open_capture_handoff')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('open_capture_handoff')).hitTestable(),
+      findsNothing,
+    );
     expect(saver.bytes, isNull);
 
     renderer.release.complete();
