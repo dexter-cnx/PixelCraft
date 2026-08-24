@@ -17,9 +17,9 @@ class ProductEditorScreen extends ConsumerStatefulWidget {
     this.imagePath,
     this.recoveryRecipe,
   }) : assert(
-          (imageBytes == null) != (imagePath == null),
-          'Provide exactly one of imageBytes or imagePath.',
-        );
+         (imageBytes == null) != (imagePath == null),
+         'Provide exactly one of imageBytes or imagePath.',
+       );
 
   final List<int>? imageBytes;
   final String? imagePath;
@@ -62,7 +62,8 @@ class _ProductEditorScreenState extends ConsumerState<ProductEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(editorProvider);
-    final compareBlocked = state.previewBytes == null ||
+    final compareBlocked =
+        state.previewBytes == null ||
         state.isBusy ||
         state.isPreviewProcessing ||
         state.isExporting;
@@ -88,8 +89,8 @@ class _ProductEditorScreenState extends ConsumerState<ProductEditorScreen> {
                   onPressed: compareBlocked
                       ? null
                       : () => ref
-                          .read(editorProvider.notifier)
-                          .setShowOriginal(!state.showOriginal),
+                            .read(editorProvider.notifier)
+                            .setShowOriginal(!state.showOriginal),
                   icon: Icon(
                     state.showOriginal
                         ? Icons.auto_fix_high_rounded
