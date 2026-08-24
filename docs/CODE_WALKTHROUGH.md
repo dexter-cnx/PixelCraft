@@ -9,6 +9,8 @@ PixelCraft is the camera + photo editor + image-processing product. It owns mobi
 
 Nixin / Dextryx Images remains the long-lived image-management product and owns Workplaces, catalog identity, organization, browsing, collections, and large-library workflows.
 
+PF5 adds a versioned external-edit contract between those ownership domains. Nixin/external callers keep catalog identity authority; PixelCraft/Rust keep edit/pixel authority.
+
 ## 2. Platform shell
 
 ### Phone and tablet
@@ -286,7 +288,103 @@ For current file-backed Gallery sources, `EditorRouteData.imagePath` derives the
 
 The input source remains untouched. Output is a separate file/destination decision.
 
-## 12. State and localization
+### PF4 processed export retry
+
+`lib/core/export_file_service.dart` hardens processed export behavior:
+
+```text
+Rust/editor render
+  ↓
+committed backup file
+  ↓
+mobile Gallery save
+  ├── success -> done
+  └── failure -> bounded automatic retry
+                  ↓
+              preserve backup
+                  ↓
+              Retry Gallery
+                  ↓
+              save backup again
+```
+
+Key invariants:
+
+- backup is created before Gallery delivery;
+- mobile Gallery delivery is retried only within a bounded policy;
+- explicit `retryGallerySave(ExportedFile)` reads the committed backup;
+- Retry Gallery does not rerender;
+- original input is never mutated;
+- desktop export remains backup/destination oriented rather than mobile Gallery oriented.
+
+The production editor UI exposes the Retry Gallery action when delivery fails.
+
+## 12. PF5 external-edit contract
+
+Implementation:
+
+```text
+lib/app/external_edit_contract.dart
+test/app/external_edit_contract_test.dart
+docs/PF5_EXTERNAL_EDIT_CONTRACT.md
+```
+
+PF5 is a transport-neutral boundary only. It defines payload semantics before any app-to-app/deep-link transport is selected.
+
+### Request
+
+```text
+ExternalEditRequestV1
+  schemaVersion = 1
+  requestId
+  catalogAssetId
+  MediaSourceDescriptor source
+    provenance = externalEdit
+    uri
+    optional MIME
+    optional external/provider id
+  optional preferredOutputMimeType
+```
+
+`catalogAssetId` is caller-owned stable identity. PixelCraft may correlate against it but must not replace it with an editor-local identifier.
+
+Outbound construction now release-safely enforces the P2 invariants fixed in PF5 review: request source provenance must be `externalEdit`, completed-output MIME must be non-empty after trimming, and failed-result `failureCode` must be non-empty after trimming. Other decoder checks, including required identifier content and schemed URI validation, remain decoder-side contract validation and must not be assumed to have been prevalidated merely because an object was locally constructed.
+
+### Result
+
+```text
+ExternalEditResultV1
+  requestId
+  catalogAssetId
+  status
+    completed -> ExternalEditOutputV1
+    cancelled
+    failed    -> stable failureCode + optional message
+```
+
+Completed output includes:
+
+```text
+absolute/schemed output URI
+non-empty MIME type
+optional suggested file name
+optional authoritativeRecipeJson
+```
+
+`authoritativeRecipeJson` is PixelCraft/Rust-authored metadata. External callers may persist it opaquely for future re-edit continuity but must not interpret or mutate it into a competing edit authority.
+
+Failed results require a non-empty/trimmed failure code. Completed outputs require a non-empty/trimmed MIME. Unsupported versions, statuses, provenance, malformed maps, and invalid URIs fail closed with `FormatException` during decode.
+
+PF5 does **not** implement:
+
+- app-to-app transport;
+- deep links;
+- catalog writes from PixelCraft;
+- RAW decoding/development;
+- MobileSAM/ONNX;
+- generic plugin runtime.
+
+## 13. State and localization
 
 Riverpod is the Flutter application/UI orchestration standard. It may own loading, selected tools, camera/transient preview state, progress, and presentation state.
 
@@ -294,7 +392,7 @@ Rust remains authoritative for canonical edit recipe/history/checkpoints/full-re
 
 User-facing Flutter copy uses `easy_localization` with `en` and `th` resources.
 
-## 13. Rust authority
+## 14. Rust authority
 
 ```text
 Flutter app
@@ -315,13 +413,13 @@ make repair
 make verify-native
 ```
 
-## 14. Film and Creative Filter
+## 15. Film and Creative Filter
 
 Film Profiles are first-class Rust operations backed by canonical 33x33x33 LUT data. Creative Filters include exact grayscale/invert behavior and LUT-backed presets.
 
 Camera preview may use faithful GPU implementations, but authoritative capture/export always goes through Rust.
 
-## 15. Package graph
+## 16. Package graph
 
 ```text
 PixelCraft App
@@ -338,7 +436,9 @@ dxtr_pixs_engine  -> repository rust/ crate
 
 PKG-03 camera package extraction was audited after PF3 and is deferred. The current camera boundary still depends on app services, generated Rust bindings, GPU/native runtime ownership, and product-specific UX. Revisit only when a concrete second consumer or stable reusable camera API exists.
 
-## 16. CI behavior
+Future optional features should use capability/provider boundaries rather than becoming image authority or forcing an arbitrary dynamic plugin loader.
+
+## 17. CI behavior
 
 The repository uses an affected-validation DAG with `Fast CI` and `CI Gate` as stable branch-protection contexts.
 
@@ -347,3 +447,5 @@ Local entrypoint:
 ```bash
 make preflight
 ```
+
+For Dart changes, run canonical formatting before push. Documentation-only changes should still pass the repository's docs/whitespace validation policy.

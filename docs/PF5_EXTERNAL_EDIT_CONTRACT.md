@@ -1,6 +1,6 @@
 # PF5 External Edit Request/Result Contract
 
-Status: PF5 foundation active in PR #56.
+Status: PF5 foundation merged in PR #56.
 
 ## Purpose
 
@@ -59,7 +59,7 @@ mimeType?
 externalId?
 ```
 
-For an external edit request, `source.provenance` must be `externalEdit`; any other provenance is rejected.
+For an external edit request, `source.provenance` must be `externalEdit`; any other provenance is rejected during decode, and outbound construction also enforces this provenance in release builds.
 
 ## Result V1
 
@@ -97,11 +97,11 @@ Carries correlation only and does not invent an output.
 
 ### failed
 
-Requires a stable `failureCode`; `failureMessage` is optional presentation/debug context.
+Requires a stable `failureCode`; `failureMessage` is optional presentation/debug context. Outbound failed-result construction rejects an empty or whitespace-only failure code in release builds.
 
 ## Validation policy
 
-The contract fails closed for:
+The decoder fails closed for:
 
 - unsupported schema versions;
 - empty required identifiers;
@@ -111,6 +111,14 @@ The contract fails closed for:
 - unknown result status;
 - missing completed output;
 - failed results without a failure code.
+
+Outbound construction additionally release-safely enforces the PF5 review fixes for:
+
+- request source provenance being `externalEdit`;
+- completed-output MIME being non-empty after trimming;
+- failed-result `failureCode` being non-empty after trimming.
+
+These outbound checks are not a blanket guarantee that every decoder invariant has already been validated on every locally constructed object. Future transport code must still treat contract decoding/validation as authoritative at the boundary.
 
 ## Deferred work
 
@@ -129,13 +137,29 @@ Any later transport layer must adapt to this contract rather than redefine owner
 
 ## Validation evidence
 
-Implementation head `732787b83a32d5b51ee56386791b2ff4c3e3ed47` passed Pixel Craft CI #777 before this documentation commit:
+Final PF5 exact head:
+
+```text
+69e317b4cb153f09c3a926d6aab6964ca9fd410d
+```
+
+Pixel Craft CI #781 passed on that exact head:
 
 ```text
 Change Detection  PASS
-Fast CI          PASS
-Golden Tests     PASS
-CI Gate          PASS
+Fast CI           PASS
+Golden Tests      PASS
+CI Gate           PASS
 ```
 
-Because this document adds a new commit, merge readiness must use exact-head CI from the final PR head rather than reusing CI #777 as final exact-head evidence.
+Codex review P2 findings were fixed, replied to, and resolved before merge:
+
+1. enforce external-edit provenance on outbound request construction;
+2. reject empty/whitespace output MIME on outbound completed output construction;
+3. reject empty/whitespace failure code on outbound failed-result construction.
+
+PF5 merged in PR #56 with merge commit:
+
+```text
+8df08f090c6d2e001526004ef15c9ae652b6a471
+```
