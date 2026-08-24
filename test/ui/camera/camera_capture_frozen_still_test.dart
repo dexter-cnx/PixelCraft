@@ -36,6 +36,7 @@ void main() {
     tester,
   ) async {
     final transaction = _BlockingCaptureTransaction();
+    final navigatorObserver = _RecordingNavigatorObserver();
 
     await _pumpLocalized(
       tester,
@@ -59,6 +60,7 @@ void main() {
             ),
           ),
         ),
+        navigatorObservers: [navigatorObserver],
       ),
     );
 
@@ -77,6 +79,7 @@ void main() {
     );
     expect(transaction.finished, isFalse);
     expect(transaction.cleanedUp, isFalse);
+    expect(navigatorObserver.popCount, 0);
 
     transaction.release.complete();
     await tester.pump();
@@ -86,21 +89,23 @@ void main() {
       find.byKey(const ValueKey('camera_capture_frozen_still')),
       findsOneWidget,
     );
+    expect(navigatorObserver.popCount, 0);
 
-    // Once processing has completed the progress indicator is gone, so it is
-    // safe to settle the 900 ms success hold plus the route pop animation.
-    await tester.pumpAndSettle();
+    // The success state intentionally keeps the frozen still visible for 900
+    // ms. Observe the actual Navigator pop rather than inferring it from the
+    // widget tree while the route transition is still animating.
+    await tester.pump(const Duration(milliseconds: 901));
+    await tester.pump();
 
-    expect(find.byKey(const ValueKey('open_capture_handoff')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('camera_capture_frozen_still')),
-      findsNothing,
-    );
+    expect(navigatorObserver.popCount, 1);
     expect(transaction.cleanedUp, isTrue);
   });
 }
 
-Widget _localizedApp(Widget child) => EasyLocalization(
+Widget _localizedApp(
+  Widget child, {
+  List<NavigatorObserver> navigatorObservers = const [],
+}) => EasyLocalization(
   supportedLocales: const [Locale('en'), Locale('th')],
   path: 'assets/translations',
   fallbackLocale: const Locale('en'),
@@ -111,6 +116,7 @@ Widget _localizedApp(Widget child) => EasyLocalization(
       locale: context.locale,
       supportedLocales: context.supportedLocales,
       localizationsDelegates: context.localizationDelegates,
+      navigatorObservers: navigatorObservers,
       home: child,
     ),
   ),
@@ -128,6 +134,16 @@ Future<void> _pumpLocalized(WidgetTester tester, Widget child) async {
 final _tinyPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
 );
+
+class _RecordingNavigatorObserver extends NavigatorObserver {
+  int popCount = 0;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popCount++;
+    super.didPop(route, previousRoute);
+  }
+}
 
 class _BlockingCaptureTransaction implements CameraCaptureHandoffTransaction {
   final started = Completer<void>();
