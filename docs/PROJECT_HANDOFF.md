@@ -331,10 +331,10 @@ docs/PF5_EXTERNAL_EDIT_CONTRACT.md
 PF5 contract V1 includes:
 
 - `ExternalEditRequestV1` with version, request correlation, caller-owned `catalogAssetId`, explicit `externalEdit` provenance, source URI/MIME/provider identity, and optional output MIME preference;
-- `ExternalEditOutputV1` with absolute/schemed URI, non-empty MIME, optional suggested filename, and optional PixelCraft/Rust authoritative recipe JSON;
+- `ExternalEditOutputV1` with output URI, non-empty MIME, optional suggested filename, and optional PixelCraft/Rust authoritative recipe JSON;
 - `ExternalEditResultV1` with explicit completed/cancelled/failed status and stable `failureCode` for failures;
-- fail-closed unsupported version/status/provenance/malformed payload behavior;
-- release-safe outbound validation so objects emitted locally also satisfy decoder invariants.
+- fail-closed unsupported version/status/provenance/malformed payload behavior during decode;
+- release-safe outbound checks for the three PF5 review fixes: explicit `externalEdit` provenance, non-empty output MIME, and non-empty failure code. Required identifier content and schemed URI checks remain decoder-side and must not be assumed prevalidated for every locally constructed object.
 
 Codex review reported three P2 producer/consumer symmetry gaps. All were fixed, regression-tested, replied to, and resolved before merge:
 
@@ -464,7 +464,7 @@ Future RAW requires a separate explicit milestone covering decode/demosaic, WB/c
 ## Immediate — PF5 closure sync
 
 1. Merge this documentation sync after exact-head docs-only CI.
-2. Keep `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, and `PF5_EXTERNAL_EDIT_CONTRACT.md` aligned with merged PF4/PF5 behavior.
+2. Keep `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, `PF5_EXTERNAL_EDIT_CONTRACT.md`, and `README.md` aligned with merged PF4/PF5 behavior.
 3. Remove stale PF4/PF5 in-progress wording from canonical docs.
 4. Do not activate transport, RAW, MobileSAM, Dart 3.13 RecordUse, or generic plugin runtime as part of this closure slice.
 
