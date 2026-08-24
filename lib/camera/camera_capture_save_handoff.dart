@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -12,10 +11,65 @@ import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 import 'camera_recent_thumbnail.dart';
 
-typedef CameraCaptureSourceReader =
-    Future<Uint8List> Function(String imagePath);
-typedef CameraCaptureSourceDeleter = Future<void> Function(String imagePath);
-typedef CameraCaptureCompletionDelay = Future<void> Function(Duration duration);
+/// Executes the authoritative PF7 capture transaction.
+///
+/// The widget owns only frozen-still presentation and navigation. The default
+/// transaction owns source I/O, Rust rendering, Gallery delivery, and cleanup.
+abstract interface class CameraCaptureHandoffTransaction {
+  Future<CameraCaptureResult> execute({
+    required String imagePath,
+    required CameraLookState look,
+    required CameraImageRatio imageRatio,
+    required CameraCaptureOrientation captureOrientation,
+    required double zoomFactor,
+    void Function(ProcessingJobPhase phase)? onPhase,
+  });
+
+  Future<void> cleanupSource(String imagePath);
+}
+
+class DefaultCameraCaptureHandoffTransaction
+    implements CameraCaptureHandoffTransaction {
+  const DefaultCameraCaptureHandoffTransaction({
+    this.renderer = const RustCameraCaptureRenderer(),
+    this.saveService = const GalleryMediaSaveService(),
+  });
+
+  final CameraCaptureRenderer renderer;
+  final MediaSaveService saveService;
+
+  @override
+  Future<CameraCaptureResult> execute({
+    required String imagePath,
+    required CameraLookState look,
+    required CameraImageRatio imageRatio,
+    required CameraCaptureOrientation captureOrientation,
+    required double zoomFactor,
+    void Function(ProcessingJobPhase phase)? onPhase,
+  }) async {
+    final sourceBytes = await File(imagePath).readAsBytes();
+    final pipeline = CameraCapturePipeline(
+      renderer: renderer,
+      saveService: saveService,
+    );
+    return pipeline.processAndSave(
+      sourceJpeg: sourceBytes,
+      look: look,
+      imageRatio: imageRatio,
+      captureOrientation: captureOrientation,
+      zoomFactor: zoomFactor,
+      onPhase: onPhase,
+    );
+  }
+
+  @override
+  Future<void> cleanupSource(String imagePath) async {
+    try {
+      final source = File(imagePath);
+      if (await source.exists()) await source.delete();
+    } catch (_) {}
+  }
+}
 
 /// PF3/PF7 camera-capture processing handoff.
 ///
@@ -30,11 +84,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
     this.imageRatio = CameraImageRatio.original,
     this.captureOrientation = CameraCaptureOrientation.auto,
     this.zoomFactor = 1,
-    this.captureRenderer,
-    this.mediaSaveService,
-    this.sourceReader,
-    this.sourceDeleter,
-    this.completionDelay,
+    this.transaction,
   });
 
   final String imagePath;
@@ -42,11 +92,7 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
   final CameraImageRatio imageRatio;
   final CameraCaptureOrientation captureOrientation;
   final double zoomFactor;
-  final CameraCaptureRenderer? captureRenderer;
-  final MediaSaveService? mediaSaveService;
-  final CameraCaptureSourceReader? sourceReader;
-  final CameraCaptureSourceDeleter? sourceDeleter;
-  final CameraCaptureCompletionDelay? completionDelay;
+  final CameraCaptureHandoffTransaction? transaction;
 
   @override
   State<CameraCaptureSaveHandoff> createState() =>
@@ -61,6 +107,9 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
 
   bool get _canLeave => _phase == _CaptureHandoffPhase.failed;
 
+  CameraCaptureHandoffTransaction get _transaction =>
+      widget.transaction ?? const DefaultCameraCaptureHandoffTransaction();
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -68,20 +117,12 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     _started = true;
 
     final messenger = ScaffoldMessenger.of(context);
-    final pipeline = CameraCapturePipeline(
-      renderer: widget.captureRenderer ?? const RustCameraCaptureRenderer(),
-      saveService: widget.mediaSaveService ?? const GalleryMediaSaveService(),
-    );
-
     scheduleMicrotask(() {
-      unawaited(_process(messenger: messenger, pipeline: pipeline));
+      unawaited(_process(messenger: messenger));
     });
   }
 
-  Future<void> _process({
-    required ScaffoldMessengerState messenger,
-    required CameraCapturePipeline pipeline,
-  }) async {
+  Future<void> _process({required ScaffoldMessengerState messenger}) async {
     if (mounted) {
       setState(() => _phase = _CaptureHandoffPhase.processing);
     }
@@ -112,11 +153,8 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     show('camera.processing_photo'.tr(), duration: const Duration(minutes: 2));
 
     try {
-      final sourceBytes = await (widget.sourceReader ?? _readSource)(
-        widget.imagePath,
-      );
-      final result = await pipeline.processAndSave(
-        sourceJpeg: sourceBytes,
+      final result = await _transaction.execute(
+        imagePath: widget.imagePath,
         look: widget.look,
         imageRatio: widget.imageRatio,
         captureOrientation: widget.captureOrientation,
@@ -133,16 +171,17 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         },
       );
       CameraRecentThumbnail.instance.update(result.jpegBytes);
-      await (widget.sourceDeleter ?? _deleteSourceBestEffort)(widget.imagePath);
       if (!mounted) return;
 
       setState(() => _phase = _CaptureHandoffPhase.completed);
       const visibleFor = Duration(milliseconds: 900);
       show('camera.capture_saved'.tr(), duration: visibleFor);
-      await (widget.completionDelay ?? Future<void>.delayed)(visibleFor);
+      await Future<void>.delayed(visibleFor);
       if (!mounted) return;
+
       messenger.removeCurrentSnackBar();
       Navigator.of(context).pop();
+      unawaited(_transaction.cleanupSource(widget.imagePath));
     } catch (_) {
       if (!mounted) return;
       setState(() => _phase = _CaptureHandoffPhase.failed);
@@ -151,21 +190,10 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         duration: const Duration(seconds: 8),
         action: SnackBarAction(
           label: 'camera.try_again'.tr(),
-          onPressed: () =>
-              unawaited(_process(messenger: messenger, pipeline: pipeline)),
+          onPressed: () => unawaited(_process(messenger: messenger)),
         ),
       );
     }
-  }
-
-  static Future<Uint8List> _readSource(String imagePath) =>
-      File(imagePath).readAsBytes();
-
-  static Future<void> _deleteSourceBestEffort(String imagePath) async {
-    try {
-      final source = File(imagePath);
-      if (await source.exists()) await source.delete();
-    } catch (_) {}
   }
 
   @override
