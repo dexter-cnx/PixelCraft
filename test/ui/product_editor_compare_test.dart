@@ -28,54 +28,53 @@ void main() {
     ),
   );
 
-  testWidgets('Compare button toggles original without changing edit semantics', (
-    tester,
-  ) async {
-    final engine = FakeImageEngine();
-    final container = ProviderContainer(
-      overrides: [imageEngineProvider.overrideWithValue(engine)],
-    );
-    addTearDown(container.dispose);
+  testWidgets(
+    'Compare button toggles original without changing edit semantics',
+    (tester) async {
+      final engine = FakeImageEngine();
+      final container = ProviderContainer(
+        overrides: [imageEngineProvider.overrideWithValue(engine)],
+      );
+      addTearDown(container.dispose);
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final compareButton = find.byKey(
-      const ValueKey('editor_compare_button'),
-    );
-    expect(compareButton, findsOneWidget);
-    expect(
-      find.descendant(of: compareButton, matching: find.text('Before')),
-      findsOneWidget,
-    );
-    expect(container.read(editorProvider).showOriginal, isFalse);
-    expect(engine.operations, isEmpty);
+      final compareButton = find.byKey(const ValueKey('editor_compare_button'));
+      expect(compareButton, findsOneWidget);
+      expect(
+        find.descendant(of: compareButton, matching: find.text('Before')),
+        findsOneWidget,
+      );
+      expect(container.read(editorProvider).showOriginal, isFalse);
+      expect(engine.operations, isEmpty);
 
-    await tester.tap(compareButton);
-    await tester.pump();
+      await tester.tap(compareButton);
+      await tester.pump();
 
-    expect(container.read(editorProvider).showOriginal, isTrue);
-    expect(
-      find.descendant(of: compareButton, matching: find.text('Edited')),
-      findsOneWidget,
-    );
-    expect(engine.operations, isEmpty);
+      expect(container.read(editorProvider).showOriginal, isTrue);
+      expect(
+        find.descendant(of: compareButton, matching: find.text('Edited')),
+        findsOneWidget,
+      );
+      expect(engine.operations, isEmpty);
 
-    await tester.tap(compareButton);
-    await tester.pump();
+      await tester.tap(compareButton);
+      await tester.pump();
 
-    expect(container.read(editorProvider).showOriginal, isFalse);
-    expect(
-      find.descendant(of: compareButton, matching: find.text('Before')),
-      findsOneWidget,
-    );
-    expect(engine.operations, isEmpty);
-  });
+      expect(container.read(editorProvider).showOriginal, isFalse);
+      expect(
+        find.descendant(of: compareButton, matching: find.text('Before')),
+        findsOneWidget,
+      );
+      expect(engine.operations, isEmpty);
+    },
+  );
 
   testWidgets('new product editor session resets a previous Before state', (
     tester,
@@ -94,9 +93,7 @@ void main() {
     await tester.pumpWidget(editor());
     await tester.pumpAndSettle();
 
-    final compareButton = find.byKey(
-      const ValueKey('editor_compare_button'),
-    );
+    final compareButton = find.byKey(const ValueKey('editor_compare_button'));
     await tester.tap(compareButton);
     await tester.pump();
     expect(container.read(editorProvider).showOriginal, isTrue);
@@ -130,9 +127,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final compareButton = find.byKey(
-      const ValueKey('editor_compare_button'),
-    );
+    final compareButton = find.byKey(const ValueKey('editor_compare_button'));
     expect(compareButton, findsOneWidget);
 
     final rect = tester.getRect(compareButton);
