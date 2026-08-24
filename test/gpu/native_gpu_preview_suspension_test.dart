@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/gpu/native_gpu_preview_bridge.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('test/pf9_native_preview_suspension');
   final calls = <MethodCall>[];
@@ -25,13 +25,12 @@ void main() {
   tearDown(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await NativeGpuPreviewSuspension.resetForTesting();
   });
 
-  testWidgets('handoff suspension suppresses lifecycle resume until release', (
-    tester,
-  ) async {
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  test('handoff suspension suppresses lifecycle resume until release', () async {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     final bridge = NativeGpuPreviewBridge(channel: channel);
     final rendererId = await bridge.createRenderer();
 
@@ -46,29 +45,25 @@ void main() {
     expect(calls.map((call) => call.method), ['pause', 'resume']);
   });
 
-  testWidgets('release while app paused waits for normal lifecycle resume', (
-    tester,
-  ) async {
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  test('release while app paused waits for normal lifecycle resume', () async {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     final bridge = NativeGpuPreviewBridge(channel: channel);
     final rendererId = await bridge.createRenderer();
 
     calls.clear();
     await NativeGpuPreviewSuspension.acquire();
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await NativeGpuPreviewSuspension.release();
 
     expect(calls.map((call) => call.method), ['pause']);
 
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await bridge.resume(rendererId);
     expect(calls.map((call) => call.method), ['pause', 'resume']);
   });
 
-  testWidgets('destroyed renderer is never resumed after handoff release', (
-    tester,
-  ) async {
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  test('destroyed renderer is never resumed after handoff release', () async {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     final bridge = NativeGpuPreviewBridge(channel: channel);
     final rendererId = await bridge.createRenderer();
 
