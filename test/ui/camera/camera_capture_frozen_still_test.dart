@@ -87,10 +87,9 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.pump(const Duration(milliseconds: 900));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump();
+    // Once processing has completed the progress indicator is gone, so it is
+    // safe to settle the 900 ms success hold plus the route pop animation.
+    await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('open_capture_handoff')), findsOneWidget);
     expect(
