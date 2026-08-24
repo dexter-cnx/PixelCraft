@@ -11,7 +11,11 @@ import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 import 'camera_recent_thumbnail.dart';
 
-/// PF3 transient camera-capture trigger.
+/// PF3/PF7 camera-capture processing handoff.
+///
+/// The clean captured JPEG remains visible while authoritative processing and
+/// Gallery delivery run. This prevents the live preview from resuming before
+/// the shutter transaction has completed.
 class CameraCaptureSaveHandoff extends StatefulWidget {
   const CameraCaptureSaveHandoff({
     super.key,
@@ -37,8 +41,13 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
       _CameraCaptureSaveHandoffState();
 }
 
+enum _CaptureHandoffPhase { processing, saving, completed, failed }
+
 class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
   bool _started = false;
+  _CaptureHandoffPhase _phase = _CaptureHandoffPhase.processing;
+
+  bool get _canLeave => _phase == _CaptureHandoffPhase.failed;
 
   @override
   void didChangeDependencies() {
@@ -47,42 +56,24 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     _started = true;
 
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    final imagePath = widget.imagePath;
-    final look = widget.look;
-    final imageRatio = widget.imageRatio;
-    final captureOrientation = widget.captureOrientation;
-    final zoomFactor = widget.zoomFactor;
     final pipeline = CameraCapturePipeline(
       renderer: widget.captureRenderer ?? const RustCameraCaptureRenderer(),
       saveService: widget.mediaSaveService ?? const GalleryMediaSaveService(),
     );
 
     scheduleMicrotask(() {
-      navigator.pop();
-      unawaited(
-        _process(
-          messenger: messenger,
-          pipeline: pipeline,
-          imagePath: imagePath,
-          look: look,
-          imageRatio: imageRatio,
-          captureOrientation: captureOrientation,
-          zoomFactor: zoomFactor,
-        ),
-      );
+      unawaited(_process(messenger: messenger, pipeline: pipeline));
     });
   }
 
   Future<void> _process({
     required ScaffoldMessengerState messenger,
     required CameraCapturePipeline pipeline,
-    required String imagePath,
-    required CameraLookState look,
-    required CameraImageRatio imageRatio,
-    required CameraCaptureOrientation captureOrientation,
-    required double zoomFactor,
   }) async {
+    if (mounted) {
+      setState(() => _phase = _CaptureHandoffPhase.processing);
+    }
+
     void show(
       String message, {
       Duration duration = const Duration(seconds: 2),
@@ -106,54 +97,48 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         );
     }
 
-    void showSaved() {
-      const visibleFor = Duration(milliseconds: 900);
-      show('camera.capture_saved'.tr(), duration: visibleFor);
-      unawaited(
-        Future<void>.delayed(visibleFor, () {
-          messenger.removeCurrentSnackBar();
-        }),
-      );
-    }
-
     show('camera.processing_photo'.tr(), duration: const Duration(minutes: 2));
 
     try {
-      final sourceBytes = await File(imagePath).readAsBytes();
+      final sourceBytes = await File(widget.imagePath).readAsBytes();
       final result = await pipeline.processAndSave(
         sourceJpeg: sourceBytes,
-        look: look,
-        imageRatio: imageRatio,
-        captureOrientation: captureOrientation,
-        zoomFactor: zoomFactor,
+        look: widget.look,
+        imageRatio: widget.imageRatio,
+        captureOrientation: widget.captureOrientation,
+        zoomFactor: widget.zoomFactor,
         onPhase: (phase) {
-          if (phase == ProcessingJobPhase.saving) {
-            show(
-              'camera.saving_photo'.tr(),
-              duration: const Duration(minutes: 2),
-            );
+          if (phase != ProcessingJobPhase.saving) return;
+          if (mounted) {
+            setState(() => _phase = _CaptureHandoffPhase.saving);
           }
+          show(
+            'camera.saving_photo'.tr(),
+            duration: const Duration(minutes: 2),
+          );
         },
       );
       CameraRecentThumbnail.instance.update(result.jpegBytes);
-      await _deleteSourceBestEffort(imagePath);
-      showSaved();
+      await _deleteSourceBestEffort(widget.imagePath);
+      if (!mounted) return;
+
+      setState(() => _phase = _CaptureHandoffPhase.completed);
+      const visibleFor = Duration(milliseconds: 900);
+      show('camera.capture_saved'.tr(), duration: visibleFor);
+      await Future<void>.delayed(visibleFor);
+      if (!mounted) return;
+      messenger.removeCurrentSnackBar();
+      Navigator.of(context).pop();
     } catch (_) {
+      if (!mounted) return;
+      setState(() => _phase = _CaptureHandoffPhase.failed);
       show(
         'camera.capture_failed'.tr(),
         duration: const Duration(seconds: 8),
         action: SnackBarAction(
           label: 'camera.try_again'.tr(),
           onPressed: () => unawaited(
-            _process(
-              messenger: messenger,
-              pipeline: pipeline,
-              imagePath: imagePath,
-              look: look,
-              imageRatio: imageRatio,
-              captureOrientation: captureOrientation,
-              zoomFactor: zoomFactor,
-            ),
+            _process(messenger: messenger, pipeline: pipeline),
           ),
         ),
       );
@@ -168,6 +153,38 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      const Scaffold(backgroundColor: Colors.black, body: SizedBox.expand());
+  Widget build(BuildContext context) => PopScope(
+    canPop: _canLeave,
+    child: Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Image.file(
+              File(widget.imagePath),
+              key: const ValueKey('camera_capture_frozen_still'),
+              fit: BoxFit.contain,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => const SizedBox.expand(),
+            ),
+          ),
+          if (_phase == _CaptureHandoffPhase.processing ||
+              _phase == _CaptureHandoffPhase.saving)
+            const IgnorePointer(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: SafeArea(
+                  minimum: EdgeInsets.only(bottom: 24),
+                  child: SizedBox.square(
+                    dimension: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }
