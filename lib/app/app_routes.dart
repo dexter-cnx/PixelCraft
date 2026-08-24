@@ -36,18 +36,7 @@ class EditorRouteData {
     this.recoveryRecipe,
     this.initialFilmProfileId,
     this.initialFilmStrength = 1,
-  }) : _imagePath = imagePath,
-       assert(
-         (imagePath != null ? 1 : 0) +
-                 (imageBytes != null ? 1 : 0) +
-                 (source != null ? 1 : 0) ==
-             1,
-         'Provide exactly one editor source.',
-       ),
-       assert(
-         initialFilmProfileId == null || imagePath != null,
-         'Initial camera Film handoff requires a file-backed capture source.',
-       );
+  }) : _imagePath = imagePath;
 
   final String? _imagePath;
   final List<int>? imageBytes;
@@ -59,6 +48,18 @@ class EditorRouteData {
   final String? recoveryRecipe;
   final String? initialFilmProfileId;
   final double initialFilmStrength;
+
+  /// Release-safe route validation. Route payloads can be produced outside the
+  /// immediate widget tree, so correctness must not rely on debug-only asserts.
+  bool get isValid {
+    final sourceCount =
+        (_imagePath != null ? 1 : 0) +
+        (imageBytes != null ? 1 : 0) +
+        (source != null ? 1 : 0);
+    if (sourceCount != 1) return false;
+    if (initialFilmProfileId != null && _imagePath == null) return false;
+    return true;
+  }
 
   /// Current Product Editor accepts a filesystem path or bytes. PF4 keeps the
   /// typed source alongside that compatibility boundary rather than discarding
