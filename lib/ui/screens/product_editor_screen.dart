@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -95,7 +96,11 @@ class _ProductEditorScreenState extends ConsumerState<ProductEditorScreen> {
                         : Icons.compare_rounded,
                     size: 18,
                   ),
-                  label: Text(state.showOriginal ? 'Edited' : 'Before'),
+                  label: Text(
+                    state.showOriginal
+                        ? 'editor.compare_edited'.tr()
+                        : 'editor.compare_before'.tr(),
+                  ),
                 ),
               ),
             ),
