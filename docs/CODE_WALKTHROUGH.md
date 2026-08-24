@@ -66,6 +66,8 @@ Editor navigation uses typed `EditorRouteData` through `GoRouterState.extra`; ar
 
 PF4 extends `EditorRouteData` with an optional typed `EditorSource`. Gallery/desktop/future external-edit metadata can therefore remain attached to the editor route while the current `ProductEditorScreen` compatibility boundary still consumes a file path or bytes.
 
+PF6 adds release-safe `EditorRouteData.isValid` validation. The editor route rejects missing-source, multiple-source, and unsupported initial-Film/source combinations before Product Editor or Camera Film handoff receives them. This correctness no longer depends on debug-only asserts.
+
 Non-file typed sources fail closed at the route boundary until a supported resolver/decoder exists; PixelCraft does not silently copy or invent a path.
 
 ## 4. Camera implementation
@@ -181,6 +183,8 @@ failed
 On failure, Retry reuses the temporary clean source while it remains available. Successful completion deletes the temporary source best-effort and updates the recent thumbnail.
 
 The serialization guard lives below the transient handoff, so returning to Camera does not permit authoritative Rust transactions to interleave.
+
+This behavior is the next camera UX candidate after PF6: instead of showing live preview movement during processing, PF7 should evaluate holding the captured clean still onscreen until the authoritative process/save transaction completes, then return to live Camera.
 
 ## 8. Android native GPU lifecycle
 
@@ -348,7 +352,7 @@ ExternalEditRequestV1
 
 `catalogAssetId` is caller-owned stable identity. PixelCraft may correlate against it but must not replace it with an editor-local identifier.
 
-Outbound construction now release-safely enforces the P2 invariants fixed in PF5 review: request source provenance must be `externalEdit`, completed-output MIME must be non-empty after trimming, and failed-result `failureCode` must be non-empty after trimming. Other decoder checks, including required identifier content and schemed URI validation, remain decoder-side contract validation and must not be assumed to have been prevalidated merely because an object was locally constructed.
+Outbound construction release-safely enforces the PF5 review invariants: request source provenance must be `externalEdit`, completed-output MIME must be non-empty after trimming, and failed-result `failureCode` must be non-empty after trimming. Other decoder checks, including required identifier content and schemed URI validation, remain decoder-side contract validation.
 
 ### Result
 
@@ -375,14 +379,7 @@ optional authoritativeRecipeJson
 
 Failed results require a non-empty/trimmed failure code. Completed outputs require a non-empty/trimmed MIME. Unsupported versions, statuses, provenance, malformed maps, and invalid URIs fail closed with `FormatException` during decode.
 
-PF5 does **not** implement:
-
-- app-to-app transport;
-- deep links;
-- catalog writes from PixelCraft;
-- RAW decoding/development;
-- MobileSAM/ONNX;
-- generic plugin runtime.
+PF5 does **not** implement app-to-app transport, deep links, catalog writes from PixelCraft, RAW development, MobileSAM/ONNX, or a generic plugin runtime.
 
 ## 13. State and localization
 
@@ -391,6 +388,8 @@ Riverpod is the Flutter application/UI orchestration standard. It may own loadin
 Rust remains authoritative for canonical edit recipe/history/checkpoints/full-resolution export semantics.
 
 User-facing Flutter copy uses `easy_localization` with `en` and `th` resources.
+
+PF6 moved the invalid-editor message and Product Editor Compare labels to localization keys. Widget coverage sets up localization explicitly rather than relying on ambient app initialization.
 
 ## 14. Rust authority
 
@@ -449,3 +448,50 @@ make preflight
 ```
 
 For Dart changes, run canonical formatting before push. Documentation-only changes should still pass the repository's docs/whitespace validation policy.
+
+## 18. PF6 editor boundary hardening
+
+Primary implementation:
+
+```text
+lib/app/app_routes.dart
+lib/main.dart
+lib/ui/screens/product_editor_screen.dart
+assets/translations/en.json
+assets/translations/th.json
+test/app/editor_route_data_test.dart
+test/ui/product_editor_compare_test.dart
+```
+
+### Route validation
+
+`EditorRouteData` can carry one of three current source shapes:
+
+```text
+legacy imagePath
+imageBytes
+typed EditorSource
+```
+
+`EditorRouteData.isValid` requires exactly one. It also rejects `initialFilmProfileId` when the route is not using the current legacy file-backed path. The `/editor` route checks `isValid` before constructing the downstream editor/handoff widgets.
+
+This is deliberately a release-safe boundary. `assert` remains useful for developer diagnostics elsewhere, but route correctness must not disappear in release builds.
+
+### Localized invalid state and Compare UX
+
+Invalid editor-route payloads fail closed to the localized `errors.invalid_editor_source` state.
+
+The Product Editor Compare control uses:
+
+```text
+editor.compare_before
+editor.compare_edited
+```
+
+with English and Thai resources. The semantic behavior is unchanged: Compare toggles presentation of original versus edited pixels without creating edit operations.
+
+### Test harness
+
+`product_editor_compare_test.dart` initializes `easy_localization` explicitly, provides a deterministic SharedPreferences test channel, and waits for localization asset loading before assertions. This prevents test-only platform-channel failures and ensures `Before` / `Edited` assertions exercise the same localization path as production.
+
+PF6 exact head before documentation sync was `c3a4f2bb9ab97dc87f5eef480e11673b6b183513`; Pixel Craft CI #796 passed on that head and the only Codex review thread was resolved.
