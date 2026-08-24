@@ -83,10 +83,15 @@ void main() {
     expect(saver.bytes, isNull);
 
     renderer.release.complete();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump();
+    }
 
     expect(saver.bytes, isNotNull);
+
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+
     expect(find.byKey(const ValueKey('open_capture_handoff')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('camera_capture_frozen_still')),
