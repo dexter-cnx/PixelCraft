@@ -1,51 +1,93 @@
 # PF9 — Native Preview Suspension During Capture Handoff
 
-Status: **IMPLEMENTATION STARTED**
+Status: **IMPLEMENTED / CI PENDING**
 
 Branch: `feature/pf9-pause-preview-during-capture-handoff`
 
 ## Problem
 
-PF7 hides the live Camera behind a frozen captured still while authoritative Rust processing and Gallery delivery run. On the native GPU camera path, the underlying Metal/OpenGL preview renderer can still continue running during that handoff even though it is not visible.
+PF7 hides the live Camera behind a frozen captured still while authoritative Rust processing and Gallery delivery run. On the native GPU camera path, the underlying Metal/OpenGL preview renderer could still continue running during that handoff even though it was not visible.
 
-That is functionally correct but wastes camera/GPU work and creates an avoidable lifecycle race if the app backgrounds and resumes while the frozen handoff is still active.
+That behavior is functionally correct but wastes camera/GPU work and creates an avoidable lifecycle race if the app backgrounds and resumes while the frozen handoff is still active.
 
-## Scope
-
-PF9 will suspend only the native GPU preview around the capture handoff.
+## Implemented flow
 
 ```text
 capture clean JPEG
   ↓
-mark capture handoff active
-  ↓
-pause native preview renderer
-  ↓
 push CameraCaptureSaveHandoff
   ↓
-PF7/PF8 processing / Retry / Back semantics unchanged
+NativeGpuPreviewSuspension.acquire()
   ↓
-handoff route completes
+pause tracked native preview renderer(s), best effort
   ↓
-if app lifecycle is resumed and renderer is still current
-    resume native preview
+PF7/PF8 frozen still + process/save/Retry/Back semantics
+  ↓
+route is actually disposed
+  ↓
+NativeGpuPreviewSuspension.release()
+  ↓
+if app lifecycle == resumed
+    resume still-current tracked renderer(s)
 else
-    leave renderer paused until normal lifecycle resume policy permits it
+    wait for the camera screen's normal lifecycle resume call
 ```
 
-## Lifecycle rules
+## Architecture
 
-1. `processing` / `saving` presentation remains owned by `CameraCaptureSaveHandoff`.
-2. Native renderer pause is best-effort and must not make an already-captured shutter transaction fail.
-3. If the app enters inactive/paused while the handoff is active, normal lifecycle pause remains valid and idempotent.
-4. If the app resumes while the handoff is still active, the camera screen must not resume the native renderer yet.
-5. When the handoff ends, resume only if:
-   - the screen is still mounted;
-   - the same renderer id is still current;
-   - native GPU mode is still active;
-   - app lifecycle is `resumed`.
-6. Resume failure uses the existing native runtime-failure/fallback policy instead of leaving the camera in a silent invalid state.
-7. Flutter `camera` fallback behavior remains unchanged; that path already detaches/disposes the controller before the save handoff and reinitializes afterwards.
+`lib/gpu/native_gpu_preview_bridge.dart` remains the app-level import used by the camera screen. PF9 turns that file from a pure re-export into a narrow wrapper around the package `NativeGpuPreviewBridge`.
+
+The wrapper preserves the package bridge API while tracking renderer identity and coordinating a reference-counted suspension state.
+
+Key properties:
+
+1. renderers are registered when `createRenderer()` succeeds;
+2. renderers are unregistered when `destroyRenderer()` completes;
+3. `NativeGpuPreviewSuspension.acquire()` pauses tracked renderers best effort;
+4. normal `resume(rendererId)` calls are suppressed while suspension is active;
+5. `release()` resumes only when the app lifecycle is `resumed`;
+6. acquire/release operations are serialized so a fast route disposal cannot race a pending pause and leave the renderer paused;
+7. a renderer created while suspension is already active is immediately paused best effort;
+8. stale/destroyed renderer identity is never resumed.
+
+`CameraCaptureSaveHandoff` acquires suspension once when the route becomes active and releases it from `dispose()`. This deliberately waits for route disposal rather than `Navigator.pop()` initiation, so the live preview does not resume underneath the reverse route transition.
+
+## Failure policy
+
+Preview suspension is an optimization, not capture authority.
+
+- pause failure must not fail an already-captured authoritative shutter transaction;
+- PF7/PF8 processing, save, Retry, and clean-source cleanup remain authoritative;
+- lifecycle resume while the handoff is active is suppressed;
+- once suspension is released, the camera screen's existing runtime failure/fallback path remains responsible for native renderer failures.
+
+## Fallback camera
+
+Flutter `camera` fallback behavior is unchanged. That path already detaches/disposes its `CameraController` before the save handoff and reinitializes it after the handoff returns.
+
+## Automated validation
+
+`test/gpu/native_gpu_preview_suspension_test.dart` covers:
+
+- handoff suspension blocks a lifecycle `resume()` call;
+- releasing while resumed causes one native resume;
+- releasing while app-paused does not resume prematurely;
+- a later normal lifecycle resume works after suspension is released;
+- a destroyed renderer is never resumed after release.
+
+Existing PF7/PF8 widget tests continue to cover frozen-still transaction and failed-source cleanup behavior.
+
+## Physical smoke
+
+Android and iPhone should verify:
+
+1. shutter -> frozen still -> processed save -> live preview returns;
+2. no visible live preview is exposed during processing/save;
+3. background/foreground during processing does not prematurely resume preview;
+4. failed capture -> Retry still works;
+5. failed capture -> Back still cleans the temporary clean source;
+6. lens/flash/torch/mirror state remains coherent after return;
+7. repeated capture cycles do not leave the native renderer permanently paused.
 
 ## Non-goals
 
@@ -56,21 +98,4 @@ PF9 does not change:
 - PF7 frozen-still UX;
 - PF8 failed-source cleanup;
 - Metal/OpenGL rendering architecture;
-- RAW, MobileSAM/ONNX, external-edit transport, or generic plugin runtime.
-
-## Validation
-
-Automated validation should cover the lifecycle policy independently from platform channels where practical:
-
-- handoff active blocks resume-on-app-resume;
-- ending handoff while app is resumed permits one resume;
-- ending handoff while app is paused does not resume;
-- stale renderer identity is never resumed.
-
-Physical Android/iPhone smoke should confirm:
-
-1. shutter -> frozen still -> processed save -> live preview returns;
-2. background/foreground during processing does not expose or prematurely resume live preview;
-3. failed capture -> Retry still works;
-4. failed capture -> Back still cleans temporary source;
-5. lens/flash/torch/mirror state remains coherent after resume.
+- RAW, MobileSAM/ONNX, external-edit transport, Dart 3.13 RecordUse, or generic plugin runtime.
