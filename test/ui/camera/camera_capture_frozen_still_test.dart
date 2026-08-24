@@ -100,6 +100,58 @@ void main() {
     expect(navigatorObserver.popCount, 1);
     expect(transaction.cleanedUp, isTrue);
   });
+
+  testWidgets('cleans failed capture source when user abandons handoff', (
+    tester,
+  ) async {
+    final transaction = _FailingCaptureTransaction();
+    final navigatorObserver = _RecordingNavigatorObserver();
+
+    await _pumpLocalized(
+      tester,
+      _localizedApp(
+        Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                key: const ValueKey('open_failed_capture_handoff'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CameraCaptureSaveHandoff(
+                      imagePath: '/tmp/pixelcraft-pf8-failed-test.jpg',
+                      look: CameraLookState(),
+                      transaction: transaction,
+                    ),
+                  ),
+                ),
+                child: const Text('Open failed'),
+              ),
+            ),
+          ),
+        ),
+        navigatorObservers: [navigatorObserver],
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('open_failed_capture_handoff')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+
+    expect(transaction.executeCount, 1);
+    expect(transaction.cleanedUp, isFalse);
+    expect(navigatorObserver.popCount, 0);
+    expect(
+      find.byKey(const ValueKey('camera_capture_frozen_still')),
+      findsOneWidget,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+
+    expect(navigatorObserver.popCount, 1);
+    expect(transaction.cleanedUp, isTrue);
+  });
 }
 
 Widget _localizedApp(
@@ -169,6 +221,30 @@ class _BlockingCaptureTransaction implements CameraCaptureHandoffTransaction {
       savedUri: Uri.parse('media:/gallery/capture.jpg'),
       jpegBytes: _tinyPngBytes,
     );
+  }
+
+  @override
+  Future<void> cleanupSource(String imagePath) async {
+    cleanedUp = true;
+  }
+}
+
+class _FailingCaptureTransaction implements CameraCaptureHandoffTransaction {
+  int executeCount = 0;
+  bool cleanedUp = false;
+
+  @override
+  Future<CameraCaptureResult> execute({
+    required String imagePath,
+    required CameraLookState look,
+    required CameraImageRatio imageRatio,
+    required CameraCaptureOrientation captureOrientation,
+    required double zoomFactor,
+    void Function(ProcessingJobPhase phase)? onPhase,
+  }) async {
+    executeCount++;
+    onPhase?.call(ProcessingJobPhase.processing);
+    throw StateError('injected PF8 capture failure');
   }
 
   @override

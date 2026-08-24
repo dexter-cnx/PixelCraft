@@ -201,6 +201,11 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: _canLeave,
+    onPopInvokedWithResult: (didPop, _) {
+      if (didPop && _phase == _CaptureHandoffPhase.failed) {
+        unawaited(_transaction.cleanupSource(widget.imagePath));
+      }
+    },
     child: Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
