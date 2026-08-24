@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -36,11 +35,6 @@ void main() {
   testWidgets('keeps captured still visible until processing and save finish', (
     tester,
   ) async {
-    final directory = await Directory.systemTemp.createTemp('pixelcraft_pf7_');
-    addTearDown(() => directory.delete(recursive: true));
-    final capture = File('${directory.path}/capture.jpg');
-    await capture.writeAsBytes(_tinyPngBytes);
-
     final renderer = _BlockingRenderer();
     final saver = _FakeSaveService();
 
@@ -55,10 +49,13 @@ void main() {
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => CameraCaptureSaveHandoff(
-                      imagePath: capture.path,
+                      imagePath: '/tmp/pixelcraft-pf7-test.jpg',
                       look: CameraLookState(),
                       captureRenderer: renderer,
                       mediaSaveService: saver,
+                      sourceReader: (_) async => _tinyPngBytes,
+                      sourceDeleter: (_) async {},
+                      completionDelay: (_) async {},
                     ),
                   ),
                 ),
@@ -72,15 +69,6 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open_capture_handoff')));
     await tester.pump();
-    await tester.runAsync(() async {
-      for (
-        var attempt = 0;
-        attempt < 50 && !renderer.started.isCompleted;
-        attempt++
-      ) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-    });
     await tester.pump();
 
     expect(renderer.started.isCompleted, isTrue);
@@ -92,11 +80,8 @@ void main() {
     expect(saver.bytes, isNull);
 
     renderer.release.complete();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    });
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 901));
+    await tester.pump();
     await tester.pump();
 
     expect(saver.bytes, isNotNull);
