@@ -83,12 +83,17 @@
     "capture_failed": "Could not process or save this photo.",
     "native_look_required": "Filter and Adjust require the native GPU camera preview."
   },
+  "editor": {
+    "compare_before": "Before",
+    "compare_edited": "Edited"
+  },
   "errors": {
     "camera_unavailable": "Camera is unavailable.",
     "permission_denied": "Permission denied.",
     "permission_restricted": "Permission is restricted.",
     "decode_failed": "Could not decode this image.",
     "unsupported_source": "This source format is not supported.",
+    "invalid_editor_source": "This image could not be opened in the editor.",
     "render_failed": "Image processing failed.",
     "save_failed": "Could not save the image."
   }
