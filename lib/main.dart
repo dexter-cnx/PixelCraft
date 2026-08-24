@@ -116,7 +116,7 @@ class _PixelCraftAppState extends ConsumerState<PixelCraftApp> {
           name: AppRouteNames.editor,
           builder: (_, state) {
             final data = state.extra;
-            if (data is! EditorRouteData) {
+            if (data is! EditorRouteData || !data.isValid) {
               return const _InvalidEditorRouteScreen();
             }
 
@@ -307,11 +307,14 @@ class _InvalidEditorRouteScreen extends StatelessWidget {
   const _InvalidEditorRouteScreen();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
+  Widget build(BuildContext context) => Scaffold(
     body: Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text('The editor route requires a valid source.'),
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'errors.invalid_editor_source'.tr(),
+          textAlign: TextAlign.center,
+        ),
       ),
     ),
   );

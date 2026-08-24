@@ -83,12 +83,17 @@
     "capture_failed": "ไม่สามารถประมวลผลหรือบันทึกรูปนี้ได้",
     "native_look_required": "ฟิลเตอร์และการปรับแต่งต้องใช้พรีวิวกล้อง GPU แบบ Native"
   },
+  "editor": {
+    "compare_before": "ก่อนแต่ง",
+    "compare_edited": "หลังแต่ง"
+  },
   "errors": {
     "camera_unavailable": "ไม่สามารถใช้งานกล้องได้",
     "permission_denied": "ไม่ได้รับอนุญาตให้เข้าถึง",
     "permission_restricted": "สิทธิ์การเข้าถึงถูกจำกัด",
     "decode_failed": "ไม่สามารถอ่านรูปภาพนี้ได้",
     "unsupported_source": "ยังไม่รองรับไฟล์ประเภทนี้",
+    "invalid_editor_source": "ไม่สามารถเปิดรูปนี้ในตัวแก้ไขได้",
     "render_failed": "ประมวลผลรูปภาพไม่สำเร็จ",
     "save_failed": "บันทึกรูปภาพไม่สำเร็จ"
   }

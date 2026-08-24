@@ -1,4 +1,6 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/state/editor_controller.dart';
@@ -7,57 +9,102 @@ import 'package:pixelcraft/ui/screens/product_editor_screen.dart';
 import '../helpers/fake_image_engine.dart';
 
 void main() {
-  testWidgets('Compare button toggles original without changing edit semantics',
-      (tester) async {
-    final engine = FakeImageEngine();
-    final container = ProviderContainer(
-      overrides: [imageEngineProvider.overrideWithValue(engine)],
-    );
-    addTearDown(container.dispose);
+  TestWidgetsFlutterBinding.ensureInitialized();
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          home: ProductEditorScreen(imageBytes: testPngBytes),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+  const sharedPreferencesChannel = MethodChannel(
+    'plugins.flutter.io/shared_preferences',
+  );
 
-    final compareButton =
-        find.byKey(const ValueKey('editor_compare_button'));
-    expect(compareButton, findsOneWidget);
-    expect(
-      find.descendant(of: compareButton, matching: find.text('Before')),
-      findsOneWidget,
-    );
-    expect(container.read(editorProvider).showOriginal, isFalse);
-    expect(engine.operations, isEmpty);
-
-    await tester.tap(compareButton);
-    await tester.pump();
-
-    expect(container.read(editorProvider).showOriginal, isTrue);
-    expect(
-      find.descendant(of: compareButton, matching: find.text('Edited')),
-      findsOneWidget,
-    );
-    expect(engine.operations, isEmpty);
-
-    await tester.tap(compareButton);
-    await tester.pump();
-
-    expect(container.read(editorProvider).showOriginal, isFalse);
-    expect(
-      find.descendant(of: compareButton, matching: find.text('Before')),
-      findsOneWidget,
-    );
-    expect(engine.operations, isEmpty);
+  setUpAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(sharedPreferencesChannel, (call) async {
+          if (call.method == 'getAll') return <String, Object>{};
+          return true;
+        });
+    await EasyLocalization.ensureInitialized();
   });
 
-  testWidgets('new product editor session resets a previous Before state',
-      (tester) async {
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(sharedPreferencesChannel, null);
+  });
+
+  Widget localizedApp(Widget child) => EasyLocalization(
+    supportedLocales: const [Locale('en'), Locale('th')],
+    path: 'assets/translations',
+    fallbackLocale: const Locale('en'),
+    startLocale: const Locale('en'),
+    useOnlyLangCode: true,
+    child: Builder(
+      builder: (context) => MaterialApp(
+        locale: context.locale,
+        supportedLocales: context.supportedLocales,
+        localizationsDelegates: context.localizationDelegates,
+        home: child,
+      ),
+    ),
+  );
+
+  Future<void> pumpLocalized(WidgetTester tester, Widget child) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(child);
+      await tester.idle();
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+    'Compare button toggles original without changing edit semantics',
+    (tester) async {
+      final engine = FakeImageEngine();
+      final container = ProviderContainer(
+        overrides: [imageEngineProvider.overrideWithValue(engine)],
+      );
+      addTearDown(container.dispose);
+
+      await pumpLocalized(
+        tester,
+        UncontrolledProviderScope(
+          container: container,
+          child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
+        ),
+      );
+
+      final compareButton = find.byKey(const ValueKey('editor_compare_button'));
+      expect(compareButton, findsOneWidget);
+      expect(
+        find.descendant(of: compareButton, matching: find.text('Before')),
+        findsOneWidget,
+      );
+      expect(container.read(editorProvider).showOriginal, isFalse);
+      expect(engine.operations, isEmpty);
+
+      await tester.tap(compareButton);
+      await tester.pump();
+
+      expect(container.read(editorProvider).showOriginal, isTrue);
+      expect(
+        find.descendant(of: compareButton, matching: find.text('Edited')),
+        findsOneWidget,
+      );
+      expect(engine.operations, isEmpty);
+
+      await tester.tap(compareButton);
+      await tester.pump();
+
+      expect(container.read(editorProvider).showOriginal, isFalse);
+      expect(
+        find.descendant(of: compareButton, matching: find.text('Before')),
+        findsOneWidget,
+      );
+      expect(engine.operations, isEmpty);
+    },
+  );
+
+  testWidgets('new product editor session resets a previous Before state', (
+    tester,
+  ) async {
     final engine = FakeImageEngine();
     final container = ProviderContainer(
       overrides: [imageEngineProvider.overrideWithValue(engine)],
@@ -65,17 +112,13 @@ void main() {
     addTearDown(container.dispose);
 
     Widget editor() => UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(
-            home: ProductEditorScreen(imageBytes: testPngBytes),
-          ),
-        );
+      container: container,
+      child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
+    );
 
-    await tester.pumpWidget(editor());
-    await tester.pumpAndSettle();
+    await pumpLocalized(tester, editor());
 
-    final compareButton =
-        find.byKey(const ValueKey('editor_compare_button'));
+    final compareButton = find.byKey(const ValueKey('editor_compare_button'));
     await tester.tap(compareButton);
     await tester.pump();
     expect(container.read(editorProvider).showOriginal, isTrue);
@@ -84,8 +127,7 @@ void main() {
     await tester.pump();
     expect(container.read(editorProvider).showOriginal, isTrue);
 
-    await tester.pumpWidget(editor());
-    await tester.pumpAndSettle();
+    await pumpLocalized(tester, editor());
 
     expect(container.read(editorProvider).showOriginal, isFalse);
     expect(
@@ -101,18 +143,15 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     final engine = FakeImageEngine();
-    await tester.pumpWidget(
+    await pumpLocalized(
+      tester,
       ProviderScope(
         overrides: [imageEngineProvider.overrideWithValue(engine)],
-        child: MaterialApp(
-          home: ProductEditorScreen(imageBytes: testPngBytes),
-        ),
+        child: localizedApp(ProductEditorScreen(imageBytes: testPngBytes)),
       ),
     );
-    await tester.pumpAndSettle();
 
-    final compareButton =
-        find.byKey(const ValueKey('editor_compare_button'));
+    final compareButton = find.byKey(const ValueKey('editor_compare_button'));
     expect(compareButton, findsOneWidget);
 
     final rect = tester.getRect(compareButton);

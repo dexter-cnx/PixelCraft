@@ -17,7 +17,7 @@ Recommended continuation prompt:
 อ่าน docs/PROJECT_HANDOFF.md ใน repo PixelCraft แล้วทำต่อจาก Current next action
 ```
 
-Last refresh: **2026-08-24 — PF4 merged in PR #55; PF5 external-edit contract merged in PR #56.**
+Last refresh: **2026-08-24 — PF4/PF5 merged; PF6 editor-boundary hardening implemented in PR #58 and exact-head CI #796 passes.**
 
 ---
 
@@ -70,7 +70,7 @@ Primary role: **image manager / catalog / Workplaces product**.
 
 Nixin owns asset identity, long-lived organization, browsing, catalog metadata, import, source management, collections, and future library workflows.
 
-External edit integration is now defined by PF5 as an explicit versioned request/result contract. Nixin keeps asset/catalog authority; PixelCraft/Rust keeps edit/pixel authority.
+External edit integration is defined by PF5 as an explicit versioned request/result contract. Nixin keeps asset/catalog authority; PixelCraft/Rust keeps edit/pixel authority.
 
 ---
 
@@ -137,7 +137,7 @@ Hard rules:
 5. Camera remains active after save;
 6. permission prompts do not interrupt an active shutter -> process -> save transaction.
 
-### Gallery/editor — PF4
+### Gallery/editor — PF4 + PF6 boundary hardening
 
 ```text
 Gallery
@@ -146,6 +146,7 @@ Gallery
  -> EditorSourceFactory
  -> typed EditorSource
  -> EditorRouteData.source
+ -> release-safe EditorRouteData validation
  -> Product Editor
  -> Film / Filter / Adjust / transforms / masks
  -> Rust full-resolution render
@@ -159,6 +160,8 @@ Rules:
 - source provenance/MIME/external id/format identity remain attached to the typed source contract;
 - current file-backed sources derive a path only at the Product Editor compatibility boundary;
 - non-file typed sources fail closed until a supported resolver/decoder exists;
+- malformed/multiple/missing editor route sources fail closed before Product Editor receives them;
+- initial-Film compatibility handoff remains valid only for the legacy file-backed path until that boundary is migrated;
 - RAW/HEIF identities may be represented without activating deferred RAW development;
 - processed-export Gallery retry reuses the committed backup and does not rerender or mutate the original.
 
@@ -211,6 +214,8 @@ Hard contracts:
 10. Do not casually replace mobile Metal/OpenGL ES runtime with wgpu.
 11. External catalog identity is caller-owned; PixelCraft must not invent or reinterpret it.
 12. Optional authoritative recipe payloads returned externally are PixelCraft/Rust-authored and opaque to callers.
+13. Editor route correctness must be release-safe; never rely on debug-only `assert` for source invariants.
+14. User-facing editor failure/Compare copy uses `easy_localization`.
 
 ---
 
@@ -246,6 +251,7 @@ PF2 Unified Camera Film/Filter/Adjust UX         IMPLEMENTED
 PF3 Capture-process-save-to-Gallery              MERGED (#52)
 PF4 Gallery-to-editor source flow                MERGED (#55)
 PF5 External edit request/result contract        MERGED (#56)
+PF6 Editor boundary hardening/localized failure  IMPLEMENTED / PR #58 CI PASS
 
 Plugin-oriented feature architecture            FUTURE / PLANNED / DO NOT ACTIVATE YET
 MobileSAM / ONNX segmentation                   FUTURE / NOT ACTIVATED
@@ -334,17 +340,50 @@ PF5 contract V1 includes:
 - `ExternalEditOutputV1` with output URI, non-empty MIME, optional suggested filename, and optional PixelCraft/Rust authoritative recipe JSON;
 - `ExternalEditResultV1` with explicit completed/cancelled/failed status and stable `failureCode` for failures;
 - fail-closed unsupported version/status/provenance/malformed payload behavior during decode;
-- release-safe outbound checks for the three PF5 review fixes: explicit `externalEdit` provenance, non-empty output MIME, and non-empty failure code. Required identifier content and schemed URI checks remain decoder-side and must not be assumed prevalidated for every locally constructed object.
+- release-safe outbound checks for explicit `externalEdit` provenance, non-empty output MIME, and non-empty failure code. Required identifier content and schemed URI checks remain decoder-side.
 
-Codex review reported three P2 producer/consumer symmetry gaps. All were fixed, regression-tested, replied to, and resolved before merge:
-
-1. enforce `externalEdit` provenance on constructed requests;
-2. reject empty/whitespace output MIME on construction;
-3. reject empty/whitespace failure code on failed-result construction.
+Codex review reported three P2 producer/consumer symmetry gaps. All were fixed, regression-tested, replied to, and resolved before merge.
 
 ---
 
-# 9. CI architecture and local validation
+# 9. PF6 closure evidence
+
+PF6 is implemented in PR #58 and is awaiting explicit merge authorization.
+
+```text
+exact head before docs sync: c3a4f2bb9ab97dc87f5eef480e11673b6b183513
+Pixel Craft CI #796: PASS
+review threads: all resolved
+```
+
+Important files:
+
+```text
+lib/app/app_routes.dart
+lib/main.dart
+lib/ui/screens/product_editor_screen.dart
+assets/translations/en.json
+assets/translations/th.json
+test/app/editor_route_data_test.dart
+test/ui/product_editor_compare_test.dart
+```
+
+PF6 hardens the editor entry boundary:
+
+- `EditorRouteData.isValid` performs release-safe exactly-one-source validation;
+- missing source and multiple-source payloads fail closed;
+- initial Film remains restricted to the current legacy file-backed handoff instead of silently accepting unsupported typed-source combinations;
+- `/editor` rejects invalid route data before constructing Product Editor / Camera Film handoff;
+- invalid editor-source feedback is localized in English/Thai;
+- Compare labels `Before` / `Edited` are localized in English/Thai;
+- widget tests initialize localization deterministically and cover the localized Compare behavior;
+- the Codex P1 about uninitialized localization in Compare tests was fixed, replied to, and resolved.
+
+CI cleanup during PF6 also removed formatter/analyzer/test-harness failures before exact-head CI #796 passed.
+
+---
+
+# 10. CI architecture and local validation
 
 Affected-validation DAG:
 
@@ -391,7 +430,7 @@ Do not uninstall or overwrite the main app during verifier/device runs.
 
 ---
 
-# 10. State, localization, services
+# 11. State, localization, services
 
 Use Riverpod for Flutter application/UI orchestration and `easy_localization` for user-facing copy.
 
@@ -418,7 +457,7 @@ Source contracts remain format-aware so future RAW/Nixin integration does not re
 
 ---
 
-# 11. Package graph and future plugin boundary
+# 12. Package graph and future plugin boundary
 
 ```text
 PixelCraft App
@@ -439,7 +478,7 @@ Future feature-plugin architecture is capability/provider based rather than a dy
 
 ---
 
-# 12. Deferred work
+# 13. Deferred work
 
 Do not activate without a separate decision:
 
@@ -459,15 +498,42 @@ Future RAW requires a separate explicit milestone covering decode/demosaic, WB/c
 
 ---
 
-# 13. Current next action
+# 14. Current next action
 
-## Immediate — PF5 closure sync
+## Immediate — close PF6
 
-1. Merge this documentation sync after exact-head docs-only CI.
-2. Keep `PROJECT_HANDOFF.md`, `CODE_WALKTHROUGH.md`, `PF5_EXTERNAL_EDIT_CONTRACT.md`, and `README.md` aligned with merged PF4/PF5 behavior.
-3. Remove stale PF4/PF5 in-progress wording from canonical docs.
-4. Do not activate transport, RAW, MobileSAM, Dart 3.13 RecordUse, or generic plugin runtime as part of this closure slice.
+1. Run exact-head CI after this documentation sync.
+2. Re-check PR #58 review threads and mergeability.
+3. Merge PR #58 only after explicit user authorization.
+4. After merge, update PF6 status/evidence from `IMPLEMENTED / PR #58 CI PASS` to `MERGED` with final merge SHA if a follow-up docs sync is needed.
 
-## Next product slice after closure
+## Next product slice — PF7 candidate
 
-Run a focused **post-PF5 gap audit** against the current camera/editor UX and service boundaries. Prefer concrete user-visible or reliability gaps over speculative architecture. Candidate work should be selected only after the audit and should preserve the established camera-first mobile/tablet flow, typed source contracts, Rust authority, and Nixin catalog boundary.
+Prioritize the camera shutter processing UX gap identified after PF5/PF6:
+
+```text
+Shutter
+  ↓
+capture clean JPEG
+  ↓
+immediately freeze/display captured still
+  ↓
+Rust full-resolution processing while captured still remains visible
+  ↓
+save to Gallery
+  ↓
+return to live Camera + update recent thumbnail
+```
+
+Desired invariants:
+
+- do not keep showing a visibly changing live camera preview while the just-captured image is processing;
+- the frozen still must come from the clean captured source, not the preview framebuffer;
+- disable or safely gate conflicting shutter/camera controls while the transaction requires it;
+- failure/retry must preserve the authoritative clean source as needed;
+- successful completion returns to live Camera and refreshes the recent Gallery thumbnail;
+- preserve Rust image authority, PF3 serialization, typed-source boundaries, and camera-first flow.
+
+Inspect `lib/camera/camera_capture_save_handoff.dart` and `lib/ui/screens/camera_film_preview_screen_g1.dart` before implementation.
+
+Do not activate RAW, MobileSAM, external-edit transport, Dart 3.13 RecordUse, or generic plugin runtime as part of PF7.
