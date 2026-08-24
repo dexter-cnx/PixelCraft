@@ -12,7 +12,8 @@ import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 import 'camera_recent_thumbnail.dart';
 
-typedef CameraCaptureSourceReader = Future<Uint8List> Function(String imagePath);
+typedef CameraCaptureSourceReader =
+    Future<Uint8List> Function(String imagePath);
 typedef CameraCaptureSourceDeleter = Future<void> Function(String imagePath);
 typedef CameraCaptureCompletionDelay = Future<void> Function(Duration duration);
 
