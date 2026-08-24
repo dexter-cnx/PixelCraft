@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixelcraft/state/editor_controller.dart';
@@ -10,7 +11,23 @@ import '../helpers/fake_image_engine.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(EasyLocalization.ensureInitialized);
+  const sharedPreferencesChannel = MethodChannel(
+    'plugins.flutter.io/shared_preferences',
+  );
+
+  setUpAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(sharedPreferencesChannel, (call) async {
+          if (call.method == 'getAll') return <String, Object>{};
+          return true;
+        });
+    await EasyLocalization.ensureInitialized();
+  });
+
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(sharedPreferencesChannel, null);
+  });
 
   Widget localizedApp(Widget child) => EasyLocalization(
     supportedLocales: const [Locale('en'), Locale('th')],
