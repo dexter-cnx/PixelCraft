@@ -30,13 +30,13 @@ abstract final class AppRouteNames {
 @immutable
 class EditorRouteData {
   const EditorRouteData({
-    String? imagePath,
+    this._imagePath,
     this.imageBytes,
     this.source,
     this.recoveryRecipe,
     this.initialFilmProfileId,
     this.initialFilmStrength = 1,
-  }) : _imagePath = imagePath;
+  });
 
   final String? _imagePath;
   final List<int>? imageBytes;
