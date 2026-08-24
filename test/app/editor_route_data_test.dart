@@ -54,11 +54,14 @@ void main() {
     expect(route.hasInitialFilm, isTrue);
   });
 
-  test('route validation rejects missing editor source in release-safe path', () {
-    const route = EditorRouteData();
+  test(
+    'route validation rejects missing editor source in release-safe path',
+    () {
+      const route = EditorRouteData();
 
-    expect(route.isValid, isFalse);
-  });
+      expect(route.isValid, isFalse);
+    },
+  );
 
   test('route validation rejects multiple editor sources', () {
     const route = EditorRouteData(
