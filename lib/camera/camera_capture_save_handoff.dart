@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,10 @@ import 'camera_capture_pipeline.dart';
 import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
 import 'camera_recent_thumbnail.dart';
+
+typedef CameraCaptureSourceReader = Future<Uint8List> Function(String imagePath);
+typedef CameraCaptureSourceDeleter = Future<void> Function(String imagePath);
+typedef CameraCaptureCompletionDelay = Future<void> Function(Duration duration);
 
 /// PF3/PF7 camera-capture processing handoff.
 ///
@@ -26,6 +31,9 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
     this.zoomFactor = 1,
     this.captureRenderer,
     this.mediaSaveService,
+    this.sourceReader,
+    this.sourceDeleter,
+    this.completionDelay,
   });
 
   final String imagePath;
@@ -35,6 +43,9 @@ class CameraCaptureSaveHandoff extends StatefulWidget {
   final double zoomFactor;
   final CameraCaptureRenderer? captureRenderer;
   final MediaSaveService? mediaSaveService;
+  final CameraCaptureSourceReader? sourceReader;
+  final CameraCaptureSourceDeleter? sourceDeleter;
+  final CameraCaptureCompletionDelay? completionDelay;
 
   @override
   State<CameraCaptureSaveHandoff> createState() =>
@@ -100,7 +111,9 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     show('camera.processing_photo'.tr(), duration: const Duration(minutes: 2));
 
     try {
-      final sourceBytes = await File(widget.imagePath).readAsBytes();
+      final sourceBytes = await (widget.sourceReader ?? _readSource)(
+        widget.imagePath,
+      );
       final result = await pipeline.processAndSave(
         sourceJpeg: sourceBytes,
         look: widget.look,
@@ -119,13 +132,13 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
         },
       );
       CameraRecentThumbnail.instance.update(result.jpegBytes);
-      await _deleteSourceBestEffort(widget.imagePath);
+      await (widget.sourceDeleter ?? _deleteSourceBestEffort)(widget.imagePath);
       if (!mounted) return;
 
       setState(() => _phase = _CaptureHandoffPhase.completed);
       const visibleFor = Duration(milliseconds: 900);
       show('camera.capture_saved'.tr(), duration: visibleFor);
-      await Future<void>.delayed(visibleFor);
+      await (widget.completionDelay ?? Future<void>.delayed)(visibleFor);
       if (!mounted) return;
       messenger.removeCurrentSnackBar();
       Navigator.of(context).pop();
@@ -144,7 +157,10 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     }
   }
 
-  Future<void> _deleteSourceBestEffort(String imagePath) async {
+  static Future<Uint8List> _readSource(String imagePath) =>
+      File(imagePath).readAsBytes();
+
+  static Future<void> _deleteSourceBestEffort(String imagePath) async {
     try {
       final source = File(imagePath);
       if (await source.exists()) await source.delete();
