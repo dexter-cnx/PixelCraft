@@ -32,11 +32,10 @@ void main() {
         .setMockMethodCallHandler(sharedPreferencesChannel, null);
   });
 
-  testWidgets('keeps captured still visible until processing and save finish', (
+  testWidgets('keeps captured still visible until transaction finishes', (
     tester,
   ) async {
-    final renderer = _BlockingRenderer();
-    final saver = _FakeSaveService();
+    final transaction = _BlockingCaptureTransaction();
 
     await _pumpLocalized(
       tester,
@@ -51,11 +50,7 @@ void main() {
                     builder: (_) => CameraCaptureSaveHandoff(
                       imagePath: '/tmp/pixelcraft-pf7-test.jpg',
                       look: CameraLookState(),
-                      captureRenderer: renderer,
-                      mediaSaveService: saver,
-                      sourceReader: (_) async => _tinyPngBytes,
-                      sourceDeleter: (_) async {},
-                      completionDelay: (_) async {},
+                      transaction: transaction,
                     ),
                   ),
                 ),
@@ -71,7 +66,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(renderer.started.isCompleted, isTrue);
+    expect(transaction.started.isCompleted, isTrue);
     expect(
       find.byKey(const ValueKey('camera_capture_frozen_still')),
       findsOneWidget,
@@ -80,15 +75,20 @@ void main() {
       find.byKey(const ValueKey('open_capture_handoff')).hitTestable(),
       findsNothing,
     );
-    expect(saver.bytes, isNull);
+    expect(transaction.finished, isFalse);
+    expect(transaction.cleanedUp, isFalse);
 
-    renderer.release.complete();
-    for (var i = 0; i < 6; i++) {
-      await tester.pump();
-    }
+    transaction.release.complete();
+    await tester.pump();
 
-    expect(saver.bytes, isNotNull);
+    expect(transaction.finished, isTrue);
+    expect(
+      find.byKey(const ValueKey('camera_capture_frozen_still')),
+      findsOneWidget,
+    );
 
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
 
@@ -97,6 +97,7 @@ void main() {
       find.byKey(const ValueKey('camera_capture_frozen_still')),
       findsNothing,
     );
+    expect(transaction.cleanedUp, isTrue);
   });
 }
 
@@ -125,38 +126,38 @@ Future<void> _pumpLocalized(WidgetTester tester, Widget child) async {
   await tester.pumpAndSettle();
 }
 
-final Uint8List _tinyPngBytes = base64Decode(
+final _tinyPngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
 );
 
-class _BlockingRenderer implements CameraCaptureRenderer {
+class _BlockingCaptureTransaction implements CameraCaptureHandoffTransaction {
   final started = Completer<void>();
   final release = Completer<void>();
+  bool finished = false;
+  bool cleanedUp = false;
 
   @override
-  Future<Uint8List> renderJpeg({
-    required Uint8List sourceJpeg,
+  Future<CameraCaptureResult> execute({
+    required String imagePath,
     required CameraLookState look,
-    CameraImageRatio imageRatio = CameraImageRatio.original,
-    CameraCaptureOrientation captureOrientation = CameraCaptureOrientation.auto,
-    double zoomFactor = 1,
-    int quality = 95,
+    required CameraImageRatio imageRatio,
+    required CameraCaptureOrientation captureOrientation,
+    required double zoomFactor,
+    void Function(ProcessingJobPhase phase)? onPhase,
   }) async {
+    onPhase?.call(ProcessingJobPhase.processing);
     started.complete();
     await release.future;
-    return Uint8List.fromList(sourceJpeg);
+    onPhase?.call(ProcessingJobPhase.saving);
+    finished = true;
+    return CameraCaptureResult(
+      savedUri: Uri.parse('media:/gallery/capture.jpg'),
+      jpegBytes: _tinyPngBytes,
+    );
   }
-}
-
-class _FakeSaveService implements MediaSaveService {
-  Uint8List? bytes;
 
   @override
-  Future<Uri> saveJpeg({
-    required Uint8List bytes,
-    String? suggestedName,
-  }) async {
-    this.bytes = Uint8List.fromList(bytes);
-    return Uri.parse('media:/gallery/capture.jpg');
+  Future<void> cleanupSource(String imagePath) async {
+    cleanedUp = true;
   }
 }
