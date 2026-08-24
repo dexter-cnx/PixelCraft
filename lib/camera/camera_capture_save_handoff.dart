@@ -105,7 +105,9 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
   bool _started = false;
   _CaptureHandoffPhase _phase = _CaptureHandoffPhase.processing;
 
-  bool get _canLeave => _phase == _CaptureHandoffPhase.failed;
+  bool get _canLeave =>
+      _phase == _CaptureHandoffPhase.completed ||
+      _phase == _CaptureHandoffPhase.failed;
 
   CameraCaptureHandoffTransaction get _transaction =>
       widget.transaction ?? const DefaultCameraCaptureHandoffTransaction();
