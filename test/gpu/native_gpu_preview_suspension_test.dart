@@ -76,9 +76,6 @@ void main() {
     await bridge.destroyRenderer(rendererId);
     await NativeGpuPreviewSuspension.release();
 
-    expect(
-      calls.map((call) => call.method),
-      ['pause', 'destroyRenderer'],
-    );
+    expect(calls.map((call) => call.method), ['pause', 'destroyRenderer']);
   });
 }
