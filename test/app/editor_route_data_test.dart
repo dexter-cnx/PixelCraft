@@ -15,6 +15,7 @@ void main() {
 
     final route = EditorRouteData(source: source);
 
+    expect(route.isValid, isTrue);
     expect(route.source, same(source));
     expect(route.source!.original, same(descriptor));
     expect(route.imagePath, '/tmp/gallery.png');
@@ -34,6 +35,7 @@ void main() {
 
     final route = EditorRouteData(source: source);
 
+    expect(route.isValid, isTrue);
     expect(route.source, same(source));
     expect(route.imagePath, isNull);
     expect(route.source!.externalId, '42');
@@ -46,8 +48,40 @@ void main() {
       initialFilmStrength: 0.75,
     );
 
+    expect(route.isValid, isTrue);
     expect(route.imagePath, '/tmp/capture.jpg');
     expect(route.source, isNull);
     expect(route.hasInitialFilm, isTrue);
+  });
+
+  test('route validation rejects missing editor source in release-safe path', () {
+    const route = EditorRouteData();
+
+    expect(route.isValid, isFalse);
+  });
+
+  test('route validation rejects multiple editor sources', () {
+    const route = EditorRouteData(
+      imagePath: '/tmp/capture.jpg',
+      imageBytes: <int>[1, 2, 3],
+    );
+
+    expect(route.isValid, isFalse);
+  });
+
+  test('initial Film handoff requires legacy file-backed source', () {
+    final source = EditorSourceFactory().fromDescriptor(
+      MediaSourceDescriptor(
+        uri: Uri.file('/tmp/gallery.jpg'),
+        provenance: MediaSourceProvenance.gallery,
+        mimeType: 'image/jpeg',
+      ),
+    );
+    final route = EditorRouteData(
+      source: source,
+      initialFilmProfileId: 'film-01',
+    );
+
+    expect(route.isValid, isFalse);
   });
 }
