@@ -29,21 +29,24 @@ void main() {
     await NativeGpuPreviewSuspension.resetForTesting();
   });
 
-  test('handoff suspension suppresses lifecycle resume until release', () async {
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    final bridge = NativeGpuPreviewBridge(channel: channel);
-    final rendererId = await bridge.createRenderer();
+  test(
+    'handoff suspension suppresses lifecycle resume until release',
+    () async {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final bridge = NativeGpuPreviewBridge(channel: channel);
+      final rendererId = await bridge.createRenderer();
 
-    calls.clear();
-    await NativeGpuPreviewSuspension.acquire();
-    expect(calls.map((call) => call.method), ['pause']);
+      calls.clear();
+      await NativeGpuPreviewSuspension.acquire();
+      expect(calls.map((call) => call.method), ['pause']);
 
-    await bridge.resume(rendererId);
-    expect(calls.map((call) => call.method), ['pause']);
+      await bridge.resume(rendererId);
+      expect(calls.map((call) => call.method), ['pause']);
 
-    await NativeGpuPreviewSuspension.release();
-    expect(calls.map((call) => call.method), ['pause', 'resume']);
-  });
+      await NativeGpuPreviewSuspension.release();
+      expect(calls.map((call) => call.method), ['pause', 'resume']);
+    },
+  );
 
   test('release while app paused waits for normal lifecycle resume', () async {
     binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
