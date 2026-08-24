@@ -86,7 +86,8 @@ class NativeGpuPreviewSuspension {
 /// App-level bridge wrapper that preserves the package API while registering
 /// renderer identity with [NativeGpuPreviewSuspension].
 class NativeGpuPreviewBridge extends gpu.NativeGpuPreviewBridge {
-  const NativeGpuPreviewBridge({MethodChannel? channel}) : super(channel: channel);
+  const NativeGpuPreviewBridge({MethodChannel? channel})
+    : super(channel: channel);
 
   @override
   Future<String> createRenderer() async {
