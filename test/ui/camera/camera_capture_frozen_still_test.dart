@@ -73,7 +73,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('open_capture_handoff')));
     await tester.pump();
     await tester.runAsync(() async {
-      for (var attempt = 0; attempt < 50 && !renderer.started.isCompleted; attempt++) {
+      for (
+        var attempt = 0;
+        attempt < 50 && !renderer.started.isCompleted;
+        attempt++
+      ) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
     });
