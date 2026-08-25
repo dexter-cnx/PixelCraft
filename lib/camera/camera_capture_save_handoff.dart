@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../app/platform_flow_foundation.dart';
 import '../app/platform_media_services.dart';
+import '../gpu/native_gpu_preview_bridge.dart';
 import 'camera_capture_pipeline.dart';
 import 'camera_image_ratio.dart';
 import 'camera_look_state.dart';
@@ -71,11 +72,12 @@ class DefaultCameraCaptureHandoffTransaction
   }
 }
 
-/// PF3/PF7 camera-capture processing handoff.
+/// PF3/PF7/PF9 camera-capture processing handoff.
 ///
 /// The clean captured JPEG remains visible while authoritative processing and
-/// Gallery delivery run. This prevents the live preview from resuming before
-/// the shutter transaction has completed.
+/// Gallery delivery run. PF9 also suspends any tracked native GPU preview for
+/// the lifetime of this route so hidden Metal/OpenGL rendering does not keep
+/// running underneath the frozen captured still.
 class CameraCaptureSaveHandoff extends StatefulWidget {
   const CameraCaptureSaveHandoff({
     super.key,
@@ -103,6 +105,7 @@ enum _CaptureHandoffPhase { processing, saving, completed, failed }
 
 class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
   bool _started = false;
+  bool _previewSuspensionAcquired = false;
   _CaptureHandoffPhase _phase = _CaptureHandoffPhase.processing;
 
   bool get _canLeave =>
@@ -117,11 +120,22 @@ class _CameraCaptureSaveHandoffState extends State<CameraCaptureSaveHandoff> {
     super.didChangeDependencies();
     if (_started) return;
     _started = true;
+    _previewSuspensionAcquired = true;
+    unawaited(NativeGpuPreviewSuspension.acquire());
 
     final messenger = ScaffoldMessenger.of(context);
     scheduleMicrotask(() {
       unawaited(_process(messenger: messenger));
     });
+  }
+
+  @override
+  void dispose() {
+    if (_previewSuspensionAcquired) {
+      _previewSuspensionAcquired = false;
+      unawaited(NativeGpuPreviewSuspension.release());
+    }
+    super.dispose();
   }
 
   Future<void> _process({required ScaffoldMessengerState messenger}) async {
