@@ -1,8 +1,18 @@
 # PF9 — Native Preview Suspension During Capture Handoff
 
-Status: **IMPLEMENTED / CI PENDING**
+Status: **MERGED / CI PASS / PHYSICAL SMOKE PENDING**
 
-Branch: `feature/pf9-pause-preview-during-capture-handoff`
+Implementation branch: `feature/pf9-pause-preview-during-capture-handoff`
+
+Closure evidence:
+
+```text
+final exact head: 19bd10772f4b0b266ea7000e60cbe1e083bb9243
+merge commit:     086ae92a903ff513fd2204d10de1827a1140e3c1
+Pixel Craft CI:   #832 PASS
+workflow run:     32791383525
+review threads:   none unresolved
+```
 
 ## Problem
 
@@ -77,7 +87,11 @@ Flutter `camera` fallback behavior is unchanged. That path already detaches/disp
 
 Existing PF7/PF8 widget tests continue to cover frozen-still transaction and failed-source cleanup behavior.
 
+The final exact-head CI passed after fixing the test harness so lifecycle + MethodChannel suspension tests run with `TestWidgetsFlutterBinding` without fake-async deadlock. Canonical Dart formatting was also applied before the final passing run.
+
 ## Physical smoke
+
+Status: **PENDING**
 
 Android and iPhone should verify:
 
