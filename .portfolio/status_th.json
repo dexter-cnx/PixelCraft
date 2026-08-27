@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "title": "Dextryx Pixels",
+    "tagline": "ผลิตภัณฑ์แต่งภาพด้วย Flutter ที่เน้น GPU preview และ reliability",
+    "status": "active",
+    "version": null
+  },
+  "summary": {
+    "short": "Dextryx Pixels เป็นผลิตภัณฑ์แต่งภาพด้วย Flutter ที่เน้น GPU-backed preview, camera/film workflow และการตรวจสอบ reliability ซ้ำได้บนอุปกรณ์จริง",
+    "long": "งาน GPU preview และ G6 reliability ปิดและผ่านการยืนยันแล้ว ปัจจุบันโฟกัสที่ PF9 physical smoke evidence สำหรับ native preview suspension behavior และการปิดงานส่วนที่เหลือของ production-oriented preview workflow"
+  },
+  "highlights": [
+    "GPU-backed preview",
+    "Camera และ film preview workflow",
+    "G6 reliability ปิดและ verified แล้ว",
+    "กำลังเก็บ PF9 physical smoke validation"
+  ],
+  "tech": ["Dart", "Flutter", "GPU"],
+  "links": {
+    "repository": "https://github.com/dexter-cnx/PixelCraft",
+    "homepage": null,
+    "package": null,
+    "docs": null,
+    "demo": null
+  },
+  "updatedAt": "2026-08-27T00:00:00Z"
+}
