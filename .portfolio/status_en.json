@@ -1,17 +1,28 @@
 {
   "schemaVersion": 1,
   "project": {
-    "title": "PixelCraft",
-    "tagline": "A Flutter image editing project focused on GPU preview and reliability.",
+    "title": "Dextryx Pixels",
+    "tagline": "A Flutter image editing product focused on GPU preview and reliability.",
     "status": "active",
     "version": null
   },
   "summary": {
-    "short": "PixelCraft is a Flutter image editing project with an emphasis on GPU-backed preview, camera/film workflows, and repeatable reliability validation on real devices.",
-    "long": "Current work includes GPU preview evolution, G6 reliability evidence, device-cycle verification, and closure documentation for production-oriented preview and editing workflows."
+    "short": "Dextryx Pixels is a Flutter image editing product with an emphasis on GPU-backed preview, camera and film workflows, and repeatable reliability validation on real devices.",
+    "long": "GPU preview and the G6 reliability track are closed and verified. Current validation is focused on PF9 physical smoke evidence for native preview suspension behavior and the remaining production-oriented preview workflow closure."
   },
-  "highlights": ["GPU-backed preview", "Camera and film preview workflows", "Real-device reliability validation", "Evidence-driven release gates"],
+  "highlights": [
+    "GPU-backed preview",
+    "Camera and film preview workflows",
+    "G6 reliability track closed and verified",
+    "PF9 physical smoke validation in progress"
+  ],
   "tech": ["Dart", "Flutter", "GPU"],
-  "links": {"repository": "https://github.com/dexter-cnx/PixelCraft", "homepage": null, "package": null, "docs": null, "demo": null},
+  "links": {
+    "repository": "https://github.com/dexter-cnx/PixelCraft",
+    "homepage": null,
+    "package": null,
+    "docs": null,
+    "demo": null
+  },
   "updatedAt": "2026-08-27T00:00:00Z"
 }
