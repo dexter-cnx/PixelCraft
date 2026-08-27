@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "title": "PixelCraft",
+    "tagline": "โปรเจกต์แต่งภาพด้วย Flutter ที่เน้น GPU preview และ reliability",
+    "status": "active",
+    "version": null
+  },
+  "summary": {
+    "short": "PixelCraft เป็นโปรเจกต์แต่งภาพด้วย Flutter ที่เน้น GPU-backed preview, camera/film workflow และการตรวจสอบ reliability ซ้ำได้บนอุปกรณ์จริง",
+    "long": "งานปัจจุบันรวมการพัฒนา GPU preview, การเก็บ G6 reliability evidence, การทดสอบหลายรอบบนอุปกรณ์จริง และเอกสารปิดงานสำหรับ preview/editing workflow ที่พร้อมใช้งานจริงมากขึ้น"
+  },
+  "highlights": ["GPU-backed preview", "Camera และ film preview workflow", "Real-device reliability validation", "Evidence-driven release gates"],
+  "tech": ["Dart", "Flutter", "GPU"],
+  "links": {"repository": "https://github.com/dexter-cnx/PixelCraft", "homepage": null, "package": null, "docs": null, "demo": null},
+  "updatedAt": "2026-08-27T00:00:00Z"
+}
